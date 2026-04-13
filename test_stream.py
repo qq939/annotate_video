@@ -27,7 +27,7 @@ DUMMY_MODE = os.environ.get("LALIU_DUMMY", "0") == "1"
 # OUTPUT_DIR 在本文件第 54 行用于输出 last.jpg/last-image.jpg 给 WebUI 展示
 OUTPUT_DIR = os.environ.get("LALIU_OUTPUT_DIR", "run/stream")
 # DEFAULT_TEXTS 在本文件第 45 行初始化 WebUI 的文本列表
-DEFAULT_TEXTS = ["electric screwdriver"]
+DEFAULT_TEXTS = ["pliers", "screwdriver"]
 # TOPK 在本文件第 92 行控制后处理保留的目标数量（与 test_video.py 一致）
 TOPK = 1
 # DEFAULT_CONF 在本文件第 121 行用于动态调整模型置信度阈值（从 WebUI 更新）
