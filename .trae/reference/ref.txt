@@ -1,0 +1,5 @@
+# OpenCV VideoCapture Documentation
+https://docs.opencv.org/4.x/d8/dfe/classcv_1_1VideoCapture.html
+
+# OpenCV Python Tutorials
+https://docs.opencv.org/4.x/dd/d43/tutorial_py_video_display.html
