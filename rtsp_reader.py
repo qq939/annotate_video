@@ -5,7 +5,7 @@ import os
 # GLOBAL PARAMETERS (全局参数)
 # ==========================================
 # RTSP_URL 在本文件的第 21 行作为参数传给 cv2.VideoCapture() 用于拉流
-RTSP_URL = "rtsp://192.168.1.102:8554/ams/live"
+RTSP_URL = "rtsp://192.168.8.102:8554/ams/live"
 
 # 设置环境变量确保 OpenCV 拉流时有超时机制（单位：微秒，5000000=5秒）
 # 在本文件的第 19 行前设置，避免因 RTSP 不可达导致的永久阻塞

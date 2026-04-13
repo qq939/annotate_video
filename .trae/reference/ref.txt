@@ -3,3 +3,10 @@ https://docs.opencv.org/4.x/d8/dfe/classcv_1_1VideoCapture.html
 
 # OpenCV Python Tutorials
 https://docs.opencv.org/4.x/dd/d43/tutorial_py_video_display.html
+
+# MediaMTX (常见 RTSP Server，404 DESCRIBE 多与 path/publisher 配置相关)
+https://github.com/bluenviron/mediamtx
+https://github.com/bluenviron/mediamtx/blob/main/README.md
+
+# FFmpeg RTSP 文档（OpenCV CAP_FFMPEG 底层依赖 FFmpeg，超时/传输方式常用）
+https://ffmpeg.org/ffmpeg-protocols.html#rtsp
