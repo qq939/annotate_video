@@ -23,7 +23,7 @@ os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = os.environ.get(
 )
 # DUMMY_MODE 在本文件第 148 行决定是否加载 SAM3（用于测试/无依赖运行）
 DUMMY_MODE = os.environ.get("LALIU_DUMMY", "0") == "1"
-# OUTPUT_DIR 在本文件第 49 行用于输出 latest.jpg 给 WebUI 展示
+# OUTPUT_DIR 在本文件第 54 行用于输出 last.jpg/last-image.jpg 给 WebUI 展示
 OUTPUT_DIR = os.environ.get("LALIU_OUTPUT_DIR", "run/stream")
 # DEFAULT_TEXTS 在本文件第 45 行初始化 WebUI 的文本列表
 DEFAULT_TEXTS = ["electric screwdriver"]
@@ -54,8 +54,8 @@ def _ensure_output_dir():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
-def _latest_jpg_path() -> str:
-    return os.path.join(OUTPUT_DIR, "latest.jpg")
+def _last_jpg_path() -> str:
+    return os.path.join(OUTPUT_DIR, "last.jpg")
 
 
 def _last_image_jpg_path() -> str:
@@ -145,8 +145,8 @@ def _write_jpg(path: str, frame_bgr) -> None:
     os.replace(tmp, path)
 
 
-def _write_latest_jpg(frame_bgr) -> None:
-    _write_jpg(_latest_jpg_path(), frame_bgr)
+def _write_last_jpg(frame_bgr) -> None:
+    _write_jpg(_last_jpg_path(), frame_bgr)
 
 
 def _write_last_image_jpg(frame_bgr) -> None:
@@ -203,7 +203,7 @@ def _processing_loop(stop_event: threading.Event):
                 frame[:, :, 1] = (ys % 256).astype(np.uint8)
                 frame[:, :, 2] = ((xs[None, :] + ys) % 256).astype(np.uint8)
                 texts = _get_texts_snapshot()
-                _write_latest_jpg(frame)
+                _write_last_jpg(frame)
                 out = _dummy_process_frame(frame, texts)
                 _write_last_image_jpg(out)
                 _update_status_ok()
@@ -227,7 +227,7 @@ def _processing_loop(stop_event: threading.Event):
                 time.sleep(0.5)
                 continue
 
-            _write_latest_jpg(frame)
+            _write_last_jpg(frame)
             texts = _get_texts_snapshot()
             conf = _get_conf_snapshot()
             if predictor is None:
@@ -360,9 +360,9 @@ def status():
         )
 
 
-@app.get("/latest.jpg")
-def latest_jpg():
-    path = _latest_jpg_path()
+@app.get("/last.jpg")
+def last_jpg():
+    path = _last_jpg_path()
     if not os.path.exists(path):
         return Response("no image", status=404)
     with open(path, "rb") as f:

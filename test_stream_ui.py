@@ -105,7 +105,7 @@ class TestStreamWebUI(unittest.TestCase):
             latest_body = None
             while time.time() < deadline:
                 try:
-                    s1, b1 = _http_get(f"{base}/latest.jpg", timeout_sec=2.0)
+                    s1, b1 = _http_get(f"{base}/last.jpg", timeout_sec=2.0)
                     s2, b2 = _http_get(f"{base}/last-image.jpg", timeout_sec=2.0)
                     if s1 == 200 and s2 == 200 and len(b1) > 1024 and len(b2) > 1024:
                         latest_body = b1
