@@ -51,6 +51,7 @@ def _terminate_and_collect(proc: subprocess.Popen) -> str:
 
 class TestStreamWebUI(unittest.TestCase):
     def test_webui_update_texts_and_latest_image(self):
+        conf = 0.33
         port = _pick_free_port()
         base = f"http://127.0.0.1:{port}"
 
@@ -87,21 +88,22 @@ class TestStreamWebUI(unittest.TestCase):
                 raise AssertionError(f"服务未在超时内启动: {last_err}\n{out}")
 
             status, _ = _http_post_form(
-                f"{base}/set_texts",
-                {"texts": "a\nb\nc\n"},
+                f"{base}/set_config",
+                {"texts": "a\nb\nc\n", "conf": str(conf)},
                 timeout_sec=2.0,
             )
             self.assertEqual(status, 200)
 
-            status, body = _http_get(f"{base}/texts", timeout_sec=2.0)
+            status, body = _http_get(f"{base}/config", timeout_sec=2.0)
             self.assertEqual(status, 200)
             payload = json.loads(body.decode("utf-8"))
             self.assertEqual(payload["texts"], ["a", "b", "c"])
+            self.assertAlmostEqual(payload["conf"], conf, places=2)
 
             deadline = time.time() + 8.0
             while time.time() < deadline:
                 try:
-                    status, body = _http_get(f"{base}/latest.jpg", timeout_sec=2.0)
+                    status, body = _http_get(f"{base}/last-image.jpg", timeout_sec=2.0)
                     if status == 200 and len(body) > 1024:
                         break
                 except urllib.error.HTTPError:

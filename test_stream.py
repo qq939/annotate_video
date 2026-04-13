@@ -29,6 +29,8 @@ OUTPUT_DIR = os.environ.get("LALIU_OUTPUT_DIR", "run/stream")
 DEFAULT_TEXTS = ["electric screwdriver"]
 # TOPK 在本文件第 92 行控制后处理保留的目标数量（与 test_video.py 一致）
 TOPK = 1
+# DEFAULT_CONF 在本文件第 130 行用于动态调整模型置信度阈值（从 WebUI 更新）
+DEFAULT_CONF = 0.25
 
 
 app = Flask(__name__)
@@ -37,12 +39,15 @@ app = Flask(__name__)
 @dataclass
 class SharedState:
     texts: List[str]
+    conf: float
     last_processed_ts: float = 0.0
+    last_saved_ts: float = 0.0
+    frame_id: int = 0
     last_error: str = ""
     lock: threading.Lock = threading.Lock()
 
 
-STATE = SharedState(texts=list(DEFAULT_TEXTS))
+STATE = SharedState(texts=list(DEFAULT_TEXTS), conf=float(DEFAULT_CONF))
 
 
 def _ensure_output_dir():
@@ -51,6 +56,10 @@ def _ensure_output_dir():
 
 def _latest_jpg_path() -> str:
     return os.path.join(OUTPUT_DIR, "latest.jpg")
+
+
+def _last_image_jpg_path() -> str:
+    return os.path.join(OUTPUT_DIR, "last-image.jpg")
 
 
 def _set_texts_from_multiline(multiline: str) -> List[str]:
@@ -66,6 +75,10 @@ def _dummy_process_frame(frame_bgr, texts: List[str]):
     out = frame_bgr.copy()
     now = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
     cv2.putText(out, now, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+    with STATE.lock:
+        fid = STATE.frame_id
+        conf = STATE.conf
+    cv2.putText(out, f"frame_id={fid} conf={conf:.2f}", (10, 55), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
     y = 60
     for t in texts[:10]:
         cv2.putText(out, t, (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
@@ -73,11 +86,11 @@ def _dummy_process_frame(frame_bgr, texts: List[str]):
     return out
 
 
-def _build_sam3_predictor():
+def _build_sam3_predictor(conf: float):
     from ultralytics.models.sam.predict import SAM3VideoSemanticPredictor
 
     overrides = dict(
-        conf=0.25,
+        conf=conf,
         task="segment",
         mode="predict",
         imgsz=640,
@@ -103,7 +116,12 @@ def _build_sam3_predictor():
     return predictor
 
 
-def _sam3_process_frame(predictor, frame_bgr, texts: List[str]):
+def _sam3_process_frame(predictor, frame_bgr, texts: List[str], conf: float):
+    if hasattr(predictor, "args") and hasattr(predictor.args, "conf"):
+        try:
+            predictor.args.conf = conf
+        except Exception:
+            pass
     results = predictor(source=frame_bgr, text=texts, stream=False, save=False)
     if isinstance(results, list) and results:
         r = results[0]
@@ -121,10 +139,15 @@ def _write_latest_jpg(frame_bgr) -> None:
     ok, buf = cv2.imencode(".jpg", frame_bgr)
     if not ok:
         raise RuntimeError("JPEG 编码失败")
-    tmp_path = _latest_jpg_path() + ".tmp"
-    with open(tmp_path, "wb") as f:
-        f.write(buf.tobytes())
-    os.replace(tmp_path, _latest_jpg_path())
+    b = buf.tobytes()
+    tmp_latest = _latest_jpg_path() + ".tmp"
+    tmp_last = _last_image_jpg_path() + ".tmp"
+    with open(tmp_latest, "wb") as f:
+        f.write(b)
+    with open(tmp_last, "wb") as f:
+        f.write(b)
+    os.replace(tmp_latest, _latest_jpg_path())
+    os.replace(tmp_last, _last_image_jpg_path())
 
 
 def _get_texts_snapshot() -> List[str]:
@@ -132,9 +155,16 @@ def _get_texts_snapshot() -> List[str]:
         return list(STATE.texts)
 
 
+def _get_conf_snapshot() -> float:
+    with STATE.lock:
+        return float(STATE.conf)
+
+
 def _update_status_ok():
     with STATE.lock:
         STATE.last_processed_ts = time.time()
+        STATE.last_saved_ts = STATE.last_processed_ts
+        STATE.frame_id += 1
         STATE.last_error = ""
 
 
@@ -147,7 +177,7 @@ def _processing_loop(stop_event: threading.Event):
     predictor = None
     if not DUMMY_MODE:
         try:
-            predictor = _build_sam3_predictor()
+            predictor = _build_sam3_predictor(_get_conf_snapshot())
         except Exception as e:
             _update_status_err(f"加载 SAM3 失败: {e}")
             predictor = None
@@ -189,10 +219,11 @@ def _processing_loop(stop_event: threading.Event):
                 continue
 
             texts = _get_texts_snapshot()
+            conf = _get_conf_snapshot()
             if predictor is None:
                 out = _dummy_process_frame(frame, texts)
             else:
-                out = _sam3_process_frame(predictor, frame, texts)
+                out = _sam3_process_frame(predictor, frame, texts, conf)
             _write_latest_jpg(out)
             _update_status_ok()
             last_ts = now
@@ -208,6 +239,7 @@ def _processing_loop(stop_event: threading.Event):
 def index():
     texts = _get_texts_snapshot()
     multiline = "\n".join(texts)
+    conf = _get_conf_snapshot()
     html = f"""
 <!doctype html>
 <html>
@@ -217,20 +249,24 @@ def index():
   </head>
   <body>
     <h3>Texts (one per line)</h3>
-    <form method="post" action="/set_texts">
+    <form method="post" action="/set_config">
+      <div>
+        <label>Conf: </label>
+        <input name="conf" type="number" step="0.01" min="0" max="1" value="{conf:.2f}" />
+      </div>
       <textarea name="texts" rows="8" cols="60">{multiline}</textarea><br/>
       <button type="submit">Update</button>
     </form>
     <h3>Status</h3>
     <pre id="status">loading...</pre>
-    <h3>Latest</h3>
-    <img id="img" src="/latest.jpg" style="max-width: 95%; border: 1px solid #ddd;" />
+    <h3>Last Image</h3>
+    <img id="img" src="/last-image.jpg" style="max-width: 95%; border: 1px solid #ddd;" />
     <script>
       async function refresh() {{
         const r = await fetch('/status');
         const j = await r.json();
         document.getElementById('status').textContent = JSON.stringify(j, null, 2);
-        document.getElementById('img').src = '/latest.jpg?ts=' + Date.now();
+        document.getElementById('img').src = '/last-image.jpg?ts=' + Date.now();
       }}
       setInterval(refresh, 2000);
       refresh();
@@ -256,9 +292,45 @@ def set_texts():
     return redirect("/")
 
 
+@app.post("/set_config")
+def set_config():
+    if request.is_json:
+        payload = request.get_json(silent=True) or {}
+        multiline = payload.get("texts", "")
+        conf_raw = payload.get("conf", "")
+    else:
+        multiline = request.form.get("texts", "")
+        conf_raw = request.form.get("conf", "")
+
+    items = _set_texts_from_multiline(multiline)
+    conf = DEFAULT_CONF
+    if conf_raw is not None and str(conf_raw).strip() != "":
+        try:
+            conf = float(conf_raw)
+        except Exception:
+            conf = DEFAULT_CONF
+    if conf < 0:
+        conf = 0.0
+    if conf > 1:
+        conf = 1.0
+
+    with STATE.lock:
+        STATE.texts = items
+        STATE.conf = conf
+
+    if request.is_json:
+        return jsonify({"ok": True, "texts": items, "conf": conf})
+    return redirect("/")
+
+
 @app.get("/texts")
 def texts():
     return jsonify({"texts": _get_texts_snapshot()})
+
+
+@app.get("/config")
+def config():
+    return jsonify({"texts": _get_texts_snapshot(), "conf": _get_conf_snapshot()})
 
 
 @app.get("/status")
@@ -270,6 +342,9 @@ def status():
                 "rtsp_url": RTSP_URL,
                 "sample_interval_sec": SAMPLE_INTERVAL_SEC,
                 "last_processed_ts": STATE.last_processed_ts,
+                "last_saved_ts": STATE.last_saved_ts,
+                "frame_id": STATE.frame_id,
+                "conf": float(STATE.conf),
                 "last_error": STATE.last_error,
             }
         )
@@ -278,6 +353,16 @@ def status():
 @app.get("/latest.jpg")
 def latest_jpg():
     path = _latest_jpg_path()
+    if not os.path.exists(path):
+        return Response("no image", status=404)
+    with open(path, "rb") as f:
+        data = f.read()
+    return Response(data, mimetype="image/jpeg")
+
+
+@app.get("/last-image.jpg")
+def last_image_jpg():
+    path = _last_image_jpg_path()
     if not os.path.exists(path):
         return Response("no image", status=404)
     with open(path, "rb") as f:
