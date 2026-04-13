@@ -7,8 +7,8 @@ import os
 # RTSP_URL 在本文件的第 21 行作为参数传给 cv2.VideoCapture() 用于拉流
 RTSP_URL = "rtsp://192.168.8.102:8554/ams/live"
 
-# 设置环境变量确保 OpenCV 拉流时有超时机制（单位：微秒，5000000=5秒）
-# 在本文件的第 19 行前设置，避免因 RTSP 不可达导致的永久阻塞
+# 设置环境变量确保 OpenCV(CAP_FFMPEG) 拉流时有超时机制（单位：微秒，5000000=5秒）
+# 在本文件的第 21 行创建 VideoCapture 前设置，使其在第 21 行生效，避免因 RTSP 不可达导致的永久阻塞
 os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "timeout;5000000"
 
 def read_rtsp_stream(max_frames=None):
