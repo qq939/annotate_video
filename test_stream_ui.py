@@ -1,3 +1,5 @@
+LALIU_RTSP_URL = "rtsp://192.168.8.102:8554/ams/live"; SAMPLE_INTERVAL_SEC = 1
+
 import json
 import os
 import socket
@@ -54,7 +56,8 @@ class TestStreamWebUI(unittest.TestCase):
 
         env = os.environ.copy()
         env["LALIU_DUMMY"] = "1"
-        env["LALIU_SAMPLE_INTERVAL_SEC"] = "1"
+        env["LALIU_RTSP_URL"] = LALIU_RTSP_URL
+        env["LALIU_SAMPLE_INTERVAL_SEC"] = str(SAMPLE_INTERVAL_SEC)
 
         python_exe = sys.executable
         if os.path.exists(os.path.join(".venv", "bin", "python3")):

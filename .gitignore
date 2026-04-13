@@ -2,3 +2,15 @@
 __pycache__
 *.pyc
 .DS_Store
+
+*
+!.gitignore
+!.trae/
+!.trae/**
+!requirements.txt
+!requirements_*.txt
+!rtsp_reader.py
+!test_rtsp_reader.py
+!test_stream.py
+!test_stream_ui.py
+!test_video.py
