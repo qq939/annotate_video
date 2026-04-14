@@ -1,3 +1,7 @@
+from ultralytics import settings
+settings.update({
+    "runs_dir": "/Users/jimjiang/Downloads/laliu/runs"  # 强制锁死你的目录
+}) # 强制切换到当前脚本目录
 import argparse
 import json
 import os
@@ -14,24 +18,24 @@ from flask import Flask, Response, jsonify, redirect, request
 # ==========================================
 # GLOBAL PARAMETERS (全局参数)
 # ==========================================
-# RTSP_URL 在本文件第 296 行作为参数传给 cv2.VideoCapture() 用于拉流
+# RTSP_URL 在本文件第 298 行作为参数传给 cv2.VideoCapture() 用于拉流
 RTSP_URL = os.environ.get("LALIU_RTSP_URL", "rtsp://192.168.8.102:8554/ams/live")
-# SAMPLE_INTERVAL_SEC 在本文件第 274 行用于控制采样节奏（默认 10 秒/帧）
+# SAMPLE_INTERVAL_SEC 在本文件第 276 行用于控制采样节奏（默认 10 秒/帧）
 SAMPLE_INTERVAL_SEC = float(os.environ.get("LALIU_SAMPLE_INTERVAL_SEC", "10"))
-# OPENCV_FFMPEG_CAPTURE_OPTIONS 在本文件第 296 行创建 VideoCapture 前设置，使其在第 296 行生效（连接超时 5 秒，单位微秒）
+# OPENCV_FFMPEG_CAPTURE_OPTIONS 在本文件第 298 行创建 VideoCapture 前设置，使其在第 298 行生效（连接超时 5 秒，单位微秒）
 os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = os.environ.get(
     "OPENCV_FFMPEG_CAPTURE_OPTIONS", "timeout;5000000"
 )
-# DUMMY_MODE 在本文件第 148 行决定是否加载 SAM3（用于测试/无依赖运行）
+# DUMMY_MODE 在本文件第 265 行决定是否加载 SAM3，并在第 282 行走假数据源路径
 DUMMY_MODE = os.environ.get("LALIU_DUMMY", "0") == "1"
-# OUTPUT_DIR 在本文件第 54 行用于输出 last.jpg/last-image.jpg 给 WebUI 展示
-OUTPUT_DIR = os.environ.get(
-    "LALIU_OUTPUT_DIR", "/Users/jimjiang/Downloads/laliu/runs/stream"
-)
+# STREAMING_DIR 在本文件第 310 行用于输出 last.jpg 与 last-processed.jpg
+STREAMING_DIR = os.environ.get("LALIU_STREAMING_DIR", "/Users/jimjiang/Downloads/laliu/streaming")
+# OUTPUT_DIR 在本文件第 171 行用于输出 labels / 推理辅助信息（runs/stream）
+OUTPUT_DIR = os.environ.get("LALIU_OUTPUT_DIR", "/Users/jimjiang/Downloads/laliu/runs/stream")
 # DEFAULT_TEXTS 在本文件第 45 行初始化 WebUI 的文本列表
 DEFAULT_TEXTS = ["pliers", "screwdriver"]
 # TOPK 在本文件第 92 行控制后处理保留的目标数量（与 test_video.py 一致）
-TOPK = 1
+TOPK = 3
 # DEFAULT_CONF 在本文件第 121 行用于动态调整模型置信度阈值（从 WebUI 更新）
 DEFAULT_CONF = 0.25
 
@@ -53,16 +57,12 @@ class SharedState:
 STATE = SharedState(texts=list(DEFAULT_TEXTS), conf=float(DEFAULT_CONF))
 
 
-def _ensure_output_dir():
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-
 def _last_jpg_path() -> str:
-    return os.path.join(OUTPUT_DIR, "last.jpg")
+    return os.path.join(STREAMING_DIR, "last.jpg")
 
 
 def _last_image_jpg_path() -> str:
-    return os.path.join(OUTPUT_DIR, "last-image.jpg")
+    return os.path.join(STREAMING_DIR, "last-processed.jpg")
 
 
 def _labels_dir() -> str:
@@ -150,7 +150,7 @@ def _sam3_process_frame(predictor, frame_bgr, texts: List[str], conf: float):
 
 
 def _write_jpg(path: str, frame_bgr) -> None:
-    _ensure_output_dir()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     ok, buf = cv2.imencode(".jpg", frame_bgr)
     if not ok:
         raise RuntimeError("JPEG 编码失败")
@@ -347,14 +347,14 @@ def index():
     </form>
     <h3>Status</h3>
     <pre id="status">loading...</pre>
-    <h3>Last Image</h3>
-    <img id="img" src="/last-image.jpg" style="max-width: 95%; border: 1px solid #ddd;" />
+    <h3>Last Processed</h3>
+    <img id="img" src="/last-processed.jpg" style="max-width: 95%; border: 1px solid #ddd;" />
     <script>
       async function refresh() {{
         const r = await fetch('/status');
         const j = await r.json();
         document.getElementById('status').textContent = JSON.stringify(j, null, 2);
-        document.getElementById('img').src = '/last-image.jpg?ts=' + Date.now();
+        document.getElementById('img').src = '/last-processed.jpg?ts=' + Date.now();
       }}
       setInterval(refresh, 2000);
       refresh();
@@ -448,14 +448,19 @@ def last_jpg():
     return Response(data, mimetype="image/jpeg")
 
 
-@app.get("/last-image.jpg")
-def last_image_jpg():
+@app.get("/last-processed.jpg")
+def last_processed_jpg():
     path = _last_image_jpg_path()
     if not os.path.exists(path):
         return Response("no image", status=404)
     with open(path, "rb") as f:
         data = f.read()
     return Response(data, mimetype="image/jpeg")
+
+
+@app.get("/last-image.jpg")
+def last_image_jpg_alias():
+    return last_processed_jpg()
 
 
 @app.get("/last-labels.json")

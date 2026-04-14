@@ -58,12 +58,16 @@ class TestStreamWebUI(unittest.TestCase):
         output_dir = os.path.join(
             os.path.dirname(__file__), "runs", "stream", f"test_{port}"
         )
+        streaming_dir = os.path.join(
+            os.path.dirname(__file__), "streaming", f"test_{port}"
+        )
 
         env = os.environ.copy()
         env["LALIU_DUMMY"] = "1"
         env["LALIU_RTSP_URL"] = LALIU_RTSP_URL
         env["LALIU_SAMPLE_INTERVAL_SEC"] = str(SAMPLE_INTERVAL_SEC)
         env["LALIU_OUTPUT_DIR"] = output_dir
+        env["LALIU_STREAMING_DIR"] = streaming_dir
 
         python_exe = sys.executable
         if os.path.exists(os.path.join(".venv", "bin", "python3")):
@@ -122,7 +126,7 @@ class TestStreamWebUI(unittest.TestCase):
             while time.time() < deadline:
                 try:
                     s1, b1 = _http_get(f"{base}/last.jpg", timeout_sec=2.0)
-                    s2, b2 = _http_get(f"{base}/last-image.jpg", timeout_sec=2.0)
+                    s2, b2 = _http_get(f"{base}/last-processed.jpg", timeout_sec=2.0)
                     if s1 == 200 and s2 == 200 and len(b1) > 1024 and len(b2) > 1024:
                         latest_body = b1
                         last_body = b2
