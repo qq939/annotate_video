@@ -22,7 +22,7 @@ from flask import cli
 # ==========================================
 # RTSP_URL 在本文件第 298 行作为参数传给 cv2.VideoCapture() 用于拉流
 RTSP_URL = os.environ.get("LALIU_RTSP_URL", "rtsp://192.168.8.102:8554/ams/live")
-# SAMPLE_INTERVAL_SEC 在本文件第 276 行用于控制采样节奏（默认 10 秒/帧）
+# SAMPLE_INTERVAL_SEC 在本文件第 282 行用于控制采样节奏（默认 10 秒/帧）
 SAMPLE_INTERVAL_SEC = float(os.environ.get("LALIU_SAMPLE_INTERVAL_SEC", "10"))
 # OPENCV_FFMPEG_CAPTURE_OPTIONS 在本文件第 298 行创建 VideoCapture 前设置，使其在第 298 行生效（连接超时 5 秒，单位微秒）
 os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = os.environ.get(
@@ -65,6 +65,7 @@ class SharedState:
     conf: float
     rtsp_input: str
     rtsp_url: str
+    sample_interval_sec: float
     model_loaded: bool = False
     last_infer_ms: float = 0.0
     last_infer_boxes: int = 0
@@ -99,6 +100,7 @@ STATE = SharedState(
     conf=float(DEFAULT_CONF),
     rtsp_input=str(RTSP_URL),
     rtsp_url=_normalize_camera_input(str(RTSP_URL)),
+    sample_interval_sec=float(SAMPLE_INTERVAL_SEC),
 )
 
 
@@ -368,6 +370,11 @@ def _get_rtsp_snapshot() -> str:
         return str(STATE.rtsp_url)
 
 
+def _get_interval_snapshot() -> float:
+    with STATE.lock:
+        return float(STATE.sample_interval_sec)
+
+
 def _update_status_ok():
     with STATE.lock:
         STATE.last_processed_ts = time.time()
@@ -398,7 +405,7 @@ def _processing_loop(stop_event: threading.Event):
 
     while not stop_event.is_set():
         now = time.time()
-        if now - last_ts < SAMPLE_INTERVAL_SEC:
+        if now - last_ts < _get_interval_snapshot():
             time.sleep(0.05)
             continue
 
@@ -736,12 +743,16 @@ def index():
       }}
 
       .img-placeholder {{
+        position: absolute;
+        inset: 0;
         display: flex;
         flex-direction: column;
         align-items: center;
+        justify-content: center;
         gap: 6px;
         color: var(--text-muted);
         font-size: 12px;
+        pointer-events: none;
       }}
 
       .img-toolbar {{
@@ -949,7 +960,7 @@ def index():
                 <div class="mono">/last.jpg</div>
                 <div>等待图像…</div>
               </div>
-              <img id="img_raw" data-has-img="0" src="/last.jpg" alt="raw" style="display:none" />
+              <img id="img_raw" data-has-img="0" src="/last.jpg" alt="raw" onload="this.dataset.hasImg='1';document.getElementById('ph_raw').style.display='none';" />
             </div>
             <div class="kv">
               <div class="k">输入</div>
@@ -987,7 +998,7 @@ def index():
                 <div class="mono">/last-processed.jpg</div>
                 <div>等待结果…</div>
               </div>
-              <img id="img" data-has-img="0" src="/last-processed.jpg" alt="processed" style="display:none" />
+              <img id="img" data-has-img="0" src="/last-processed.jpg" alt="processed" onload="this.dataset.hasImg='1';document.getElementById('ph_res').style.display='none';" />
             </div>
             <div class="kv">
               <div class="k">输出</div>
@@ -1041,6 +1052,13 @@ def index():
                 </div>
               </div>
               <div class="field">
+                <div class="label">采帧间隔（秒）</div>
+                <div class="row">
+                  <input id="inp_interval_range" class="range" type="range" min="0.1" max="30" step="0.1" value="{STATE.sample_interval_sec:.1f}" />
+                  <input id="inp_interval" type="number" min="0.05" max="3600" step="0.1" value="{STATE.sample_interval_sec:.1f}" />
+                </div>
+              </div>
+              <div class="field">
                 <div class="label">自动刷新</div>
                 <div class="actions" style="justify-content: space-between;">
                   <button class="btn" id="btn_toggle_refresh" type="button">暂停</button>
@@ -1063,6 +1081,7 @@ def index():
     <script>
       const DEFAULT_TEXTS = {json.dumps(DEFAULT_TEXTS)};
       const DEFAULT_CONF = {DEFAULT_CONF};
+      const DEFAULT_INTERVAL = {float(SAMPLE_INTERVAL_SEC)};
 
       function $(id) {{ return document.getElementById(id); }}
 
@@ -1132,12 +1151,22 @@ def index():
         $('inp_conf').value = v.toFixed(2);
       }}
 
+      function syncIntervalInputs(from) {{
+        const v = Math.max(0.05, Math.min(3600, Number(from)));
+        $('inp_interval_range').value = Math.max(0.1, Math.min(30, v)).toFixed(1);
+        $('inp_interval').value = v.toFixed(1);
+      }}
+
       $('inp_conf_range').addEventListener('input', (e) => syncConfInputs(e.target.value));
       $('inp_conf').addEventListener('input', (e) => syncConfInputs(e.target.value));
+
+      $('inp_interval_range').addEventListener('input', (e) => syncIntervalInputs(e.target.value));
+      $('inp_interval').addEventListener('input', (e) => syncIntervalInputs(e.target.value));
 
       $('btn_defaults').addEventListener('click', () => {{
         $('inp_texts').value = DEFAULT_TEXTS.join('\n');
         syncConfInputs(DEFAULT_CONF);
+        syncIntervalInputs(DEFAULT_INTERVAL);
       }});
 
       $('btn_toggle_refresh').addEventListener('click', () => setRefreshEnabled(!refreshEnabled));
@@ -1158,10 +1187,11 @@ def index():
           const texts = $('inp_texts').value;
           const conf = Number($('inp_conf').value);
           const rtsp_url = $('inp_rtsp').value;
+          const sample_interval_sec = Number($('inp_interval').value);
           const r = await fetch('/set_config', {{
             method: 'POST',
             headers: {{ 'Content-Type': 'application/json' }},
-            body: JSON.stringify({{ texts, conf, rtsp_url }}),
+            body: JSON.stringify({{ texts, conf, rtsp_url, sample_interval_sec }}),
           }});
           if (!r.ok) throw new Error('HTTP ' + r.status);
           await refresh();
@@ -1181,6 +1211,7 @@ def index():
           $('inp_rtsp').value = j.rtsp_input || '';
           $('inp_texts').value = (j.texts || []).join('\n');
           syncConfInputs(j.conf);
+          if (j.sample_interval_sec != null) syncIntervalInputs(j.sample_interval_sec);
           await refresh();
         }} catch (e) {{
           $('txt_error').textContent = String(e);
@@ -1255,10 +1286,12 @@ def set_config():
         multiline = payload.get("texts", "")
         conf_raw = payload.get("conf", "")
         rtsp_input = payload.get("rtsp_url", "")
+        interval_raw = payload.get("sample_interval_sec", "")
     else:
         multiline = request.form.get("texts", "")
         conf_raw = request.form.get("conf", "")
         rtsp_input = request.form.get("rtsp_url", "")
+        interval_raw = request.form.get("sample_interval_sec", "")
 
     items = _set_texts_from_multiline(multiline)
     conf = DEFAULT_CONF
@@ -1272,12 +1305,26 @@ def set_config():
     if conf > 1:
         conf = 1.0
 
+    interval_sec = None
+    if interval_raw is not None and str(interval_raw).strip() != "":
+        try:
+            interval_sec = float(interval_raw)
+        except Exception:
+            interval_sec = None
+    if interval_sec is not None:
+        if interval_sec < 0.05:
+            interval_sec = 0.05
+        if interval_sec > 3600:
+            interval_sec = 3600.0
+
     with STATE.lock:
         STATE.texts = items
         STATE.conf = conf
         if rtsp_input is not None and str(rtsp_input).strip() != "":
             STATE.rtsp_input = str(rtsp_input).strip()
             STATE.rtsp_url = _normalize_camera_input(STATE.rtsp_input)
+        if interval_sec is not None:
+            STATE.sample_interval_sec = float(interval_sec)
 
     if request.is_json:
         return jsonify(
@@ -1287,6 +1334,7 @@ def set_config():
                 "conf": conf,
                 "rtsp_input": STATE.rtsp_input,
                 "rtsp_url": STATE.rtsp_url,
+                "sample_interval_sec": float(STATE.sample_interval_sec),
             }
         )
     return redirect("/")
@@ -1306,6 +1354,7 @@ def config():
                 "conf": float(STATE.conf),
                 "rtsp_input": str(STATE.rtsp_input),
                 "rtsp_url": str(STATE.rtsp_url),
+                "sample_interval_sec": float(STATE.sample_interval_sec),
             }
         )
 
@@ -1326,7 +1375,7 @@ def status():
                 "dummy": DUMMY_MODE,
                 "rtsp_input": str(STATE.rtsp_input),
                 "rtsp_url": str(STATE.rtsp_url),
-                "sample_interval_sec": SAMPLE_INTERVAL_SEC,
+                "sample_interval_sec": float(STATE.sample_interval_sec),
                 "last_processed_ts": STATE.last_processed_ts,
                 "last_saved_ts": STATE.last_saved_ts,
                 "frame_id": STATE.frame_id,
