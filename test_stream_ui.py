@@ -119,6 +119,11 @@ class TestStreamWebUI(unittest.TestCase):
             self.assertEqual(status, 200)
             payload = json.loads(body.decode("utf-8"))
             fid0 = int(payload.get("frame_id", 0))
+            paths = payload.get("paths") or {}
+            self.assertIn("streaming_last_jpg", paths)
+            self.assertIn("streaming_last_processed_jpg", paths)
+            self.assertIn("runs_labels_json", paths)
+            self.assertIn("runs_ultralytics_predict_last_jpg", paths)
             time.sleep(0.4)
             status, body = _http_get(f"{base}/status", timeout_sec=2.0)
             self.assertEqual(status, 200)

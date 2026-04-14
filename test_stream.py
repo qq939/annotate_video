@@ -5,6 +5,7 @@ settings.update({
 import argparse
 import json
 import os
+import logging
 import threading
 import time
 from dataclasses import dataclass
@@ -13,6 +14,7 @@ from typing import List, Optional
 import cv2
 import numpy as np
 from flask import Flask, Response, jsonify, redirect, request
+from flask import cli
 
 
 # ==========================================
@@ -26,6 +28,7 @@ SAMPLE_INTERVAL_SEC = float(os.environ.get("LALIU_SAMPLE_INTERVAL_SEC", "10"))
 os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = os.environ.get(
     "OPENCV_FFMPEG_CAPTURE_OPTIONS", "timeout;5000000"
 )
+os.environ.setdefault("OPENCV_LOG_LEVEL", "ERROR")
 # DUMMY_MODE 在本文件第 265 行决定是否加载 SAM3，并在第 282 行走假数据源路径
 DUMMY_MODE = os.environ.get("LALIU_DUMMY", "0") == "1"
 # STREAMING_DIR 在本文件第 310 行用于输出 last.jpg 与 last-processed.jpg
@@ -41,6 +44,19 @@ DEFAULT_CONF = 0.25
 
 
 app = Flask(__name__)
+cli.show_server_banner = lambda *args, **kwargs: None
+
+logging.getLogger("werkzeug").setLevel(logging.ERROR)
+
+try:
+    if hasattr(cv2, "LOG_LEVEL_ERROR") and hasattr(cv2, "setLogLevel"):
+        cv2.setLogLevel(cv2.LOG_LEVEL_ERROR)
+    elif hasattr(cv2, "setLogLevel"):
+        cv2.setLogLevel(3)
+    elif hasattr(cv2, "utils") and hasattr(cv2.utils, "logging") and hasattr(cv2.utils.logging, "setLogLevel"):
+        cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_ERROR)
+except Exception:
+    pass
 
 
 @dataclass
@@ -478,6 +494,14 @@ def config():
 @app.get("/status")
 def status():
     with STATE.lock:
+        paths = {
+            "streaming_last_jpg": _last_jpg_path(),
+            "streaming_last_processed_jpg": _last_image_jpg_path(),
+            "runs_labels_json": _last_labels_json_path(),
+            "runs_labels_txt": _last_labels_txt_path(),
+            "runs_ultralytics_predict_last_jpg": _ultralytics_last_jpg_path(),
+            "runs_ultralytics_predict_last_txt": _ultralytics_last_txt_path(),
+        }
         return jsonify(
             {
                 "dummy": DUMMY_MODE,
@@ -488,6 +512,7 @@ def status():
                 "frame_id": STATE.frame_id,
                 "conf": float(STATE.conf),
                 "last_error": STATE.last_error,
+                "paths": paths,
             }
         )
 
