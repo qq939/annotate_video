@@ -77,6 +77,22 @@ def _last_labels_txt_path() -> str:
     return os.path.join(_labels_dir(), "last-labels.txt")
 
 
+def _ultralytics_dir() -> str:
+    return os.path.join(OUTPUT_DIR, "ultralytics")
+
+
+def _ultralytics_last_jpg_path() -> str:
+    return os.path.join(_ultralytics_dir(), "last.jpg")
+
+
+def _ultralytics_labels_dir() -> str:
+    return os.path.join(_ultralytics_dir(), "labels")
+
+
+def _ultralytics_last_txt_path() -> str:
+    return os.path.join(_ultralytics_labels_dir(), "last.txt")
+
+
 def _set_texts_from_multiline(multiline: str) -> List[str]:
     items = []
     for line in multiline.splitlines():
@@ -137,7 +153,7 @@ def _sam3_process_frame(predictor, frame_bgr, texts: List[str], conf: float):
             predictor.args.conf = conf
         except Exception:
             pass
-    results = predictor(source=frame_bgr, text=texts, stream=False, save=False)
+    results = predictor(source=frame_bgr, text=texts, stream=False, save=True)
     if isinstance(results, list) and results:
         r = results[0]
     else:
@@ -168,7 +184,16 @@ def _write_last_image_jpg(frame_bgr) -> None:
     _write_jpg(_last_image_jpg_path(), frame_bgr)
 
 
-def _write_last_labels(texts: List[str], conf: float, result) -> None:
+def _write_ultralytics_outputs(processed_frame_bgr, labels_txt: str) -> None:
+    _write_jpg(_ultralytics_last_jpg_path(), processed_frame_bgr)
+    os.makedirs(_ultralytics_labels_dir(), exist_ok=True)
+    tmp_txt = _ultralytics_last_txt_path() + ".tmp"
+    with open(tmp_txt, "w", encoding="utf-8") as f:
+        f.write(labels_txt)
+    os.replace(tmp_txt, _ultralytics_last_txt_path())
+
+
+def _write_last_labels(texts: List[str], conf: float, result) -> str:
     os.makedirs(_labels_dir(), exist_ok=True)
 
     boxes_out = []
@@ -227,14 +252,20 @@ def _write_last_labels(texts: List[str], conf: float, result) -> None:
         json.dump(payload, f, ensure_ascii=False)
     os.replace(tmp_json, _last_labels_json_path())
 
+    txt_lines = []
+    for b in boxes_out:
+        xyxy = b.get("xyxy") or []
+        if len(xyxy) == 4:
+            x1, y1, x2, y2 = xyxy
+            txt_lines.append(f'{b["conf"]:.4f} {x1:.2f} {y1:.2f} {x2:.2f} {y2:.2f}')
+    labels_txt = "\n".join(txt_lines) + ("\n" if txt_lines else "")
+
     tmp_txt = _last_labels_txt_path() + ".tmp"
     with open(tmp_txt, "w", encoding="utf-8") as f:
-        for b in boxes_out:
-            xyxy = b.get("xyxy") or []
-            if len(xyxy) == 4:
-                x1, y1, x2, y2 = xyxy
-                f.write(f'{b["conf"]:.4f} {x1:.2f} {y1:.2f} {x2:.2f} {y2:.2f}\n')
+        f.write(labels_txt)
     os.replace(tmp_txt, _last_labels_txt_path())
+
+    return labels_txt
 
 
 def _get_texts_snapshot() -> List[str]:
@@ -291,7 +322,8 @@ def _processing_loop(stop_event: threading.Event):
                 _write_last_jpg(frame)
                 out = _dummy_process_frame(frame, texts)
                 _write_last_image_jpg(out)
-                _write_last_labels(texts, conf, None)
+                labels_txt = _write_last_labels(texts, conf, None)
+                _write_ultralytics_outputs(out, labels_txt)
                 _update_status_ok()
                 continue
 
@@ -316,7 +348,8 @@ def _processing_loop(stop_event: threading.Event):
             else:
                 out, res = _sam3_process_frame(predictor, frame, texts, conf)
             _write_last_image_jpg(out)
-            _write_last_labels(texts, conf, res)
+            labels_txt = _write_last_labels(texts, conf, res)
+            _write_ultralytics_outputs(out, labels_txt)
             _update_status_ok()
         except Exception as e:
             _update_status_err(str(e))
