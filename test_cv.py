@@ -32,7 +32,7 @@ STREAMING_DIR = os.environ.get("LALIU_STREAMING_DIR", "/Users/jimjiang/Downloads
 OUTPUT_DIR = os.environ.get("LALIU_OUTPUT_DIR", "/Users/jimjiang/Downloads/laliu/runs/stream")
 
 # DEFAULT_TEXTS 在本文件第 260 行作为 SAM3 text prompts
-DEFAULT_TEXTS = ["pliers", "screwdriver"]
+DEFAULT_TEXTS = ["pliers", "screwdriver", "paper cup"]
 # DEFAULT_CONF 在本文件第 261 行作为 SAM3 置信度阈值
 DEFAULT_CONF = 0.25
 # TOPK 在本文件第 139 行控制后处理保留的目标数量

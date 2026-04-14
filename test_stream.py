@@ -1009,6 +1009,13 @@ def index():
             <div class="kv">
               <div class="k">输出</div>
               <div class="v mono">{_last_image_jpg_path()}</div>
+              <div class="k">生效参数</div>
+              <div class="v">
+                <div class="mono" id="txt_active_texts">-</div>
+                <div style="margin-top:4px;color:var(--text-muted);font-size:12px;">
+                  conf=<span class="mono" id="txt_active_conf">-</span> · interval=<span class="mono" id="txt_active_interval">-</span>s
+                </div>
+              </div>
               <div class="k">labels</div>
               <div class="v">
                 <a class="mono" href="/last-labels.json" target="_blank">last-labels.json</a>
@@ -1252,6 +1259,10 @@ def index():
 
           $('txt_error').textContent = j.last_error ? j.last_error : '-';
           $('chip_last').textContent = 'last: ' + (j.last_processed_ts ? new Date(j.last_processed_ts * 1000).toLocaleTimeString() : '-');
+
+          $('txt_active_texts').textContent = (j.texts && j.texts.length) ? j.texts.join(', ') : '-';
+          $('txt_active_conf').textContent = (j.conf != null && Number(j.conf).toFixed) ? Number(j.conf).toFixed(2) : String(j.conf ?? '-');
+          $('txt_active_interval').textContent = (j.sample_interval_sec != null && Number(j.sample_interval_sec).toFixed) ? Number(j.sample_interval_sec).toFixed(2) : String(j.sample_interval_sec ?? '-');
 
           setBadge($('b_frame'), 'frame: ' + (j.frame_id ?? '-'), ok ? 'ok' : 'err');
           setBadge($('b_infer'), 'infer: ' + ((j.last_infer_ms ?? 0).toFixed ? j.last_infer_ms.toFixed(1) : j.last_infer_ms) + 'ms', j.model_loaded ? 'ok' : 'warn');
