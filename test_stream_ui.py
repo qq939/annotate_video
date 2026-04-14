@@ -124,6 +124,8 @@ class TestStreamWebUI(unittest.TestCase):
             self.assertIn("streaming_last_processed_jpg", paths)
             self.assertIn("runs_labels_json", paths)
             self.assertIn("runs_ultralytics_predict_last_jpg", paths)
+            self.assertIn("model_loaded", payload)
+            self.assertIn("last_infer_ms", payload)
             time.sleep(0.4)
             status, body = _http_get(f"{base}/status", timeout_sec=2.0)
             self.assertEqual(status, 200)

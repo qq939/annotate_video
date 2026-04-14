@@ -63,6 +63,10 @@ except Exception:
 class SharedState:
     texts: List[str]
     conf: float
+    model_loaded: bool = False
+    last_infer_ms: float = 0.0
+    last_infer_boxes: int = 0
+    last_infer_polygons: int = 0
     last_processed_ts: float = 0.0
     last_saved_ts: float = 0.0
     frame_id: int = 0
@@ -140,11 +144,18 @@ def _dummy_process_frame(frame_bgr, texts: List[str]):
 def _build_sam3_predictor(conf: float):
     from ultralytics.models.sam.predict import SAM3VideoSemanticPredictor
 
+    try:
+        from ultralytics.utils import LOGGER
+
+        LOGGER.setLevel(logging.ERROR)
+    except Exception:
+        pass
+
     overrides = dict(
         conf=conf,
         task="segment",
         mode="predict",
-        imgsz=640,
+        imgsz=644,
         model="sam3.pt",
         half=False,
     )
@@ -183,6 +194,29 @@ def _sam3_process_frame(predictor, frame_bgr, texts: List[str], conf: float):
         if plotted is not None:
             return plotted, r
     return frame_bgr, r
+
+
+def _summarize_and_store_infer(res, infer_ms: float):
+    boxes_n = 0
+    polys_n = 0
+    try:
+        boxes = getattr(res, "boxes", None)
+        if boxes is not None:
+            boxes_n = int(len(boxes))
+    except Exception:
+        boxes_n = 0
+    try:
+        masks = getattr(res, "masks", None)
+        xy = getattr(masks, "xy", None) if masks is not None else None
+        if xy is not None:
+            polys_n = int(len(xy))
+    except Exception:
+        polys_n = 0
+
+    with STATE.lock:
+        STATE.last_infer_ms = float(infer_ms)
+        STATE.last_infer_boxes = boxes_n
+        STATE.last_infer_polygons = polys_n
 
 
 def _write_jpg(path: str, frame_bgr) -> None:
@@ -316,9 +350,13 @@ def _processing_loop(stop_event: threading.Event):
     if not DUMMY_MODE:
         try:
             predictor = _build_sam3_predictor(_get_conf_snapshot())
+            with STATE.lock:
+                STATE.model_loaded = True
         except Exception as e:
             _update_status_err(f"加载 SAM3 失败: {e}")
             predictor = None
+            with STATE.lock:
+                STATE.model_loaded = False
 
     last_ts = 0.0
 
@@ -366,11 +404,30 @@ def _processing_loop(stop_event: threading.Event):
                 out = _dummy_process_frame(frame, texts)
                 res = None
             else:
+                t0 = time.time()
                 out, res = _sam3_process_frame(predictor, frame, texts, conf)
+                infer_ms = (time.time() - t0) * 1000.0
+                _summarize_and_store_infer(res, infer_ms)
             _write_last_image_jpg(out)
             labels_txt = _write_last_labels(texts, conf, res)
             _write_ultralytics_outputs(out, labels_txt)
             _update_status_ok()
+
+            try:
+                h, w = frame.shape[:2]
+            except Exception:
+                h, w = 0, 0
+            boxes_n = 0
+            polys_n = 0
+            with STATE.lock:
+                boxes_n = STATE.last_infer_boxes
+                polys_n = STATE.last_infer_polygons
+            if predictor is not None:
+                print(
+                    f"image 1/1 {_last_jpg_path()}: {w}x{h} boxes={boxes_n} polygons={polys_n}, {STATE.last_infer_ms:.1f}ms"
+                )
+                print(f"Results saved to {_ultralytics_predict_dir()}")
+                print(f"Labels saved to {_ultralytics_labels_dir()}")
         except Exception as e:
             _update_status_err(str(e))
             continue
@@ -511,6 +568,10 @@ def status():
                 "last_saved_ts": STATE.last_saved_ts,
                 "frame_id": STATE.frame_id,
                 "conf": float(STATE.conf),
+                "model_loaded": bool(STATE.model_loaded),
+                "last_infer_ms": float(STATE.last_infer_ms),
+                "last_infer_boxes": int(STATE.last_infer_boxes),
+                "last_infer_polygons": int(STATE.last_infer_polygons),
                 "last_error": STATE.last_error,
                 "paths": paths,
             }
