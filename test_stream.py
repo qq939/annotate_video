@@ -347,14 +347,31 @@ def index():
     </form>
     <h3>Status</h3>
     <pre id="status">loading...</pre>
-    <h3>Last Processed</h3>
-    <img id="img" src="/last-processed.jpg" style="max-width: 95%; border: 1px solid #ddd;" />
+    <h3>Frames</h3>
+    <div>
+      <div>
+        <div>Last (raw)</div>
+        <img id="img_raw" src="/last.jpg" style="max-width: 95%; border: 1px solid #ddd;" />
+      </div>
+      <div style="margin-top: 12px;">
+        <div>Last Processed</div>
+        <img id="img" src="/last-processed.jpg" style="max-width: 95%; border: 1px solid #ddd;" />
+      </div>
+    </div>
+    <h3>Outputs</h3>
+    <div>
+      <a href="/last-labels.json" target="_blank">last-labels.json</a>
+      <span> | </span>
+      <a href="/last-labels.txt" target="_blank">last-labels.txt</a>
+    </div>
     <script>
       async function refresh() {{
         const r = await fetch('/status');
         const j = await r.json();
         document.getElementById('status').textContent = JSON.stringify(j, null, 2);
-        document.getElementById('img').src = '/last-processed.jpg?ts=' + Date.now();
+        const ts = Date.now();
+        document.getElementById('img_raw').src = '/last.jpg?ts=' + ts;
+        document.getElementById('img').src = '/last-processed.jpg?ts=' + ts;
       }}
       setInterval(refresh, 2000);
       refresh();

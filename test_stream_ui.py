@@ -109,6 +109,12 @@ class TestStreamWebUI(unittest.TestCase):
             self.assertEqual(payload["texts"], ["a", "b", "c"])
             self.assertAlmostEqual(payload["conf"], conf, places=2)
 
+            status, body = _http_get(f"{base}/", timeout_sec=2.0)
+            self.assertEqual(status, 200)
+            html = body.decode("utf-8", errors="ignore")
+            self.assertIn("/last.jpg", html)
+            self.assertIn("/last-processed.jpg", html)
+
             status, body = _http_get(f"{base}/status", timeout_sec=2.0)
             self.assertEqual(status, 200)
             payload = json.loads(body.decode("utf-8"))
