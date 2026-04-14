@@ -318,6 +318,10 @@ def main(argv: Optional[List[str]] = None) -> int:
                 processed = frame
                 res = None
             else:
+                print(f"text={cfg.texts} conf={cfg.conf}")
+                print(f"input={_last_jpg_path()}")
+                print(f"processed={_last_processed_jpg_path()}")
+                print(f"results={_ultralytics_predict_dir()}")
                 processed, res = _sam3_process_file(
                     predictor, _last_jpg_path(), cfg.texts, cfg.conf
                 )

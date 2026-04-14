@@ -410,6 +410,10 @@ def _processing_loop(stop_event: threading.Event):
                 out = _dummy_process_frame(frame, texts)
                 res = None
             else:
+                print(f"text={texts} conf={conf}")
+                print(f"input={_last_jpg_path()}")
+                print(f"processed={_last_image_jpg_path()}")
+                print(f"results={_ultralytics_predict_dir()}")
                 t0 = time.time()
                 out, res = _sam3_process_frame(predictor, _last_jpg_path(), texts, conf)
                 infer_ms = (time.time() - t0) * 1000.0
