@@ -63,6 +63,8 @@ except Exception:
 class SharedState:
     texts: List[str]
     conf: float
+    rtsp_input: str
+    rtsp_url: str
     model_loaded: bool = False
     last_infer_ms: float = 0.0
     last_infer_boxes: int = 0
@@ -74,7 +76,30 @@ class SharedState:
     lock: threading.Lock = threading.Lock()
 
 
-STATE = SharedState(texts=list(DEFAULT_TEXTS), conf=float(DEFAULT_CONF))
+def _normalize_camera_input(s: str) -> str:
+    raw = (s or "").strip()
+    if not raw:
+        return RTSP_URL
+    if raw.startswith("rtsp://"):
+        return raw
+    if raw.startswith("gige://"):
+        host = raw[len("gige://") :].strip()
+        return f"rtsp://{host}:8554/ams/live"
+    if raw.startswith("gige:"):
+        host = raw[len("gige:") :].strip()
+        return f"rtsp://{host}:8554/ams/live"
+    if "://" in raw:
+        return raw
+    host = raw
+    return f"rtsp://{host}:8554/ams/live"
+
+
+STATE = SharedState(
+    texts=list(DEFAULT_TEXTS),
+    conf=float(DEFAULT_CONF),
+    rtsp_input=str(RTSP_URL),
+    rtsp_url=_normalize_camera_input(str(RTSP_URL)),
+)
 
 
 def _last_jpg_path() -> str:
@@ -338,6 +363,11 @@ def _get_conf_snapshot() -> float:
         return float(STATE.conf)
 
 
+def _get_rtsp_snapshot() -> str:
+    with STATE.lock:
+        return str(STATE.rtsp_url)
+
+
 def _update_status_ok():
     with STATE.lock:
         STATE.last_processed_ts = time.time()
@@ -391,9 +421,9 @@ def _processing_loop(stop_event: threading.Event):
                 _update_status_ok()
                 continue
 
-            cap = cv2.VideoCapture(RTSP_URL, cv2.CAP_FFMPEG)
+            cap = cv2.VideoCapture(_get_rtsp_snapshot(), cv2.CAP_FFMPEG)
             if not cap.isOpened():
-                _update_status_err(f"无法打开 RTSP 流: {RTSP_URL}")
+                _update_status_err(f"无法打开 RTSP 流: {_get_rtsp_snapshot()}")
                 cap.release()
                 continue
 
@@ -977,6 +1007,13 @@ def index():
           <div class="panel-body">
             <div class="form">
               <div class="field">
+                <div class="label">摄像机（RTSP / GigE）</div>
+                <input id="inp_rtsp" type="text" value="{STATE.rtsp_input}" />
+                <div style="margin-top:6px;color:var(--text-muted);font-size:12px;">
+                  支持 <span class="mono">rtsp://...</span>、<span class="mono">gige://IP</span> 或直接填 <span class="mono">IP</span>
+                </div>
+              </div>
+              <div class="field">
                 <div class="label">Text（每行一个）</div>
                 <textarea id="inp_texts" spellcheck="false">{multiline}</textarea>
               </div>
@@ -1093,10 +1130,11 @@ def index():
         try {{
           const texts = $('inp_texts').value;
           const conf = Number($('inp_conf').value);
+          const rtsp_url = $('inp_rtsp').value;
           const r = await fetch('/set_config', {{
             method: 'POST',
             headers: {{ 'Content-Type': 'application/json' }},
-            body: JSON.stringify({{ texts, conf }}),
+            body: JSON.stringify({{ texts, conf, rtsp_url }}),
           }});
           if (!r.ok) throw new Error('HTTP ' + r.status);
           await refresh();
@@ -1113,6 +1151,7 @@ def index():
         try {{
           const r = await fetch('/config');
           const j = await r.json();
+          $('inp_rtsp').value = j.rtsp_input || '';
           $('inp_texts').value = (j.texts || []).join('\n');
           syncConfInputs(j.conf);
           await refresh();
@@ -1188,9 +1227,11 @@ def set_config():
         payload = request.get_json(silent=True) or {}
         multiline = payload.get("texts", "")
         conf_raw = payload.get("conf", "")
+        rtsp_input = payload.get("rtsp_url", "")
     else:
         multiline = request.form.get("texts", "")
         conf_raw = request.form.get("conf", "")
+        rtsp_input = request.form.get("rtsp_url", "")
 
     items = _set_texts_from_multiline(multiline)
     conf = DEFAULT_CONF
@@ -1207,9 +1248,20 @@ def set_config():
     with STATE.lock:
         STATE.texts = items
         STATE.conf = conf
+        if rtsp_input is not None and str(rtsp_input).strip() != "":
+            STATE.rtsp_input = str(rtsp_input).strip()
+            STATE.rtsp_url = _normalize_camera_input(STATE.rtsp_input)
 
     if request.is_json:
-        return jsonify({"ok": True, "texts": items, "conf": conf})
+        return jsonify(
+            {
+                "ok": True,
+                "texts": items,
+                "conf": conf,
+                "rtsp_input": STATE.rtsp_input,
+                "rtsp_url": STATE.rtsp_url,
+            }
+        )
     return redirect("/")
 
 
@@ -1220,7 +1272,15 @@ def texts():
 
 @app.get("/config")
 def config():
-    return jsonify({"texts": _get_texts_snapshot(), "conf": _get_conf_snapshot()})
+    with STATE.lock:
+        return jsonify(
+            {
+                "texts": list(STATE.texts),
+                "conf": float(STATE.conf),
+                "rtsp_input": str(STATE.rtsp_input),
+                "rtsp_url": str(STATE.rtsp_url),
+            }
+        )
 
 
 @app.get("/status")
@@ -1237,7 +1297,8 @@ def status():
         return jsonify(
             {
                 "dummy": DUMMY_MODE,
-                "rtsp_url": RTSP_URL,
+                "rtsp_input": str(STATE.rtsp_input),
+                "rtsp_url": str(STATE.rtsp_url),
                 "sample_interval_sec": SAMPLE_INTERVAL_SEC,
                 "last_processed_ts": STATE.last_processed_ts,
                 "last_saved_ts": STATE.last_saved_ts,
