@@ -1045,30 +1045,30 @@ def index():
             </div>
           </div>
           <div class="panel-body">
-            <div class="form">
+            <form id="cfgForm" class="form" method="post" action="/set_config">
               <div class="field">
                 <div class="label">摄像机（RTSP / GigE）</div>
-                <input id="inp_rtsp" type="text" value="{STATE.rtsp_input}" />
+                <input id="inp_rtsp" name="rtsp_url" type="text" value="{STATE.rtsp_input}" />
                 <div style="margin-top:6px;color:var(--text-muted);font-size:12px;">
                   支持 <span class="mono">rtsp://...</span>、<span class="mono">gige://IP</span> 或直接填 <span class="mono">IP</span>
                 </div>
               </div>
               <div class="field">
                 <div class="label">Text（每行一个）</div>
-                <textarea id="inp_texts" spellcheck="false">{multiline}</textarea>
+                <textarea id="inp_texts" name="texts" spellcheck="false">{multiline}</textarea>
               </div>
               <div class="field">
                 <div class="label">Conf</div>
                 <div class="row">
                   <input id="inp_conf_range" class="range" type="range" min="0" max="1" step="0.01" value="{conf:.2f}" />
-                  <input id="inp_conf" type="number" min="0" max="1" step="0.01" value="{conf:.2f}" />
+                  <input id="inp_conf" name="conf" type="number" min="0" max="1" step="0.01" value="{conf:.2f}" />
                 </div>
               </div>
               <div class="field">
                 <div class="label">采帧间隔（秒）</div>
                 <div class="row">
                   <input id="inp_interval_range" class="range" type="range" min="0.1" max="30" step="0.1" value="{STATE.sample_interval_sec:.1f}" />
-                  <input id="inp_interval" type="number" min="0.05" max="3600" step="0.1" value="{STATE.sample_interval_sec:.1f}" />
+                  <input id="inp_interval" name="sample_interval_sec" type="number" min="0.05" max="3600" step="0.1" value="{STATE.sample_interval_sec:.1f}" />
                 </div>
               </div>
               <div class="field">
@@ -1080,12 +1080,12 @@ def index():
               </div>
               <div class="actions">
                 <button class="btn" id="btn_sync" type="button">从服务同步</button>
-                <button class="btn primary" id="btn_apply" type="button">应用</button>
+                <button class="btn primary" id="btn_apply" type="submit">应用</button>
               </div>
               <div class="footer-note">
                 保持接口不变：仍使用 <span class="mono">/set_config</span>、<span class="mono">/status</span>、<span class="mono">/last.jpg</span>、<span class="mono">/last-processed.jpg</span>。
               </div>
-            </div>
+            </form>
           </div>
         </section>
       </div>
@@ -1219,7 +1219,7 @@ def index():
         }}
       }}
 
-      $('btn_apply').addEventListener('click', applyConfig);
+      $('cfgForm').addEventListener('submit', (e) => {{ e.preventDefault(); applyConfig(); }});
 
       $('btn_sync').addEventListener('click', async () => {{
         try {{
@@ -1395,6 +1395,7 @@ def status():
         return jsonify(
             {
                 "dummy": DUMMY_MODE,
+                "texts": list(STATE.texts),
                 "rtsp_input": str(STATE.rtsp_input),
                 "rtsp_url": str(STATE.rtsp_url),
                 "sample_interval_sec": float(STATE.sample_interval_sec),
