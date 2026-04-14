@@ -1059,17 +1059,11 @@ def index():
               </div>
               <div class="field">
                 <div class="label">Conf</div>
-                <div class="row">
-                  <input id="inp_conf_range" class="range" type="range" min="0" max="1" step="0.01" value="{conf:.2f}" />
-                  <input id="inp_conf" name="conf" type="number" min="0" max="1" step="0.01" value="{conf:.2f}" />
-                </div>
+                <input id="inp_conf" name="conf" type="number" min="0" max="1" step="0.01" value="{conf:.2f}" />
               </div>
               <div class="field">
                 <div class="label">采帧间隔（秒）</div>
-                <div class="row">
-                  <input id="inp_interval_range" class="range" type="range" min="0.1" max="30" step="0.1" value="{STATE.sample_interval_sec:.1f}" />
-                  <input id="inp_interval" name="sample_interval_sec" type="number" min="0.05" max="3600" step="0.1" value="{STATE.sample_interval_sec:.1f}" />
-                </div>
+                <input id="inp_interval" name="sample_interval_sec" type="number" min="0.05" max="3600" step="0.1" value="{STATE.sample_interval_sec:.1f}" />
               </div>
               <div class="field">
                 <div class="label">自动刷新</div>
@@ -1158,28 +1152,22 @@ def index():
         }}
       }}
 
-      function syncConfInputs(from) {{
+      function setConf(from) {{
         const v = Math.max(0, Math.min(1, Number(from)));
-        $('inp_conf_range').value = v.toFixed(2);
-        $('inp_conf').value = v.toFixed(2);
+        const el = $('inp_conf');
+        if (el) el.value = v.toFixed(2);
       }}
 
-      function syncIntervalInputs(from) {{
+      function setIntervalSec(from) {{
         const v = Math.max(0.05, Math.min(3600, Number(from)));
-        $('inp_interval_range').value = Math.max(0.1, Math.min(30, v)).toFixed(1);
-        $('inp_interval').value = v.toFixed(1);
+        const el = $('inp_interval');
+        if (el) el.value = v.toFixed(2);
       }}
-
-      $('inp_conf_range').addEventListener('input', (e) => syncConfInputs(e.target.value));
-      $('inp_conf').addEventListener('input', (e) => syncConfInputs(e.target.value));
-
-      $('inp_interval_range').addEventListener('input', (e) => syncIntervalInputs(e.target.value));
-      $('inp_interval').addEventListener('input', (e) => syncIntervalInputs(e.target.value));
 
       $('btn_defaults').addEventListener('click', () => {{
         $('inp_texts').value = DEFAULT_TEXTS.join('\n');
-        syncConfInputs(DEFAULT_CONF);
-        syncIntervalInputs(DEFAULT_INTERVAL);
+        setConf(DEFAULT_CONF);
+        setIntervalSec(DEFAULT_INTERVAL);
       }});
 
       $('btn_toggle_refresh').addEventListener('click', () => setRefreshEnabled(!refreshEnabled));
@@ -1209,8 +1197,8 @@ def index():
           if (!r.ok) throw new Error('HTTP ' + r.status);
           const j = await r.json();
           $('inp_texts').value = (j.texts || []).join('\n');
-          syncConfInputs(j.conf);
-          if (j.sample_interval_sec != null) syncIntervalInputs(j.sample_interval_sec);
+          setConf(j.conf);
+          if (j.sample_interval_sec != null) setIntervalSec(j.sample_interval_sec);
           await refresh();
         }} catch (e) {{
           $('txt_error').textContent = String(e);
@@ -1227,8 +1215,8 @@ def index():
           const j = await r.json();
           $('inp_rtsp').value = j.rtsp_input || '';
           $('inp_texts').value = (j.texts || []).join('\n');
-          syncConfInputs(j.conf);
-          if (j.sample_interval_sec != null) syncIntervalInputs(j.sample_interval_sec);
+          setConf(j.conf);
+          if (j.sample_interval_sec != null) setIntervalSec(j.sample_interval_sec);
           await refresh();
         }} catch (e) {{
           $('txt_error').textContent = String(e);
@@ -1260,9 +1248,9 @@ def index():
           $('txt_error').textContent = j.last_error ? j.last_error : '-';
           $('chip_last').textContent = 'last: ' + (j.last_processed_ts ? new Date(j.last_processed_ts * 1000).toLocaleTimeString() : '-');
 
-          $('txt_active_texts').textContent = (j.texts && j.texts.length) ? j.texts.join(', ') : '-';
-          $('txt_active_conf').textContent = (j.conf != null && Number(j.conf).toFixed) ? Number(j.conf).toFixed(2) : String(j.conf ?? '-');
-          $('txt_active_interval').textContent = (j.sample_interval_sec != null && Number(j.sample_interval_sec).toFixed) ? Number(j.sample_interval_sec).toFixed(2) : String(j.sample_interval_sec ?? '-');
+          setText('txt_active_texts', (j.texts && j.texts.length) ? j.texts.join(', ') : '-');
+          setText('txt_active_conf', (j.conf != null && Number(j.conf).toFixed) ? Number(j.conf).toFixed(2) : String(j.conf ?? '-'));
+          setText('txt_active_interval', (j.sample_interval_sec != null && Number(j.sample_interval_sec).toFixed) ? Number(j.sample_interval_sec).toFixed(2) : String(j.sample_interval_sec ?? '-'));
 
           setBadge($('b_frame'), 'frame: ' + (j.frame_id ?? '-'), ok ? 'ok' : 'err');
           setBadge($('b_infer'), 'infer: ' + ((j.last_infer_ms ?? 0).toFixed ? j.last_infer_ms.toFixed(1) : j.last_infer_ms) + 'ms', j.model_loaded ? 'ok' : 'warn');
