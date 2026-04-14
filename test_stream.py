@@ -14,11 +14,11 @@ from flask import Flask, Response, jsonify, redirect, request
 # ==========================================
 # GLOBAL PARAMETERS (全局参数)
 # ==========================================
-# RTSP_URL 在本文件第 216 行作为参数传给 cv2.VideoCapture() 用于拉流
+# RTSP_URL 在本文件第 296 行作为参数传给 cv2.VideoCapture() 用于拉流
 RTSP_URL = os.environ.get("LALIU_RTSP_URL", "rtsp://192.168.8.102:8554/ams/live")
-# SAMPLE_INTERVAL_SEC 在本文件第 193 行用于控制采样节奏（默认 10 秒/帧）
+# SAMPLE_INTERVAL_SEC 在本文件第 274 行用于控制采样节奏（默认 10 秒/帧）
 SAMPLE_INTERVAL_SEC = float(os.environ.get("LALIU_SAMPLE_INTERVAL_SEC", "10"))
-# OPENCV_FFMPEG_CAPTURE_OPTIONS 在本文件第 216 行创建 VideoCapture 前设置，使其在第 216 行生效（连接超时 5 秒，单位微秒）
+# OPENCV_FFMPEG_CAPTURE_OPTIONS 在本文件第 296 行创建 VideoCapture 前设置，使其在第 296 行生效（连接超时 5 秒，单位微秒）
 os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = os.environ.get(
     "OPENCV_FFMPEG_CAPTURE_OPTIONS", "timeout;5000000"
 )
@@ -267,7 +267,6 @@ def _processing_loop(stop_event: threading.Event):
             _update_status_err(f"加载 SAM3 失败: {e}")
             predictor = None
 
-    cap = None
     last_ts = 0.0
 
     while not stop_event.is_set():
@@ -277,6 +276,7 @@ def _processing_loop(stop_event: threading.Event):
             continue
 
         try:
+            last_ts = now
             if DUMMY_MODE:
                 xs = np.arange(640, dtype=np.uint16)
                 ys = np.arange(480, dtype=np.uint16)[:, None]
@@ -291,24 +291,18 @@ def _processing_loop(stop_event: threading.Event):
                 _write_last_image_jpg(out)
                 _write_last_labels(texts, conf, None)
                 _update_status_ok()
-                last_ts = now
                 continue
 
-            if cap is None or not cap.isOpened():
-                if cap is not None:
-                    cap.release()
-                cap = cv2.VideoCapture(RTSP_URL, cv2.CAP_FFMPEG)
-                if not cap.isOpened():
-                    _update_status_err(f"无法打开 RTSP 流: {RTSP_URL}")
-                    time.sleep(1.0)
-                    continue
+            cap = cv2.VideoCapture(RTSP_URL, cv2.CAP_FFMPEG)
+            if not cap.isOpened():
+                _update_status_err(f"无法打开 RTSP 流: {RTSP_URL}")
+                cap.release()
+                continue
 
             ok, frame = cap.read()
+            cap.release()
             if not ok or frame is None:
                 _update_status_err("读取帧失败")
-                cap.release()
-                cap = None
-                time.sleep(0.5)
                 continue
 
             _write_last_jpg(frame)
@@ -322,13 +316,9 @@ def _processing_loop(stop_event: threading.Event):
             _write_last_image_jpg(out)
             _write_last_labels(texts, conf, res)
             _update_status_ok()
-            last_ts = now
         except Exception as e:
             _update_status_err(str(e))
-            time.sleep(0.5)
-
-    if cap is not None:
-        cap.release()
+            continue
 
 
 @app.get("/")

@@ -100,6 +100,17 @@ class TestStreamWebUI(unittest.TestCase):
             self.assertEqual(payload["texts"], ["a", "b", "c"])
             self.assertAlmostEqual(payload["conf"], conf, places=2)
 
+            status, body = _http_get(f"{base}/status", timeout_sec=2.0)
+            self.assertEqual(status, 200)
+            payload = json.loads(body.decode("utf-8"))
+            fid0 = int(payload.get("frame_id", 0))
+            time.sleep(0.4)
+            status, body = _http_get(f"{base}/status", timeout_sec=2.0)
+            self.assertEqual(status, 200)
+            payload = json.loads(body.decode("utf-8"))
+            fid1 = int(payload.get("frame_id", 0))
+            self.assertLessEqual(fid1 - fid0, 1, "frame_id 增长过快，疑似连续采样")
+
             deadline = time.time() + 8.0
             last_body = None
             latest_body = None
