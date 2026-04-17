@@ -56,7 +56,7 @@ class TestBiaozhu(unittest.TestCase):
         test_output.unlink()
 
     def test_annotation_data_structure(self):
-        from biaozhu import AnnotationBox
+        from annotate_video import AnnotationBox
         box = AnnotationBox(100, 100, 200, 200, (0, 255, 0))
         self.assertEqual(box.x1, 100)
         self.assertEqual(box.y1, 100)
@@ -81,7 +81,7 @@ class TestBiaozhu(unittest.TestCase):
             thread.join(1)
 
     def test_multiple_boxes_different_colors(self):
-        from biaozhu import AnnotationBox
+        from annotate_video import AnnotationBox
         colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0)]
         boxes = [AnnotationBox(i*10, i*10, i*10+100, i*10+100, colors[i]) for i in range(4)]
         self.assertEqual(len(boxes), 4, "应该有4个不同的框")

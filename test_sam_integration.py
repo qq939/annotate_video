@@ -45,7 +45,7 @@ class TestSAMIntegration(unittest.TestCase):
             print(f"⚠ SAM分割测试失败: {e}")
 
     def test_annotation_box_with_mask(self):
-        from biaozhu import AnnotationBox
+        from annotate_video import AnnotationBox
 
         box = AnnotationBox(100, 100, 300, 300, (255, 0, 0))
         self.assertEqual(box.x1, 100)
@@ -70,7 +70,7 @@ class TestSAMIntegration(unittest.TestCase):
         if not test_video.exists():
             self.skipTest("测试视频不存在")
 
-        from biaozhu import VideoAnnotator
+        from annotate_video import VideoAnnotator
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmpdir:

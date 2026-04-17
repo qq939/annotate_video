@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 from pathlib import Path
-from biaozhu import put_chinese_text
+from annotate_video import put_chinese_text
 
 def test_chinese_text_rendering():
     """测试中文文本渲染功能"""
