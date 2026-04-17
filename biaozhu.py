@@ -2,7 +2,7 @@
 SRC_DIR = "src"  # 第31行：视频源目录
 DST_DIR = "dst"  # 第67行：输出视频目录
 WINDOW_NAME = "视频标注工具"  # 第37行：窗口名称
-SAM_MODEL_PATH = "sam_b.pt"  # SAM模型路径（可下载sam_b.pt或sam3.pt）
+SAM_MODEL_PATH = "sam3.pt"  # SAM模型路径（可下载sam_b.pt或sam3.pt）
 BOX_COLORS = [  # 第55行：标注框颜色列表
     (255, 0, 0),      # 蓝色
     (0, 255, 0),      # 绿色
