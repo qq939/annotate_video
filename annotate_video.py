@@ -63,6 +63,25 @@ def upload_to_obs(file_path: str):
         print(f"✗ 上传出错: {e}")
         return False
 
+def get_video_extension(video_path: str) -> str:
+    """获取原视频的扩展名"""
+    return Path(video_path).suffix.lower()
+
+def get_output_filename(video_path: str) -> str:
+    """生成输出文件名，避免双点"""
+    video_name = Path(video_path).stem
+    video_ext = Path(video_path).suffix.lower()
+
+    video_name = video_name.replace("..", "_")
+
+    while "__" in video_name:
+        video_name = video_name.replace("__", "_")
+
+    if video_name.endswith("_"):
+        video_name = video_name[:-1]
+
+    return f"{video_name}_annotated{video_ext}"
+
 @dataclass
 class AnnotationBox:
     x1: int
@@ -296,10 +315,11 @@ class VideoAnnotator:
                 print("未提供文本提示词，将使用边界框进行分割")
             print(f"将跟踪 {len(self.boxes)} 个目标实例")
 
-            video_name = Path(self.video_path).stem
-            output_path = self.output_dir / f"{video_name}_annotated.mp4"
+            output_filename = get_output_filename(self.video_path)
+            output_path = self.output_dir / output_filename
 
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            fourcc_code = int(self.cap.get(cv2.CAP_PROP_FOURCC))
+            fourcc = chr(fourcc_code & 0xFF) + chr((fourcc_code >> 8) & 0xFF) + chr((fourcc_code >> 16) & 0xFF) + chr((fourcc_code >> 24) & 0xFF)
             fps = self.cap.get(cv2.CAP_PROP_FPS)
             width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -373,10 +393,11 @@ class VideoAnnotator:
                         print(f"  ✗ 目标 {i+1} 分割失败: {e}")
                         print(f"  → 使用矩形框替代")
 
-                video_name = Path(self.video_path).stem
-                output_path = self.output_dir / f"{video_name}_annotated.mp4"
+                output_filename = get_output_filename(self.video_path)
+                output_path = self.output_dir / output_filename
 
-                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                fourcc_code = int(self.cap.get(cv2.CAP_PROP_FOURCC))
+                fourcc = chr(fourcc_code & 0xFF) + chr((fourcc_code >> 8) & 0xFF) + chr((fourcc_code >> 16) & 0xFF) + chr((fourcc_code >> 24) & 0xFF)
                 fps = self.cap.get(cv2.CAP_PROP_FPS)
                 width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                 height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -424,10 +445,11 @@ class VideoAnnotator:
                 print(f"SAM模型加载失败: {e}")
                 print("将使用简单的矩形框标注")
 
-                video_name = Path(self.video_path).stem
-                output_path = self.output_dir / f"{video_name}_annotated.mp4"
+                output_filename = get_output_filename(self.video_path)
+                output_path = self.output_dir / output_filename
 
-                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                fourcc_code = int(self.cap.get(cv2.CAP_PROP_FOURCC))
+                fourcc = chr(fourcc_code & 0xFF) + chr((fourcc_code >> 8) & 0xFF) + chr((fourcc_code >> 16) & 0xFF) + chr((fourcc_code >> 24) & 0xFF)
                 fps = self.cap.get(cv2.CAP_PROP_FPS)
                 width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                 height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
