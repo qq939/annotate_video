@@ -428,6 +428,11 @@ class VideoAnnotator:
                     masks_tensor = r.masks.data
                     if masks_tensor is not None and len(masks_tensor) > 0:
                         masks_array = masks_tensor.cpu().numpy()
+
+                        confs = None
+                        if hasattr(r, 'boxes') and r.boxes is not None and hasattr(r.boxes, 'conf'):
+                            confs = r.boxes.conf.cpu().numpy()
+
                         for i, mask in enumerate(masks_array):
                             mask_binary = (mask > 0.5).astype(np.uint8)
                             contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -446,6 +451,11 @@ class VideoAnnotator:
                                     area = cv2.contourArea(contour)
 
                                     if area > 0:
+                                        if confs is not None and i < len(confs):
+                                            confidence = float(confs[i])
+                                        else:
+                                            confidence = float(mask.max())
+
                                         ann = {
                                             'id': annotation_id,
                                             'image_id': frame_count,
@@ -454,7 +464,7 @@ class VideoAnnotator:
                                             'area': float(area),
                                             'segmentation': [polygon],
                                             'iscrowd': 0,
-                                            'confidence': float(mask.max())
+                                            'confidence': confidence
                                         }
                                         coco_data['annotations'].append(ann)
                                         frame_annotations.append(ann)
