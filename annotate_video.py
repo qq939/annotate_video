@@ -287,10 +287,9 @@ class VideoAnnotator:
 
     def process_video(self):
         if not self.boxes:
-            print("没有标注框，不生成视频")
-            return
+            print("注意：没有标注框，将只保留原视频")
 
-        bboxes = [[box.x1, box.y1, box.x2, box.y2] for box in self.boxes]
+        bboxes = [[box.x1, box.y1, box.x2, box.y2] for box in self.boxes] if self.boxes else None
 
         try:
             from ultralytics.models.sam import SAM3VideoSemanticPredictor
@@ -332,13 +331,24 @@ class VideoAnnotator:
 
             out = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
 
-            results = predictor(
-                source=self.video_path,
-                bboxes=bboxes,
-                text=FIND,
-                labels=[1] * len(bboxes),
-                stream=True
-            )
+            if bboxes:
+                predictor_args = {
+                    'source': self.video_path,
+                    'bboxes': bboxes,
+                    'labels': [1] * len(bboxes),
+                    'stream': True
+                }
+                if FIND:
+                    predictor_args['text'] = FIND
+                results = predictor(**predictor_args)
+            else:
+                predictor_args = {
+                    'source': self.video_path,
+                    'stream': True
+                }
+                if FIND:
+                    predictor_args['text'] = FIND
+                results = predictor(**predictor_args)
 
             frame_count = 0
             print("正在生成标注视频...")
@@ -346,15 +356,16 @@ class VideoAnnotator:
                 annotated_frame = r.plot()
                 annotated_frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_RGB2BGR)
 
-                for i, box in enumerate(self.boxes):
-                    label = f"目标 {i + 1}"
-                    annotated_frame_rgb = put_chinese_text(
-                        annotated_frame_rgb,
-                        label,
-                        (box.x1, max(10, box.y1 - 10)),
-                        font_size=15,
-                        color=box.color
-                    )
+                if self.boxes:
+                    for i, box in enumerate(self.boxes):
+                        label = f"目标 {i + 1}"
+                        annotated_frame_rgb = put_chinese_text(
+                            annotated_frame_rgb,
+                            label,
+                            (box.x1, max(10, box.y1 - 10)),
+                            font_size=15,
+                            color=box.color
+                        )
 
                 out.write(annotated_frame_rgb)
                 frame_count += 1
@@ -365,7 +376,7 @@ class VideoAnnotator:
             out.release()
             print(f"✓ 标注视频已保存到: {output_path}")
             print(f"✓ 共处理 {frame_count} 帧")
-            print(f"✓ 标注了 {len(self.boxes)} 个目标区域")
+            print(f"✓ 标注了 {len(self.boxes) if self.boxes else 0} 个目标区域")
             upload_to_obs(str(output_path))
 
         except ImportError as e:
@@ -426,20 +437,21 @@ class VideoAnnotator:
                         break
 
                     annotated_frame = frame.copy()
-                    for box in self.boxes:
-                        if box.mask is not None:
-                            annotated_frame = box.apply_sam_mask_to_frame(annotated_frame)
-                        else:
-                            annotated_frame = box.apply_mask_to_frame(annotated_frame)
-                            cv2.rectangle(annotated_frame,
-                                        (box.x1, box.y1),
-                                        (box.x2, box.y2),
-                                        box.color, 2)
+                    if self.boxes:
+                        for box in self.boxes:
+                            if box.mask is not None:
+                                annotated_frame = box.apply_sam_mask_to_frame(annotated_frame)
+                            else:
+                                annotated_frame = box.apply_mask_to_frame(annotated_frame)
+                                cv2.rectangle(annotated_frame,
+                                            (box.x1, box.y1),
+                                            (box.x2, box.y2),
+                                            box.color, 2)
 
-                        label = f"目标 {self.boxes.index(box) + 1}"
-                        annotated_frame = put_chinese_text(annotated_frame, label,
-                                                        (box.x1, box.y1 - 10),
-                                                        font_size=15, color=box.color)
+                            label = f"目标 {self.boxes.index(box) + 1}"
+                            annotated_frame = put_chinese_text(annotated_frame, label,
+                                                            (box.x1, box.y1 - 10),
+                                                            font_size=15, color=box.color)
 
                     out.write(annotated_frame)
                     frame_count += 1
@@ -450,7 +462,7 @@ class VideoAnnotator:
                 out.release()
                 print(f"✓ 标注视频已保存到: {output_path}")
                 print(f"✓ 共处理 {frame_count} 帧")
-                print(f"✓ 标注了 {len(self.boxes)} 个目标区域")
+                print(f"✓ 标注了 {len(self.boxes) if self.boxes else 0} 个目标区域")
                 upload_to_obs(str(output_path))
 
             except Exception as e:
@@ -484,17 +496,18 @@ class VideoAnnotator:
                         break
 
                     annotated_frame = frame.copy()
-                    for box in self.boxes:
-                        annotated_frame = box.apply_mask_to_frame(annotated_frame)
-                        cv2.rectangle(annotated_frame,
-                                    (box.x1, box.y1),
-                                    (box.x2, box.y2),
-                                    box.color, 2)
+                    if self.boxes:
+                        for box in self.boxes:
+                            annotated_frame = box.apply_mask_to_frame(annotated_frame)
+                            cv2.rectangle(annotated_frame,
+                                        (box.x1, box.y1),
+                                        (box.x2, box.y2),
+                                        box.color, 2)
 
-                        label = f"目标 {self.boxes.index(box) + 1}"
-                        annotated_frame = put_chinese_text(annotated_frame, label,
-                                                        (box.x1, box.y1 - 10),
-                                                        font_size=15, color=box.color)
+                            label = f"目标 {self.boxes.index(box) + 1}"
+                            annotated_frame = put_chinese_text(annotated_frame, label,
+                                                            (box.x1, box.y1 - 10),
+                                                            font_size=15, color=box.color)
 
                     out.write(annotated_frame)
                     frame_count += 1
@@ -505,7 +518,7 @@ class VideoAnnotator:
                 out.release()
                 print(f"✓ 标注视频已保存到: {output_path}")
                 print(f"✓ 共处理 {frame_count} 帧")
-                print(f"✓ 标注了 {len(self.boxes)} 个目标区域")
+                print(f"✓ 标注了 {len(self.boxes) if self.boxes else 0} 个目标区域")
                 upload_to_obs(str(output_path))
 
 def main():
@@ -525,9 +538,10 @@ def main():
             print("物品名称不能为空，请重新输入")
             continue
         if item.lower() == 'done':
-            if len(FIND) == 0:
-                print("至少需要输入一个物品名称！")
-                continue
+            break
+        if item.lower() == 'skip':
+            FIND = []
+            print("  ⚠ 已跳过文本提示词输入")
             break
         if item not in FIND:
             FIND.append(item)
@@ -536,7 +550,10 @@ def main():
             print(f"  ⚠ 已存在: {item}")
 
     print("-" * 50)
-    print(f"已添加 {len(FIND)} 个物品: {', '.join(FIND)}")
+    if FIND:
+        print(f"已添加 {len(FIND)} 个物品: {', '.join(FIND)}")
+    else:
+        print("未添加物品（将跳过文本提示）")
     print("=" * 50)
 
     video_files = list(Path(SRC_DIR).glob("*.mp4"))
