@@ -18,9 +18,9 @@ class PostAnnotatorWindow(QMainWindow):
         super().__init__()
         self.output_video_path = output_video_path
         if temp_data_path:
-            self.temp_data_path = Path(temp_data_path)
+            self.temp_data_path = Path(temp_data_path).resolve()
         else:
-            self.temp_data_path = Path(TEMP_DATA_DIR)
+            self.temp_data_path = Path(TEMP_DATA_DIR).resolve()
         self.conf_threshold = DEFAULT_CONF_THRESHOLD
 
         if not self.temp_data_path.exists():
@@ -215,7 +215,7 @@ def main():
     output_video_path = "dst/output_annotated.mp4"
 
     if len(sys.argv) > 1:
-        temp_data_path = sys.argv[1]
+        temp_data_path = str(Path(sys.argv[1]).resolve())
     if len(sys.argv) > 2:
         output_video_path = sys.argv[2]
 
@@ -224,21 +224,23 @@ def main():
         if not temp_dir:
             print("未选择文件夹，程序退出")
             sys.exit(0)
-        temp_data_path = temp_dir
+        temp_data_path = str(Path(temp_dir).resolve())
 
-    if not Path(temp_data_path).exists():
+    temp_data_path_obj = Path(temp_data_path)
+    if not temp_data_path_obj.exists():
         print(f"错误：文件夹不存在: {temp_data_path}")
         sys.exit(1)
 
-    if not (Path(temp_data_path) / "annotations.json").exists():
-        print("错误：annotations.json文件不存在")
+    if not (temp_data_path_obj / "annotations.json").exists():
+        print(f"错误：annotations.json文件不存在于 {temp_data_path}")
+        print("请确保选择的文件夹包含有效的标注数据")
         sys.exit(1)
 
     print("\n" + "=" * 50)
     print("后处理预览程序 - PyQt5版本")
     print("=" * 50)
     print(f"数据文件夹: {temp_data_path}")
-    frames_dir = Path(temp_data_path) / "frames"
+    frames_dir = temp_data_path_obj / "frames"
     frames_count = len(list(frames_dir.glob("*.jpg"))) if frames_dir.exists() else 0
     print(f"总帧数: {frames_count}")
     print(f"默认置信度阈值: {DEFAULT_CONF_THRESHOLD:.2f}")
