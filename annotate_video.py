@@ -286,8 +286,10 @@ class VideoAnnotator:
         self.cap.release()
 
     def process_video(self):
-        if not self.boxes:
-            print("注意：没有标注框，将只保留原视频")
+        if not self.boxes and not FIND:
+            print("错误：文字和标注框至少要有一个！")
+            print("请重新运行程序并添加物品名称或绘制标注框")
+            return
 
         bboxes = [[box.x1, box.y1, box.x2, box.y2] for box in self.boxes] if self.boxes else None
 
