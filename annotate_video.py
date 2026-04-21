@@ -2,6 +2,7 @@
 FIND = []  # 第1行：文本提示词列表，运行时由用户输入，用于SAM3语义分割
 SRC_DIR = "src"  # 第31行：视频源目录
 DST_DIR = "dst"  # 第67行：输出视频目录
+TEMP_DATA_DIR = "temp_data"  # 第8行：临时数据目录，用于保存每帧画面和mask logits
 WINDOW_NAME = "视频标注工具"  # 第37行：窗口名称
 SAM_MODEL_PATH = "sam3.pt"  # SAM模型路径（可下载sam_b.pt或sam3.pt）
 BOX_COLORS = [  # 第55行：标注框颜色列表
@@ -18,6 +19,7 @@ BOX_COLORS = [  # 第55行：标注框颜色列表
 import cv2
 import numpy as np
 import subprocess
+import os
 from pathlib import Path
 from dataclasses import dataclass
 from typing import List, Tuple
@@ -257,6 +259,18 @@ class VideoAnnotator:
 
         return frame
 
+    def launch_post_annotate(self, output_path):
+        print("\n" + "=" * 50)
+        print("正在启动后处理程序...")
+        print("=" * 50)
+        try:
+            subprocess.Popen(['python3', 'post_annotate.py', str(output_path)])
+            print("✓ 后处理程序已启动")
+        except Exception as e:
+            print(f"✗ 启动后处理程序失败: {e}")
+            print("您可以稍后手动运行: python3 post_annotate.py")
+        print("=" * 50)
+
     def run(self):
         while True:
             display_frame = self.draw_boxes(self.frame)
@@ -333,6 +347,27 @@ class VideoAnnotator:
 
             out = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
 
+            temp_data_path = Path(TEMP_DATA_DIR)
+            if temp_data_path.exists():
+                import shutil
+                shutil.rmtree(temp_data_path)
+            temp_data_path.mkdir(parents=True, exist_ok=True)
+            frames_dir = temp_data_path / "frames"
+            masks_dir = temp_data_path / "masks"
+            frames_dir.mkdir(exist_ok=True)
+            masks_dir.mkdir(exist_ok=True)
+            metadata = {
+                'video_path': self.video_path,
+                'fps': fps,
+                'width': width,
+                'height': height,
+                'fourcc': fourcc_str,
+                'bboxes': bboxes,
+                'FIND': FIND,
+                'boxes': [(box.x1, box.y1, box.x2, box.y2, box.color) for box in self.boxes] if self.boxes else []
+            }
+            np.save(temp_data_path / 'metadata.npy', metadata, allow_pickle=True)
+
             if bboxes:
                 predictor_args = {
                     'source': self.video_path,
@@ -355,6 +390,36 @@ class VideoAnnotator:
             frame_count = 0
             print("正在生成标注视频...")
             for r in results:
+                orig_img = r.orig_img if hasattr(r, 'orig_img') else None
+                if orig_img is None and hasattr(r, 'orig_shape'):
+                    orig_shape = r.orig_shape
+                    cap_temp = cv2.VideoCapture(self.video_path)
+                    cap_temp.set(cv2.CAP_PROP_POS_FRAMES, frame_count)
+                    ret_temp, orig_img = cap_temp.read()
+                    cap_temp.release()
+                    if not ret_temp:
+                        orig_img = np.zeros((height, width, 3), dtype=np.uint8)
+
+                if orig_img is not None:
+                    if len(orig_img.shape) == 2:
+                        orig_img = cv2.cvtColor(orig_img, cv2.COLOR_GRAY2BGR)
+                    elif orig_img.shape[2] == 4:
+                        orig_img = cv2.cvtColor(orig_img, cv2.COLOR_BGRA2BGR)
+                    cv2.imwrite(str(frames_dir / f"frame_{frame_count:06d}.jpg"), orig_img)
+
+                masks_data = {}
+                if hasattr(r, 'masks') and r.masks is not None:
+                    masks_tensor = r.masks.data
+                    if masks_tensor is not None and len(masks_tensor) > 0:
+                        masks_array = masks_tensor.cpu().numpy()
+                        for i, mask in enumerate(masks_array):
+                            masks_data[f'mask_{i}'] = mask
+                        logits_path = masks_dir / f"frame_{frame_count:06d}_logits.npy"
+                        np.save(str(logits_path), masks_array)
+
+                masks_info_path = masks_dir / f"frame_{frame_count:06d}_info.npy"
+                np.save(str(masks_info_path), masks_data, allow_pickle=True)
+
                 annotated_frame = r.plot()
                 annotated_frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_RGB2BGR)
 
@@ -379,7 +444,10 @@ class VideoAnnotator:
             print(f"✓ 标注视频已保存到: {output_path}")
             print(f"✓ 共处理 {frame_count} 帧")
             print(f"✓ 标注了 {len(self.boxes) if self.boxes else 0} 个目标区域")
+            print(f"✓ 临时数据已保存到: {temp_data_path}")
             upload_to_obs(str(output_path))
+
+            self.launch_post_annotate(output_path)
 
         except ImportError as e:
             print(f"SAM3VideoPredictor导入失败: {e}")
@@ -465,7 +533,10 @@ class VideoAnnotator:
                 print(f"✓ 标注视频已保存到: {output_path}")
                 print(f"✓ 共处理 {frame_count} 帧")
                 print(f"✓ 标注了 {len(self.boxes) if self.boxes else 0} 个目标区域")
+                print(f"✓ 临时数据已保存到: {temp_data_path}")
                 upload_to_obs(str(output_path))
+
+                self.launch_post_annotate(output_path)
 
             except Exception as e:
                 print(f"SAM模型加载失败: {e}")
@@ -522,6 +593,8 @@ class VideoAnnotator:
                 print(f"✓ 共处理 {frame_count} 帧")
                 print(f"✓ 标注了 {len(self.boxes) if self.boxes else 0} 个目标区域")
                 upload_to_obs(str(output_path))
+
+                self.launch_post_annotate(output_path)
 
 def main():
     global FIND
