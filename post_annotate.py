@@ -1,35 +1,21 @@
 # global参数
 TEMP_DATA_DIR = "temp_data"  # 第8行：临时数据目录
 DEFAULT_CONF_THRESHOLD = 0.5  # 第9行：默认置信度阈值
-WINDOW_NAME = "后处理预览"  # 第10行：窗口名称
 
 import cv2
 import numpy as np
 import json
 import sys
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFont
-import threading
-import time
 
-def put_chinese_text(img, text, position, font_size=20, color=(255, 255, 255)):
-    """在图像上绘制中文文本（使用UTF-8编码）"""
-    img_pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-    draw = ImageDraw.Draw(img_pil)
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+                             QLabel, QSlider, QPushButton, QMessageBox)
+from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtGui import QImage, QPixmap
 
-    try:
-        font = ImageFont.truetype("/System/Library/Fonts/PingFang.ttc", font_size)
-    except:
-        try:
-            font = ImageFont.truetype("/System/Library/Fonts/STHeiti Light.ttc", font_size)
-        except:
-            font = ImageFont.load_default()
-
-    draw.text(position, text, font=font, fill=color)
-    return cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
-
-class PostAnnotator:
+class PostAnnotatorWindow(QMainWindow):
     def __init__(self, output_video_path):
+        super().__init__()
         self.output_video_path = output_video_path
         self.temp_data_path = Path(TEMP_DATA_DIR)
         self.conf_threshold = DEFAULT_CONF_THRESHOLD
@@ -38,7 +24,8 @@ class PostAnnotator:
             print(f"错误：临时数据目录不存在: {self.temp_data_path}")
             sys.exit(1)
 
-        with open(self.temp_data_path / 'annotations.json', 'r') as f:
+        annotations_file = self.temp_data_path / "annotations.json"
+        with open(str(annotations_file), 'r') as f:
             self.coco_data = json.load(f)
 
         self.video_info = self.coco_data['info']
@@ -54,43 +41,88 @@ class PostAnnotator:
 
         print(f"加载了 {self.total_frames} 帧数据")
         print(f"视频信息: {self.video_info['width']}x{self.video_info['height']}, FPS: {self.video_info['fps']}")
-        print(f"总标注数: {len(self.coco_data['annotations'])}")
 
         self.current_frame_idx = 0
         self.is_playing = False
-        self.play_thread = None
+        self.play_speed = 0.5
 
-        self.annotation_map = {}
-        for ann in self.coco_data['annotations']:
-            img_id = ann['image_id']
-            if img_id not in self.annotation_map:
-                self.annotation_map[img_id] = []
-            self.annotation_map[img_id].append(ann)
+        self.init_ui()
 
-        cv2.namedWindow(WINDOW_NAME)
-        cv2.createTrackbar('进度条', WINDOW_NAME, 0, self.total_frames - 1, self.on_trackbar_change)
-        cv2.createTrackbar('置信度阈值', WINDOW_NAME, int(DEFAULT_CONF_THRESHOLD * 100), 100, self.on_conf_change)
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.play_next_frame)
 
         self.update_display()
 
-    def on_trackbar_change(self, pos):
-        self.current_frame_idx = pos
-        self.is_playing = False
+    def init_ui(self):
+        self.setWindowTitle('后处理预览 - 置信度阈值调整')
+        self.setGeometry(100, 100, 800, 600)
+
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        layout = QVBoxLayout()
+        central_widget.setLayout(layout)
+
+        self.image_label = QLabel()
+        self.image_label.setAlignment(Qt.AlignCenter)
+        self.image_label.setMinimumSize(640, 480)
+        layout.addWidget(self.image_label)
+
+        info_layout = QHBoxLayout()
+        self.info_label = QLabel(f"帧: 1/{self.total_frames}")
+        info_layout.addWidget(self.info_label)
+        self.count_label = QLabel(f"可见标注数: 0/0")
+        info_layout.addWidget(self.count_label)
+        self.threshold_label = QLabel(f"置信度阈值: {self.conf_threshold:.2f}")
+        info_layout.addWidget(self.threshold_label)
+        layout.addLayout(info_layout)
+
+        self.threshold_slider = QSlider(Qt.Horizontal)
+        self.threshold_slider.setMinimum(0)
+        self.threshold_slider.setMaximum(100)
+        self.threshold_slider.setValue(int(DEFAULT_CONF_THRESHOLD * 100))
+        self.threshold_slider.valueChanged.connect(self.on_threshold_change)
+        layout.addWidget(QLabel("置信度阈值:"))
+        layout.addWidget(self.threshold_slider)
+
+        button_layout = QHBoxLayout()
+        self.play_btn = QPushButton("播放")
+        self.play_btn.clicked.connect(self.toggle_play)
+        button_layout.addWidget(self.play_btn)
+
+        self.export_btn = QPushButton("导出视频")
+        self.export_btn.clicked.connect(self.export_video)
+        button_layout.addWidget(self.export_btn)
+
+        layout.addLayout(button_layout)
+
+    def on_threshold_change(self, value):
+        self.conf_threshold = value / 100.0
+        self.threshold_label.setText(f"置信度阈值: {self.conf_threshold:.2f}")
         self.update_display()
 
-    def on_conf_change(self, pos):
-        self.conf_threshold = pos / 100.0
+    def toggle_play(self):
+        self.is_playing = not self.is_playing
+        if self.is_playing:
+            self.play_btn.setText("暂停")
+            interval = int(1000.0 / (self.video_info['fps'] * self.play_speed))
+            self.timer.start(interval)
+        else:
+            self.play_btn.setText("播放")
+            self.timer.stop()
+
+    def play_next_frame(self):
+        self.current_frame_idx = (self.current_frame_idx + 1) % self.total_frames
         self.update_display()
 
     def load_frame_data(self, idx):
-        frame_path = self.frames_dir / f"frame_{idx:06d}.jpg"
-        frame = cv2.imread(str(frame_path))
+        frame_path = str(self.frames_dir / f"frame_{idx:06d}.jpg")
+        frame = cv2.imread(frame_path)
         if frame is None:
             frame = np.zeros((self.video_info['height'], self.video_info['width'], 3), dtype=np.uint8)
 
-        label_path = self.labels_dir / f"frame_{idx:06d}.json"
+        label_path = str(self.labels_dir / f"frame_{idx:06d}.json")
         frame_annotations = []
-        if label_path.exists():
+        if Path(label_path).exists():
             with open(label_path, 'r') as f:
                 frame_annotations = json.load(f)
 
@@ -102,16 +134,9 @@ class PostAnnotator:
         if not annotations:
             return result_frame
 
-        height, width = frame.shape[:2]
         mask_colors = [
-            (255, 0, 0),      # 蓝色
-            (0, 255, 0),      # 绿色
-            (0, 0, 255),      # 红色
-            (255, 255, 0),    # 青色
-            (255, 0, 255),    # 紫色
-            (0, 255, 255),    # 黄色
-            (255, 128, 0),    # 橙色
-            (128, 0, 255),    # 紫红色
+            (255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0),
+            (255, 0, 255), (0, 255, 255), (255, 128, 0), (128, 0, 255),
         ]
 
         for ann in annotations:
@@ -123,13 +148,11 @@ class PostAnnotator:
             category_id = ann['category_id']
 
             color = mask_colors[category_id % len(mask_colors)]
-
             pts = np.array(polygon, dtype=np.int32).reshape(-1, 2)
 
             overlay = result_frame.copy()
             cv2.fillPoly(overlay, [pts], color)
             cv2.addWeighted(overlay, 0.4, result_frame, 0.6, 0, result_frame)
-
             cv2.polylines(result_frame, [pts], True, color, 2)
 
             x, y, w, h = bbox
@@ -143,55 +166,28 @@ class PostAnnotator:
         frame, annotations = self.load_frame_data(self.current_frame_idx)
         annotated_frame = self.apply_threshold_to_masks(frame, annotations, self.conf_threshold)
 
-        info_text = f"帧: {self.current_frame_idx + 1}/{self.total_frames} | 置信度阈值: {self.conf_threshold:.2f}"
-        annotated_frame = put_chinese_text(annotated_frame, info_text, (10, 30),
-                                        font_size=16, color=(255, 255, 255))
+        annotated_frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
+        h, w, ch = annotated_frame_rgb.shape
+        bytes_per_line = ch * w
+        qt_image = QImage(annotated_frame_rgb.data, w, h, bytes_per_line, QImage.Format_RGB888)
+        pixmap = QPixmap.fromImage(qt_image)
+        scaled_pixmap = pixmap.scaled(640, 480, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self.image_label.setPixmap(scaled_pixmap)
 
         visible_count = sum(1 for ann in annotations if ann.get('confidence', 1.0) >= self.conf_threshold)
-        count_text = f"可见标注数: {visible_count}/{len(annotations)}"
-        annotated_frame = put_chinese_text(annotated_frame, count_text, (10, 55),
-                                        font_size=14, color=(200, 200, 200))
-
-        instructions = [
-            "操作说明:",
-            "1. 拖动进度条或按空格键播放/暂停",
-            "2. 调整置信度阈值滑块实时生效",
-            "3. 按 'e' 导出视频",
-            "4. 按 'q' 退出"
-        ]
-        for i, text in enumerate(instructions):
-            annotated_frame = put_chinese_text(annotated_frame, text, (10, 80 + i * 25),
-                                            font_size=14, color=(200, 200, 200))
-
-        cv2.imshow(WINDOW_NAME, annotated_frame)
-        cv2.setTrackbarPos('进度条', WINDOW_NAME, self.current_frame_idx)
-        cv2.setTrackbarPos('置信度阈值', WINDOW_NAME, int(self.conf_threshold * 100))
-
-    def play_video(self):
-        while self.is_playing:
-            time.sleep(1.0 / self.video_info['fps'])
-
-            if self.is_playing:
-                self.current_frame_idx = (self.current_frame_idx + 1) % self.total_frames
-                self.update_display()
-
-    def toggle_play(self):
-        self.is_playing = not self.is_playing
-        if self.is_playing and (self.play_thread is None or not self.play_thread.is_alive()):
-            self.play_thread = threading.Thread(target=self.play_video, daemon=True)
-            self.play_thread.start()
+        self.info_label.setText(f"帧: {self.current_frame_idx + 1}/{self.total_frames}")
+        self.count_label.setText(f"可见标注数: {visible_count}/{len(annotations)}")
 
     def export_video(self):
-        print("\n正在导出视频...")
-        print(f"使用置信度阈值: {self.conf_threshold:.2f}")
+        print(f"\n正在导出视频，使用置信度阈值: {self.conf_threshold:.2f}")
 
         output_path = Path(self.output_video_path)
-        fourcc = cv2.VideoWriter_fourcc(*self.video_info['fourcc'])
+        fourcc_str = cv2.VideoWriter_fourcc(*self.video_info['fourcc'])
         fps = self.video_info['fps']
         width = self.video_info['width']
         height = self.video_info['height']
 
-        out = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
+        out = cv2.VideoWriter(str(output_path), fourcc_str, fps, (width, height))
 
         for i in range(self.total_frames):
             if i % 30 == 0:
@@ -203,57 +199,31 @@ class PostAnnotator:
 
         out.release()
         print(f"✓ 视频导出成功: {output_path}")
-        print(f"✓ 使用置信度阈值: {self.conf_threshold:.2f}")
+        QMessageBox.information(self, "导出成功", f"视频已导出到:\n{output_path}")
 
-    def run(self):
-        print("\n" + "=" * 50)
-        print("后处理预览程序")
-        print("=" * 50)
-        print(f"总帧数: {self.total_frames}")
-        print(f"置信度阈值: {self.conf_threshold:.2f}")
-        print("=" * 50)
-
-        while True:
-            key = cv2.waitKey(100) & 0xFF
-
-            if key == ord('q'):
-                print("\n退出程序")
-                break
-            elif key == ord(' '):
-                self.toggle_play()
-            elif key == ord('e'):
-                self.export_video()
-            elif key == ord('+') or key == ord('='):
-                self.conf_threshold = min(1.0, self.conf_threshold + 0.05)
-                self.update_display()
-            elif key == ord('-'):
-                self.conf_threshold = max(0.0, self.conf_threshold - 0.05)
-                self.update_display()
-            elif key == ord('j'):
-                self.current_frame_idx = max(0, self.current_frame_idx - 10)
-                self.update_display()
-            elif key == ord('k'):
-                self.current_frame_idx = min(self.total_frames - 1, self.current_frame_idx + 10)
-                self.update_display()
-            elif key == ord('g'):
-                self.current_frame_idx = 0
-                self.update_display()
-            elif key == ord('G'):
-                self.current_frame_idx = self.total_frames - 1
-                self.update_display()
-
-        cv2.destroyAllWindows()
+    def closeEvent(self, event):
+        self.timer.stop()
+        event.accept()
 
 def main():
+    app = QApplication(sys.argv)
+
     if len(sys.argv) > 1:
         output_video_path = sys.argv[1]
     else:
-        print("用法: python3 post_annotate.py <输出视频路径>")
-        print("将使用临时数据目录中的数据进行处理")
         output_video_path = "dst/output_annotated.mp4"
 
-    app = PostAnnotator(output_video_path)
-    app.run()
+    print("\n" + "=" * 50)
+    print("后处理预览程序 - PyQt5版本")
+    print("=" * 50)
+    frames_count = len(list(Path(TEMP_DATA_DIR).glob('frames/*.jpg'))) if Path(TEMP_DATA_DIR).exists() else 0
+    print(f"总帧数: {frames_count}")
+    print(f"置信度阈值: {DEFAULT_CONF_THRESHOLD:.2f}")
+    print("=" * 50)
+
+    window = PostAnnotatorWindow(output_video_path)
+    window.show()
+    sys.exit(app.exec_())
 
 if __name__ == "__main__":
     main()
