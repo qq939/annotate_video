@@ -2,7 +2,7 @@
 FIND = []  # 第1行：文本提示词列表，运行时由用户输入，用于SAM3语义分割
 SRC_DIR = "src"  # 第31行：视频源目录
 DST_DIR = "dst"  # 第67行：输出视频目录
-TEMP_DATA_DIR = "temp_data"  # 第8行：临时数据目录，用于保存每帧画面和mask logits
+TEMP_DATA_DIR = "temp_data"  # 第8行：临时数据目录，用于保存每帧画面和COCO格式标注
 WINDOW_NAME = "视频标注工具"  # 第37行：窗口名称
 SAM_MODEL_PATH = "sam3.pt"  # SAM模型路径（可下载sam_b.pt或sam3.pt）
 BOX_COLORS = [  # 第55行：标注框颜色列表
@@ -20,6 +20,7 @@ import cv2
 import numpy as np
 import subprocess
 import os
+import json
 from pathlib import Path
 from dataclasses import dataclass
 from typing import List, Tuple
@@ -353,20 +354,26 @@ class VideoAnnotator:
                 shutil.rmtree(temp_data_path)
             temp_data_path.mkdir(parents=True, exist_ok=True)
             frames_dir = temp_data_path / "frames"
-            masks_dir = temp_data_path / "masks"
+            labels_dir = temp_data_path / "labels"
             frames_dir.mkdir(exist_ok=True)
-            masks_dir.mkdir(exist_ok=True)
-            metadata = {
-                'video_path': self.video_path,
-                'fps': fps,
-                'width': width,
-                'height': height,
-                'fourcc': fourcc_str,
-                'bboxes': bboxes,
-                'FIND': FIND,
-                'boxes': [(box.x1, box.y1, box.x2, box.y2, box.color) for box in self.boxes] if self.boxes else []
+            labels_dir.mkdir(exist_ok=True)
+
+            coco_data = {
+                'info': {
+                    'description': 'Video Annotation Dataset',
+                    'video_path': self.video_path,
+                    'fps': fps,
+                    'width': width,
+                    'height': height,
+                    'fourcc': fourcc_str,
+                    'FIND': FIND if FIND else []
+                },
+                'images': [],
+                'annotations': [],
+                'categories': [{'id': i, 'name': f'object_{i}'} for i in range(len(self.boxes) if self.boxes else 8)]
             }
-            np.save(temp_data_path / 'metadata.npy', metadata, allow_pickle=True)
+
+            annotation_id = 0
 
             if bboxes:
                 predictor_args = {
@@ -407,18 +414,54 @@ class VideoAnnotator:
                         orig_img = cv2.cvtColor(orig_img, cv2.COLOR_BGRA2BGR)
                     cv2.imwrite(str(frames_dir / f"frame_{frame_count:06d}.jpg"), orig_img)
 
-                masks_data = {}
+                image_info = {
+                    'id': frame_count,
+                    'file_name': f"frame_{frame_count:06d}.jpg",
+                    'width': width,
+                    'height': height,
+                    'frame_count': frame_count
+                }
+                coco_data['images'].append(image_info)
+
+                frame_annotations = []
                 if hasattr(r, 'masks') and r.masks is not None:
                     masks_tensor = r.masks.data
                     if masks_tensor is not None and len(masks_tensor) > 0:
                         masks_array = masks_tensor.cpu().numpy()
                         for i, mask in enumerate(masks_array):
-                            masks_data[f'mask_{i}'] = mask
-                        logits_path = masks_dir / f"frame_{frame_count:06d}_logits.npy"
-                        np.save(str(logits_path), masks_array)
+                            mask_binary = (mask > 0.5).astype(np.uint8)
+                            contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-                masks_info_path = masks_dir / f"frame_{frame_count:06d}_info.npy"
-                np.save(str(masks_info_path), masks_data, allow_pickle=True)
+                            for contour in contours:
+                                if len(contour) >= 3:
+                                    polygon = contour.squeeze().flatten().tolist()
+                                    x_coords = polygon[0::2]
+                                    y_coords = polygon[1::2]
+                                    x_min, x_max = min(x_coords), max(x_coords)
+                                    y_min, y_max = min(y_coords), max(y_coords)
+
+                                    bbox = [float(x_min), float(y_min),
+                                           float(x_max - x_min), float(y_max - y_min)]
+
+                                    area = cv2.contourArea(contour)
+
+                                    if area > 0:
+                                        ann = {
+                                            'id': annotation_id,
+                                            'image_id': frame_count,
+                                            'category_id': i % len(coco_data['categories']),
+                                            'bbox': bbox,
+                                            'area': float(area),
+                                            'segmentation': [polygon],
+                                            'iscrowd': 0,
+                                            'confidence': float(mask.max())
+                                        }
+                                        coco_data['annotations'].append(ann)
+                                        frame_annotations.append(ann)
+                                        annotation_id += 1
+
+                with open(labels_dir / f"frame_{frame_count:06d}.json", 'w') as f:
+                    json.dump(frame_annotations, f)
 
                 annotated_frame = r.plot()
                 annotated_frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_RGB2BGR)
@@ -440,10 +483,14 @@ class VideoAnnotator:
                 if frame_count % 30 == 0:
                     print(f"已处理 {frame_count} 帧")
 
+            with open(temp_data_path / 'annotations.json', 'w') as f:
+                json.dump(coco_data, f)
+
             out.release()
             print(f"✓ 标注视频已保存到: {output_path}")
             print(f"✓ 共处理 {frame_count} 帧")
             print(f"✓ 标注了 {len(self.boxes) if self.boxes else 0} 个目标区域")
+            print(f"✓ COCO格式标注已保存到: {temp_data_path / 'annotations.json'}")
             print(f"✓ 临时数据已保存到: {temp_data_path}")
             upload_to_obs(str(output_path))
 

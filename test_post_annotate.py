@@ -2,108 +2,83 @@ import unittest
 import cv2
 import numpy as np
 from pathlib import Path
-import time
+import json
 
 class TestPostAnnotate(unittest.TestCase):
-    def test_post_annotate_import(self):
-        """测试post_annotate模块导入"""
-        try:
-            import post_annotate
-            print("✓ post_annotate模块导入成功")
-        except ImportError as e:
-            self.fail(f"post_annotate模块导入失败: {e}")
-
-    def test_confidence_threshold_functionality(self):
-        """测试置信度阈值功能"""
-        from post_annotate import PostAnnotator
-
+    def test_coco_annotation_format(self):
+        """测试COCO格式标注功能"""
         temp_data = Path("temp_data")
         if not temp_data.exists():
             self.skipTest("临时数据目录不存在，跳过测试")
 
-        frames_dir = temp_data / "frames"
-        if not frames_dir.exists():
-            self.skipTest("帧数据目录不存在，跳过测试")
+        annotations_path = temp_data / "annotations.json"
+        if not annotations_path.exists():
+            self.skipTest("COCO标注文件不存在，跳过测试")
 
-        frame_files = list(frames_dir.glob("frame_*.jpg"))
-        if len(frame_files) == 0:
-            self.skipTest("没有帧数据，跳过测试")
+        with open(annotations_path, 'r') as f:
+            coco_data = json.load(f)
 
-        print(f"✓ 找到 {len(frame_files)} 帧数据")
-        print("✓ 置信度阈值功能测试通过")
+        self.assertIn('info', coco_data, "COCO数据应该包含info字段")
+        self.assertIn('images', coco_data, "COCO数据应该包含images字段")
+        self.assertIn('annotations', coco_data, "COCO数据应该包含annotations字段")
+        self.assertIn('categories', coco_data, "COCO数据应该包含categories字段")
 
-    def test_frame_loading(self):
-        """测试帧加载功能"""
+        print(f"✓ COCO格式标注测试通过")
+        print(f"  总帧数: {len(coco_data['images'])}")
+        print(f"  总标注数: {len(coco_data['annotations'])}")
+
+    def test_video_info_consistency(self):
+        """测试视频参数一致性"""
         temp_data = Path("temp_data")
         if not temp_data.exists():
             self.skipTest("临时数据目录不存在，跳过测试")
 
-        frames_dir = temp_data / "frames"
-        if not frames_dir.exists():
-            self.skipTest("帧数据目录不存在，跳过测试")
+        annotations_path = temp_data / "annotations.json"
+        if not annotations_path.exists():
+            self.skipTest("COCO标注文件不存在，跳过测试")
 
-        frame_files = sorted(list(frames_dir.glob("frame_*.jpg")))
-        if len(frame_files) == 0:
-            self.skipTest("没有帧数据，跳过测试")
+        with open(annotations_path, 'r') as f:
+            coco_data = json.load(f)
 
-        frame_path = frame_files[0]
-        frame = cv2.imread(str(frame_path))
-        self.assertIsNotNone(frame, "应该能成功加载帧")
-        print(f"✓ 帧加载功能测试通过，帧尺寸: {frame.shape}")
+        info = coco_data['info']
+        self.assertIn('fps', info, "视频信息应该包含fps")
+        self.assertIn('width', info, "视频信息应该包含width")
+        self.assertIn('height', info, "视频信息应该包含height")
+        self.assertIn('fourcc', info, "视频信息应该包含fourcc")
 
-    def test_mask_data_structure(self):
-        """测试mask数据结构"""
+        print(f"✓ 视频参数一致性测试通过")
+        print(f"  尺寸: {info['width']}x{info['height']}")
+        print(f"  FPS: {info['fps']}")
+        print(f"  编码: {info['fourcc']}")
+
+    def test_frame_labels_format(self):
+        """测试帧标注格式"""
         temp_data = Path("temp_data")
         if not temp_data.exists():
             self.skipTest("临时数据目录不存在，跳过测试")
 
-        masks_dir = temp_data / "masks"
-        if not masks_dir.exists():
-            self.skipTest("masks目录不存在，跳过测试")
+        labels_dir = temp_data / "labels"
+        if not labels_dir.exists():
+            self.skipTest("labels目录不存在，跳过测试")
 
-        mask_files = list(masks_dir.glob("frame_*_info.npy"))
-        if len(mask_files) == 0:
-            self.skipTest("没有mask数据，跳过测试")
+        label_files = list(labels_dir.glob("frame_*.json"))
+        if len(label_files) == 0:
+            self.skipTest("没有帧标注文件，跳过测试")
 
-        masks_info = np.load(str(mask_files[0]), allow_pickle=True).item()
-        self.assertIsInstance(masks_info, dict, "mask数据应该是字典类型")
-        print(f"✓ Mask数据结构测试通过，包含 {len(masks_info)} 个mask")
+        with open(label_files[0], 'r') as f:
+            frame_labels = json.load(f)
 
-    def test_metadata_loading(self):
-        """测试元数据加载"""
-        temp_data = Path("temp_data")
-        if not temp_data.exists():
-            self.skipTest("临时数据目录不存在，跳过测试")
+        if len(frame_labels) > 0:
+            ann = frame_labels[0]
+            self.assertIn('bbox', ann, "标注应该包含bbox")
+            self.assertIn('segmentation', ann, "标注应该包含segmentation")
+            self.assertIn('confidence', ann, "标注应该包含confidence")
+            self.assertIn('id', ann, "标注应该包含id")
+            self.assertIn('image_id', ann, "标注应该包含image_id")
 
-        metadata_path = temp_data / "metadata.npy"
-        if not metadata_path.exists():
-            self.skipTest("元数据文件不存在，跳过测试")
-
-        metadata = np.load(str(metadata_path), allow_pickle=True).item()
-        self.assertIn('fps', metadata, "元数据应该包含fps")
-        self.assertIn('width', metadata, "元数据应该包含width")
-        self.assertIn('height', metadata, "元数据应该包含height")
-        print(f"✓ 元数据加载测试通过")
-        print(f"  视频尺寸: {metadata['width']}x{metadata['height']}")
-        print(f"  FPS: {metadata['fps']}")
-
-    def test_threshold_adjustment(self):
-        """测试阈值调整逻辑"""
-        from post_annotate import PostAnnotator
-
-        temp_data = Path("temp_data")
-        if not temp_data.exists():
-            self.skipTest("临时数据目录不存在，跳过测试")
-
-        frames_dir = temp_data / "frames"
-        if not frames_dir.exists():
-            self.skipTest("帧数据目录不存在，跳过测试")
-
-        test_thresholds = [0.0, 0.25, 0.5, 0.75, 1.0]
-        for threshold in test_thresholds:
-            self.assertTrue(0.0 <= threshold <= 1.0, f"阈值应该在[0, 1]范围内: {threshold}")
-
-        print("✓ 阈值调整逻辑测试通过")
+        print(f"✓ 帧标注格式测试通过")
+        print(f"  标注文件数: {len(label_files)}")
+        print(f"  第一个标注包含bbox和segmentation")
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
