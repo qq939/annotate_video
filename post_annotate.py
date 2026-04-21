@@ -9,15 +9,18 @@ import sys
 from pathlib import Path
 
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-                             QLabel, QSlider, QPushButton, QMessageBox)
+                             QLabel, QSlider, QPushButton, QMessageBox, QFileDialog)
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QImage, QPixmap
 
 class PostAnnotatorWindow(QMainWindow):
-    def __init__(self, output_video_path):
+    def __init__(self, output_video_path, temp_data_path=None):
         super().__init__()
         self.output_video_path = output_video_path
-        self.temp_data_path = Path(TEMP_DATA_DIR)
+        if temp_data_path:
+            self.temp_data_path = Path(temp_data_path)
+        else:
+            self.temp_data_path = Path(TEMP_DATA_DIR)
         self.conf_threshold = DEFAULT_CONF_THRESHOLD
 
         if not self.temp_data_path.exists():
@@ -208,20 +211,40 @@ class PostAnnotatorWindow(QMainWindow):
 def main():
     app = QApplication(sys.argv)
 
+    temp_data_path = None
+    output_video_path = "dst/output_annotated.mp4"
+
     if len(sys.argv) > 1:
-        output_video_path = sys.argv[1]
-    else:
-        output_video_path = "dst/output_annotated.mp4"
+        temp_data_path = sys.argv[1]
+    if len(sys.argv) > 2:
+        output_video_path = sys.argv[2]
+
+    if not temp_data_path:
+        temp_dir = QFileDialog.getExistingDirectory(None, "选择temp_data文件夹", ".")
+        if not temp_dir:
+            print("未选择文件夹，程序退出")
+            sys.exit(0)
+        temp_data_path = temp_dir
+
+    if not Path(temp_data_path).exists():
+        print(f"错误：文件夹不存在: {temp_data_path}")
+        sys.exit(1)
+
+    if not (Path(temp_data_path) / "annotations.json").exists():
+        print("错误：annotations.json文件不存在")
+        sys.exit(1)
 
     print("\n" + "=" * 50)
     print("后处理预览程序 - PyQt5版本")
     print("=" * 50)
-    frames_count = len(list(Path(TEMP_DATA_DIR).glob('frames/*.jpg'))) if Path(TEMP_DATA_DIR).exists() else 0
+    print(f"数据文件夹: {temp_data_path}")
+    frames_dir = Path(temp_data_path) / "frames"
+    frames_count = len(list(frames_dir.glob("*.jpg"))) if frames_dir.exists() else 0
     print(f"总帧数: {frames_count}")
-    print(f"置信度阈值: {DEFAULT_CONF_THRESHOLD:.2f}")
+    print(f"默认置信度阈值: {DEFAULT_CONF_THRESHOLD:.2f}")
     print("=" * 50)
 
-    window = PostAnnotatorWindow(output_video_path)
+    window = PostAnnotatorWindow(output_video_path, temp_data_path)
     window.show()
     sys.exit(app.exec_())
 
