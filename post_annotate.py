@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-                             QLabel, QSlider, QPushButton, QMessageBox, QFileDialog)
+                             QLabel, QSlider, QPushButton, QMessageBox, QFileDialog, QInputDialog, QListWidget)
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QImage, QPixmap
 
@@ -96,6 +96,10 @@ class PostAnnotatorWindow(QMainWindow):
         self.export_btn.clicked.connect(self.export_video)
         button_layout.addWidget(self.export_btn)
 
+        self.delete_btn = QPushButton("删除误判ID")
+        self.delete_btn.clicked.connect(self.delete_false_positive)
+        button_layout.addWidget(self.delete_btn)
+
         layout.addLayout(button_layout)
 
     def on_threshold_change(self, value):
@@ -180,6 +184,63 @@ class PostAnnotatorWindow(QMainWindow):
         visible_count = sum(1 for ann in annotations if ann.get('confidence', 1.0) >= self.conf_threshold)
         self.info_label.setText(f"帧: {self.current_frame_idx + 1}/{self.total_frames}")
         self.count_label.setText(f"可见标注数: {visible_count}/{len(annotations)}")
+
+    def delete_false_positive(self):
+        unique_track_ids = set()
+        for ann in self.coco_data['annotations']:
+            if 'track_id' in ann:
+                unique_track_ids.add(ann['track_id'])
+
+        if not unique_track_ids:
+            QMessageBox.information(self, "提示", "当前标注没有track_id信息")
+            return
+
+        track_id_list = sorted(list(unique_track_ids))
+        track_id_strs = [f"ID {tid}" for tid in track_id_list]
+
+        item, ok = QInputDialog.getItem(self, "删除误判ID", "选择要删除的track_id:", track_id_strs, 0, False)
+
+        if ok and item:
+            selected_track_id = int(item.split()[1])
+
+            reply = QMessageBox.question(
+                self,
+                "确认删除",
+                f"确定要删除track_id={selected_track_id}的所有标注吗？",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+
+            if reply == QMessageBox.Yes:
+                original_count = len(self.coco_data['annotations'])
+                self.coco_data['annotations'] = [
+                    ann for ann in self.coco_data['annotations']
+                    if ann.get('track_id') != selected_track_id
+                ]
+                deleted_count = original_count - len(self.coco_data['annotations'])
+
+                with open(str(self.temp_data_path / 'annotations.json'), 'w') as f:
+                    json.dump(self.coco_data, f, indent=2)
+
+                for i in range(self.total_frames):
+                    frame_file = self.frames_dir / f"frame_{i:06d}.jpg"
+                    label_file = self.labels_dir / f"frame_{i:06d}.json"
+
+                    if label_file.exists():
+                        with open(str(label_file), 'r') as f:
+                            frame_labels = json.load(f)
+
+                        frame_labels = [
+                            lbl for lbl in frame_labels
+                            if lbl.get('track_id') != selected_track_id
+                        ]
+
+                        with open(str(label_file), 'w') as f:
+                            json.dump(frame_labels, f)
+
+                QMessageBox.information(self, "删除成功", f"已删除 {deleted_count} 个标注")
+                print(f"已删除track_id={selected_track_id}的 {deleted_count} 个标注")
+                self.update_display()
 
     def export_video(self):
         print(f"\n正在导出视频，使用置信度阈值: {self.conf_threshold:.2f}")

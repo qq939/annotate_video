@@ -23,7 +23,7 @@ import os
 import json
 from pathlib import Path
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 from PIL import Image, ImageDraw, ImageFont
 
 def put_chinese_text(img, text, position, font_size=20, color=(255, 255, 255)):
@@ -41,6 +41,105 @@ def put_chinese_text(img, text, position, font_size=20, color=(255, 255, 255)):
 
     draw.text(position, text, font=font, fill=color)
     return cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
+
+def calculate_bbox_iou(bbox1, bbox2):
+    """计算两个bbox的IoU"""
+    x1_1, y1_1, w1, h1 = bbox1
+    x1_2, y1_2, w2, h2 = bbox2
+
+    x2_1, y2_1 = x1_1 + w1, y1_1 + h1
+    x2_2, y2_2 = x1_2 + w2, y1_2 + h2
+
+    xi1 = max(x1_1, x1_2)
+    yi1 = max(y1_1, y1_2)
+    xi2 = min(x2_1, x2_2)
+    yi2 = min(y2_1, y2_2)
+
+    inter_area = max(0, xi2 - xi1) * max(0, yi2 - yi1)
+    bbox1_area = w1 * h1
+    bbox2_area = w2 * h2
+    union_area = bbox1_area + bbox2_area - inter_area
+
+    if union_area == 0:
+        return 0.0
+
+    return inter_area / union_area
+
+def calculate_mask_iou(mask1, mask2):
+    """计算两个mask的IoU"""
+    intersection = np.logical_and(mask1, mask2).sum()
+    union = np.logical_or(mask1, mask2).sum()
+
+    if union == 0:
+        return 0.0
+
+    return float(intersection) / float(union)
+
+class TrackManager:
+    """跟踪管理器，用于保持目标ID在不同帧间的一致性"""
+    def __init__(self, iou_threshold=0.5):
+        self.track_id_counter = 0
+        self.tracked_objects = {}  # track_id -> {mask, bbox, last_seen}
+        self.next_track_id = 0
+        self.iou_threshold = iou_threshold
+
+    def update(self, masks, bboxes, frame_idx):
+        """更新跟踪，返回每个mask对应的track_id"""
+        if len(masks) == 0:
+            return []
+
+        track_ids = []
+
+        if len(self.tracked_objects) == 0:
+            for i in range(len(masks)):
+                track_id = self.next_track_id
+                self.next_track_id += 1
+                self.tracked_objects[track_id] = {
+                    'mask': masks[i],
+                    'bbox': bboxes[i] if i < len(bboxes) else None,
+                    'last_seen': frame_idx
+                }
+                track_ids.append(track_id)
+            return track_ids
+
+        for i, (mask, bbox) in enumerate(zip(masks, bboxes if len(bboxes) > i else [None] * len(masks))):
+            best_iou = 0
+            best_track_id = None
+
+            for track_id, obj in self.tracked_objects.items():
+                if obj['mask'] is not None:
+                    iou = calculate_mask_iou(mask, obj['mask'])
+                elif obj['bbox'] is not None and bbox is not None:
+                    iou = calculate_bbox_iou(bbox, obj['bbox'])
+                else:
+                    iou = 0
+
+                if iou > best_iou:
+                    best_iou = iou
+                    best_track_id = track_id
+
+            if best_iou >= self.iou_threshold:
+                track_ids.append(best_track_id)
+                self.tracked_objects[best_track_id] = {
+                    'mask': mask,
+                    'bbox': bbox,
+                    'last_seen': frame_idx
+                }
+            else:
+                track_id = self.next_track_id
+                self.next_track_id += 1
+                track_ids.append(track_id)
+                self.tracked_objects[track_id] = {
+                    'mask': mask,
+                    'bbox': bbox,
+                    'last_seen': frame_idx
+                }
+
+        for track_id in list(self.tracked_objects.keys()):
+            if self.tracked_objects[track_id]['last_seen'] < frame_idx - 30:
+                del self.tracked_objects[track_id]
+
+        return track_ids
 
 def upload_to_obs(file_path: str):
     """上传文件到OBS云存储"""
@@ -375,6 +474,9 @@ class VideoAnnotator:
 
             annotation_id = 0
 
+            track_manager = TrackManager(iou_threshold=0.5)
+            print("✓ 已启用记忆跟踪功能")
+
             if bboxes:
                 predictor_args = {
                     'source': self.video_path,
@@ -433,7 +535,9 @@ class VideoAnnotator:
                         if hasattr(r, 'boxes') and r.boxes is not None and hasattr(r.boxes, 'conf'):
                             confs = r.boxes.conf.cpu().numpy()
 
-                        for i, mask in enumerate(masks_array):
+                        current_masks = []
+                        current_bboxes = []
+                        for mask in masks_array:
                             mask_binary = (mask > 0.5).astype(np.uint8)
                             contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
@@ -451,15 +555,30 @@ class VideoAnnotator:
                                     area = cv2.contourArea(contour)
 
                                     if area > 0:
-                                        if confs is not None and i < len(confs):
-                                            confidence = float(confs[i])
-                                        else:
-                                            confidence = float(mask.max())
+                                        current_masks.append(mask_binary)
+                                        current_bboxes.append(bbox)
+
+                        if current_masks:
+                            track_ids = track_manager.update(current_masks, current_bboxes, frame_count)
+
+                            for idx, (mask, bbox) in enumerate(zip(current_masks, current_bboxes)):
+                                mask_binary = (mask > 0.5).astype(np.uint8)
+                                contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+                                for contour in contours:
+                                    if len(contour) >= 3:
+                                        polygon = contour.squeeze().flatten().tolist()
+                                        area = cv2.contourArea(contour)
+
+                                        track_id = track_ids[idx] if idx < len(track_ids) else annotation_id
+
+                                        confidence = float(confs[idx]) if confs is not None and idx < len(confs) else float(mask.max())
 
                                         ann = {
                                             'id': annotation_id,
+                                            'track_id': track_id,
                                             'image_id': frame_count,
-                                            'category_id': i % len(coco_data['categories']),
+                                            'category_id': track_id,
                                             'bbox': bbox,
                                             'area': float(area),
                                             'segmentation': [polygon],
