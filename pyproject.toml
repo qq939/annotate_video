@@ -39,8 +39,8 @@ dependencies = [
 
 [project.optional-dependencies]
 gpu = [
-    {version = ">=2.5.0", index = "https://download.pytorch.org/whl/cu126", name = "torch"},
-    {version = ">=0.20.0", index = "https://download.pytorch.org/whl/cu126", name = "torchvision"},
+    "torch @ https://download.pytorch.org/whl/cu126/torch-2.5.0%2Bcu126-cp310-cp310-linux_x86_64.whl",
+    "torchvision @ https://download.pytorch.org/whl/cu126/torchvision-0.20.0%2Bcu126-cp310-cp310-linux_x86_64.whl",
 ]
 dev = [
     "pytest",
