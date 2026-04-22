@@ -184,6 +184,24 @@ def get_output_filename(video_path: str) -> str:
 
     return f"{video_name}_annotated{video_ext}"
 
+def get_device():
+    """自动检测并返回可用的计算设备"""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            gpu_name = torch.cuda.get_device_name(0)
+            print(f"✓ 检测到GPU: {gpu_name}")
+            return '0'
+        elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            print("✓ 检测到Apple MPS GPU")
+            return 'mps'
+        else:
+            print("✓ 未检测到GPU，使用CPU")
+            return 'cpu'
+    except Exception as e:
+        print(f"⚠ GPU检测失败: {e}，使用CPU")
+        return 'cpu'
+
 @dataclass
 class AnnotationBox:
     x1: int
@@ -411,11 +429,14 @@ class VideoAnnotator:
             from ultralytics.models.sam import SAM3VideoSemanticPredictor
             print("正在加载SAM3视频分割模型...")
 
+            device = get_device()
+
             overrides = dict(
                 conf=0.25,
                 task="segment",
                 mode="predict",
                 model=SAM_MODEL_PATH,
+                device=device,
                 half=False,
                 save=True,
                 verbose=False
@@ -632,8 +653,10 @@ class VideoAnnotator:
             try:
                 from ultralytics import SAM
                 print("正在加载SAM模型...")
+                device = get_device()
                 sam_model = SAM(SAM_MODEL_PATH)
-                print(f"SAM模型加载成功: {SAM_MODEL_PATH}")
+                sam_model.to(device)
+                print(f"SAM模型加载成功: {SAM_MODEL_PATH} (device: {device})")
 
                 print("正在使用SAM模型进行智能分割...")
                 print("注意: SAM分割可能需要一些时间，请耐心等待...")
