@@ -10,6 +10,7 @@ __pycache__
 !requirements.txt
 !requirements_*.txt
 !pyproject.toml
+!requirements_gpu.txt
 !rtsp_reader.py
 !test_rtsp_reader.py
 !test_stream.py
