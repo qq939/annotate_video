@@ -102,7 +102,10 @@ class TrackManager:
                 track_ids.append(track_id)
             return track_ids
 
-        for i, (mask, bbox) in enumerate(zip(masks, bboxes if len(bboxes) > i else [None] * len(masks))):
+        if len(bboxes) < len(masks):
+            bboxes = bboxes + [None] * (len(masks) - len(bboxes))
+
+        for i, (mask, bbox) in enumerate(zip(masks, bboxes)):
             best_iou = 0
             best_track_id = None
 
