@@ -2,18 +2,21 @@
 __pycache__
 *.pyc
 .DS_Store
-
+test*
 *
-!/*.py
-!/*.txt
 !.gitignore
 !.trae/
 !.trae/**
+!requirements.txt
+!requirements_*.txt
+!pyproject.toml
+!requirements_gpu.txt
+!*.py
 
-test*
-check*
-
-temp_data/
-dst/
-*.mp4
+!README_SAM.md
+sam_b.pt
+sam3.pt
 *.pt
+temp_data/
+
+/Users/jimjiang/Downloads/biaozhu && cat .gitignore 2>&1.py
