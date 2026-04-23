@@ -809,20 +809,21 @@ class VideoAnnotator:
                 self.launch_control_panel(output_path)
 
 def main():
-    global FIND
+    global FIND, IOU_THRESHOLD
     FIND = []
 
     print("=" * 50)
     print("视频标注工具 - SAM3实例分割")
     print("=" * 50)
     
-    iou_input = input(f"IoU阈值（默认{IOU_THRESHOLD}）：").strip()
+    default_iou = IOU_THRESHOLD
+    iou_input = input("IoU阈值（默认{0}）：".format(default_iou)).strip()
     if iou_input:
         try:
             IOU_THRESHOLD = float(iou_input)
-            print(f"✓ IoU阈值设置为: {IOU_THRESHOLD}")
+            print("✓ IoU阈值设置为: {0}".format(IOU_THRESHOLD))
         except ValueError:
-            print(f"无效输入，使用默认值: {IOU_THRESHOLD}")
+            print("无效输入，使用默认值: {0}".format(IOU_THRESHOLD))
     
     print("\n请输入要查找的物品名称（可输入多个）：")
     print("输入 'done' 表示完成输入")
