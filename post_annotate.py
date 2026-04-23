@@ -21,134 +21,25 @@ class ClickableLabel(QLabel):
         self.del_points = []  # 删除点列表 (x, y, frame_idx)
         
     def mousePressEvent(self, event):
-        main_window = self.window()
-        
-        if event.button() == Qt.RightButton:
-            if main_window:
-                main_window._right_button_x = event.x()
-                main_window._right_button_y = event.y()
-            event.accept()
-            return
-            
         if event.button() == Qt.LeftButton:
-            pixmap = self.pixmap()
-            
-            if pixmap and main_window:
-                label_w = self.width()
-                label_h = self.height()
-                pixmap_size = pixmap.size()
-                
-                zoom_factor = main_window.zoom_level / 100.0
-                scale = min(label_w / pixmap_size.width(), label_h / pixmap_size.height()) * zoom_factor
-                display_w = pixmap_size.width() * scale
-                display_h = pixmap_size.height() * scale
-                offset_x = (label_w - display_w) / 2 + main_window.pan_x
-                offset_y = (label_h - display_h) / 2 + main_window.pan_y
-                
-                x = int((event.x() - offset_x) / scale)
-                y = int((event.y() - offset_y) / scale)
-                
-                if 0 <= x < pixmap_size.width() and 0 <= y < pixmap_size.height():
-                    if hasattr(main_window, 'handle_del_point'):
-                        frame_idx = main_window.current_frame_idx
-                        print(f"🗑️ 点击删除点: 帧{frame_idx+1}, 坐标({x}, {y})")
-                        main_window.handle_del_point(x, y, frame_idx)
-                        self.update()
-                    else:
-                        print(f"⚠️ 无法获取主窗口，跳过处理")
+            main_window = self.window()
+            if main_window and hasattr(main_window, 'handle_del_point'):
+                pixmap = self.pixmap()
+                if pixmap:
+                    video_w = main_window.video_info['width']
+                    video_h = main_window.video_info['height']
                     
+                    scale_x = pixmap.width() / video_w
+                    scale_y = pixmap.height() / video_h
+                    
+                    x = int(event.x() / scale_x)
+                    y = int(event.y() / scale_y)
+                    
+                    frame_idx = main_window.current_frame_idx
+                    print(f"🗑️ 点击删除点: 帧{frame_idx+1}, 坐标({x}, {y})")
+                    main_window.handle_del_point(x, y, frame_idx)
+                    self.update()
         super().mousePressEvent(event)
-        
-    def wheelEvent(self, event):
-        pass
-        
-    def event(self, event):
-        if event.type() == QEvent.Gesture:
-            return self.gestureEvent(event)
-        return super().event(event)
-    
-    def gestureEvent(self, event):
-        main_window = self.window()
-        if not main_window:
-            return True
-            
-        pinch = event.gesture(Qt.PinchGesture)
-        if pinch:
-            self.handlePinchGesture(pinch)
-            
-        pan = event.gesture(Qt.PanGesture)
-        if pan:
-            self.handlePanGesture(pan)
-            
-        return True
-    
-    def handlePinchGesture(self, gesture):
-        main_window = self.window()
-        if not main_window or not hasattr(main_window, 'zoom_level'):
-            return
-            
-        if gesture.state() == Qt.GestureStarted:
-            self._last_pinch_scale = 1.0
-        elif gesture.state() == Qt.GestureUpdated:
-            scale = gesture.scaleFactor()
-            delta = scale / self._last_pinch_scale
-            self._last_pinch_scale = scale
-            
-            new_zoom = main_window.zoom_level * delta
-            new_zoom = max(25, min(200, new_zoom))
-            main_window.on_zoom_change(int(new_zoom))
-            if hasattr(main_window, 'zoom_label'):
-                main_window.zoom_label.setText(f"画面缩放: {int(new_zoom)}%")
-    
-    def handlePanGesture(self, gesture):
-        main_window = self.window()
-        if not main_window or not hasattr(main_window, 'pan_x'):
-            return
-            
-        if gesture.state() == Qt.GestureStarted:
-            self._last_pan_delta = None
-        elif gesture.state() == Qt.GestureUpdated:
-            delta = gesture.delta()
-            if self._last_pan_delta:
-                dx = delta.x() - self._last_pan_delta.x()
-                dy = delta.y() - self._last_pan_delta.y()
-                main_window.pan_x += dx
-                main_window.pan_y += dy
-                self.update()
-            self._last_pan_delta = delta
-        
-    def mouseMoveEvent(self, event):
-        main_window = self.window()
-        
-        # 右键拖拽平移
-        if event.buttons() & Qt.RightButton and hasattr(main_window, 'pan_x'):
-            dx = event.x() - getattr(main_window, '_right_button_x', event.x())
-            dy = event.y() - getattr(main_window, '_right_button_y', event.y())
-            main_window.pan_x += dx
-            main_window.pan_y += dy
-            main_window._right_button_x = event.x()
-            main_window._right_button_y = event.y()
-            self.update()
-            event.accept()
-            return
-            
-        # 左键拖拽平移
-        if event.buttons() & Qt.LeftButton and hasattr(main_window, 'pan_x'):
-            if not (hasattr(main_window, '_is_dragging_del_point') and main_window._is_dragging_del_point):
-                dx = event.x() - getattr(main_window, '_last_mouse_x', event.x())
-                dy = event.y() - getattr(main_window, '_last_mouse_y', event.y())
-                main_window.pan_x += dx
-                main_window.pan_y += dy
-                main_window._last_mouse_x = event.x()
-                main_window._last_mouse_y = event.y()
-                self.update()
-        super().mouseMoveEvent(event)
-        
-    def mouseReleaseEvent(self, event):
-        if event.button() == Qt.RightButton:
-            event.accept()
-            return
-        super().mouseReleaseEvent(event)
         
     def paintEvent(self, event):
         super().paintEvent(event)
@@ -157,43 +48,30 @@ class ClickableLabel(QLabel):
             painter = QPainter(self)
             pixmap = self.pixmap()
             if pixmap:
-                label_w = self.width()
-                label_h = self.height()
-                pixmap_size = pixmap.size()
+                video_w = main_window.video_info['width']
+                video_h = main_window.video_info['height']
                 
-                zoom_factor = 1.0
-                if hasattr(main_window, 'zoom_level'):
-                    zoom_factor = main_window.zoom_level / 100.0
-                
-                scale = min(label_w / pixmap_size.width(), label_h / pixmap_size.height()) * zoom_factor
-                display_w = pixmap_size.width() * scale
-                display_h = pixmap_size.height() * scale
-                offset_x = (label_w - display_w) / 2
-                offset_y = (label_h - display_h) / 2
-                
-                pan_x = getattr(main_window, 'pan_x', 0)
-                pan_y = getattr(main_window, 'pan_y', 0)
-                offset_x += pan_x
-                offset_y += pan_y
+                scale_x = pixmap.width() / video_w
+                scale_y = pixmap.height() / video_h
                 
                 for del_info in main_window.del_points:
                     if isinstance(del_info, dict):
-                        x = del_info['x']
-                        y = del_info['y']
+                        video_x = del_info['x']
+                        video_y = del_info['y']
                         frame_idx = del_info['frame_idx']
                         shortcut = del_info.get('shortcut', f'F{frame_idx+1}')
                     else:
                         continue
                     
-                    display_x = offset_x + x * scale
-                    display_y = offset_y + y * scale
+                    display_x = int(video_x * scale_x)
+                    display_y = int(video_y * scale_y)
                     
                     painter.setPen(Qt.red)
                     painter.setBrush(Qt.red)
-                    painter.drawEllipse(int(display_x) - 5, int(display_y) - 5, 10, 10)
+                    painter.drawEllipse(display_x - 5, display_y - 5, 10, 10)
                     painter.setPen(Qt.yellow)
                     painter.setFont(QFont("Arial", 8))
-                    painter.drawText(int(display_x) + 8, int(display_y) + 3, shortcut)
+                    painter.drawText(display_x + 8, display_y + 3, shortcut)
 
 class PostAnnotatorWindow(QMainWindow):
     def __init__(self, output_video_path, temp_data_path=None, del_track_id_list=None):
@@ -206,9 +84,6 @@ class PostAnnotatorWindow(QMainWindow):
         self.conf_threshold = DEFAULT_CONF_THRESHOLD
         self.del_track_id_list = del_track_id_list if del_track_id_list else []
         self.del_points = []
-        self.zoom_level = 100
-        self.pan_x = 0
-        self.pan_y = 0
         
         if not self.temp_data_path.exists():
             print(f"错误：临时数据目录不存在: {self.temp_data_path}")
@@ -247,7 +122,7 @@ class PostAnnotatorWindow(QMainWindow):
         
     def init_ui(self):
         self.setWindowTitle('后处理预览 - 置信度阈值调整')
-        self.setGeometry(100, 100, 1200, 700)
+        self.setGeometry(100, 100, self.video_info['width'], self.video_info['height'])
         
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -263,10 +138,8 @@ class PostAnnotatorWindow(QMainWindow):
         self.image_label = ClickableLabel()
         self.image_label.setAlignment(Qt.AlignCenter)
         self.image_label.setMinimumSize(640, 480)
+        self.image_label.setFocusPolicy(Qt.StrongFocus)
         self.clickable_label = self.image_label
-        self.image_label.grabGesture(Qt.PinchGesture)
-        self.image_label.grabGesture(Qt.PanGesture)
-        self.image_label.setAttribute(Qt.WA_AcceptTouchEvents)
         left_layout.addWidget(self.image_label)
         
         info_layout = QHBoxLayout()
@@ -299,19 +172,7 @@ class PostAnnotatorWindow(QMainWindow):
         speed_layout.addWidget(self.speed_slider)
         left_layout.addLayout(speed_layout)
         
-        zoom_layout = QHBoxLayout()
-        self.zoom_label = QLabel(f"画面缩放: {self.zoom_level}%")
-        zoom_layout.addWidget(self.zoom_label)
-        self.zoom_slider = QSlider(Qt.Horizontal)
-        self.zoom_slider.setMinimum(25)
-        self.zoom_slider.setMaximum(200)
-        self.zoom_slider.setValue(100)
-        self.zoom_slider.valueChanged.connect(self.on_zoom_change)
-        zoom_layout.addWidget(QLabel("画面缩放"))
-        zoom_layout.addWidget(self.zoom_slider)
-        left_layout.addLayout(zoom_layout)
-        
-        instructions = QLabel("💡 触控板双指缩放/平移 | 右键长按拖拽平移 | 左键点击添加删除点 | Ctrl+Z撤销")
+        instructions = QLabel("💡 左键单击添加删除点")
         left_layout.addWidget(instructions)
         
         button_layout = QHBoxLayout()
@@ -377,12 +238,6 @@ class PostAnnotatorWindow(QMainWindow):
         if self.timer.isActive():
             self.timer.setInterval(int(1000.0 / self.play_speed))
         
-    def on_zoom_change(self, value):
-        self.zoom_level = value
-        if hasattr(self, 'zoom_label'):
-            self.zoom_label.setText(f"画面缩放: {self.zoom_level}%")
-        self.update_display()
-        
     def toggle_play(self):
         self.is_playing = not self.is_playing
         self.timer.setInterval(int(1000.0 / self.play_speed))
@@ -420,11 +275,7 @@ class PostAnnotatorWindow(QMainWindow):
         bytes_per_line = ch * w
         qt_image = QImage(annotated_frame_rgb.data, w, h, bytes_per_line, QImage.Format_RGB888)
         pixmap = QPixmap.fromImage(qt_image)
-        
-        zoom_factor = self.zoom_level / 100.0
-        scaled_w = int(w * zoom_factor)
-        scaled_h = int(h * zoom_factor)
-        scaled_pixmap = pixmap.scaled(scaled_w, scaled_h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        scaled_pixmap = pixmap.scaled(640, 480, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         self.image_label.setPixmap(scaled_pixmap)
         
         visible_count = sum(1 for ann in annotations 
@@ -477,39 +328,37 @@ class PostAnnotatorWindow(QMainWindow):
     
     def handle_del_point(self, x, y, frame_idx):
         """处理删除点，实时删除track_id"""
-        nearest_ann = self.find_nearest_annotation_in_frame(x, y, frame_idx)
+        containing_anns = self.find_annotations_containing_point(x, y, frame_idx)
         
         del_info = {
             'x': x,
             'y': y,
             'frame_idx': frame_idx,
-            'track_id': None,
-            'ann_id': None,
+            'track_ids': [],
             'shortcut': f"F{frame_idx+1}"
         }
         
-        if nearest_ann:
-            if 'track_id' in nearest_ann:
-                track_id = nearest_ann['track_id']
-                del_info['track_id'] = track_id
-                
-                if track_id not in self.del_track_id_list:
-                    self.del_track_id_list.append(track_id)
-                    print(f"🗑️ 删除track_id: {track_id} (来自帧{frame_idx+1})")
-                else:
-                    print(f"⚠️ track_id {track_id} 已经在删除列表中")
-            else:
-                ann_id = nearest_ann['id']
-                del_info['ann_id'] = ann_id
-                
-                if ann_id not in self.del_track_id_list:
-                    self.del_track_id_list.append(ann_id)
-                    print(f"🗑️ 删除标注ID: {ann_id} (来自帧{frame_idx+1})")
-                else:
-                    print(f"⚠️ 标注ID {ann_id} 已经在删除列表中")
-        else:
+        if not containing_anns:
             print(f"⚠️ 在帧{frame_idx+1}的坐标({x}, {y})处未找到标注")
             return
+        
+        track_ids_added = []
+        for ann in containing_anns:
+            if 'track_id' in ann:
+                track_id = ann['track_id']
+            else:
+                track_id = ann['id']
+                
+            if track_id not in self.del_track_id_list:
+                self.del_track_id_list.append(track_id)
+                track_ids_added.append(track_id)
+            else:
+                print(f"⚠️ track_id {track_id} 已在删除列表中")
+        
+        del_info['track_ids'] = track_ids_added
+        
+        if track_ids_added:
+            print(f"🗑️ 删除track_ids: {track_ids_added} (来自帧{frame_idx+1})")
         
         del_info['idx'] = len(self.del_points)
         self.del_points.append(del_info)
@@ -519,22 +368,34 @@ class PostAnnotatorWindow(QMainWindow):
         self.update_display()
         self.update_del_count_label()
         
-    def find_nearest_annotation_in_frame(self, x, y, frame_idx):
-        """在指定帧中查找最近的标注"""
+    def find_annotations_containing_point(self, x, y, frame_idx):
+        """在指定帧中查找包含点击位置的所有标注"""
         frame, annotations = self.load_frame_data(frame_idx)
         
-        min_dist = float('inf')
-        nearest_ann = None
+        containing_anns = []
         
         for ann in annotations:
-            bbox = ann['bbox']
-            ann_x, ann_y = bbox[0] + bbox[2] / 2, bbox[1] + bbox[3] / 2
-            dist = ((x - ann_x) ** 2 + (y - ann_y) ** 2) ** 0.5
-            if dist < min_dist:
-                min_dist = dist
-                nearest_ann = ann
+            conf = ann.get('confidence', 1.0)
+            if conf < self.conf_threshold:
+                continue
+            
+            polygon = ann['segmentation'][0]
+            
+            if len(polygon) < 6:
+                continue
+            
+            pts = np.array(polygon, dtype=np.int32).reshape(-1, 2)
+            
+            if len(pts) < 3:
+                continue
+            
+            result = cv2.pointPolygonTest(pts, (float(x), float(y)), False)
+            contains = result >= 0
+            
+            if contains:
+                containing_anns.append(ann)
                 
-        return nearest_ann
+        return containing_anns
         
     def add_del_point_ui(self, del_info):
         """添加删除点到右侧列表UI"""

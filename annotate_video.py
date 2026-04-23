@@ -381,25 +381,25 @@ class VideoAnnotator:
 
         return frame
 
-    def launch_post_annotate(self, output_path):
+    def launch_control_panel(self, output_path):
         print("\n" + "=" * 50)
-        print("正在启动后处理程序...")
+        print("正在启动控制面板...")
         print("=" * 50)
         try:
             import sys as _sys
             script_dir = Path(_sys.argv[0] if _sys.argv else __file__).parent.resolve()
             venv_python = script_dir / '.venv' / 'bin' / 'python'
-            post_annotate_script = script_dir / 'post_annotate.py'
+            control_panel_script = script_dir / 'control_panel.py'
             
             if venv_python.exists():
-                subprocess.Popen([str(venv_python), str(post_annotate_script), str(output_path)])
-                print("✓ 后处理程序已启动（使用虚拟环境）")
+                subprocess.Popen([str(venv_python), str(control_panel_script)])
+                print("✓ 控制面板已启动（使用虚拟环境）")
             else:
-                subprocess.Popen(['python3', str(post_annotate_script), str(output_path)])
-                print("✓ 后处理程序已启动（使用系统Python）")
+                subprocess.Popen(['python3', str(control_panel_script)])
+                print("✓ 控制面板已启动（使用系统Python）")
         except Exception as e:
-            print(f"✗ 启动后处理程序失败: {e}")
-            print("您可以稍后手动运行: .venv/bin/python post_annotate.py")
+            print(f"✗ 启动控制面板失败: {e}")
+            print("您可以稍后手动运行: .venv/bin/python video_viewer.py")
         print("=" * 50)
 
     def run(self):
@@ -657,7 +657,7 @@ class VideoAnnotator:
             print(f"✓ 临时数据已保存到: {temp_data_path}")
             upload_to_obs(str(output_path))
 
-            self.launch_post_annotate(output_path)
+            self.launch_control_panel(output_path)
 
         except ImportError as e:
             print(f"SAM3VideoPredictor导入失败: {e}")
@@ -748,7 +748,7 @@ class VideoAnnotator:
                 print(f"✓ 临时数据已保存到: {temp_data_path}")
                 upload_to_obs(str(output_path))
 
-                self.launch_post_annotate(output_path)
+                self.launch_control_panel(output_path)
 
             except Exception as e:
                 print(f"SAM模型加载失败: {e}")
@@ -806,7 +806,7 @@ class VideoAnnotator:
                 print(f"✓ 标注了 {len(self.boxes) if self.boxes else 0} 个目标区域")
                 upload_to_obs(str(output_path))
 
-                self.launch_post_annotate(output_path)
+                self.launch_control_panel(output_path)
 
 def main():
     global FIND
