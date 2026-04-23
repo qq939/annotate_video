@@ -386,11 +386,20 @@ class VideoAnnotator:
         print("正在启动后处理程序...")
         print("=" * 50)
         try:
-            subprocess.Popen(['python3', 'post_annotate.py', str(output_path)])
-            print("✓ 后处理程序已启动")
+            import sys as _sys
+            script_dir = Path(_sys.argv[0] if _sys.argv else __file__).parent.resolve()
+            venv_python = script_dir / '.venv' / 'bin' / 'python'
+            post_annotate_script = script_dir / 'post_annotate.py'
+            
+            if venv_python.exists():
+                subprocess.Popen([str(venv_python), str(post_annotate_script), str(output_path)])
+                print("✓ 后处理程序已启动（使用虚拟环境）")
+            else:
+                subprocess.Popen(['python3', str(post_annotate_script), str(output_path)])
+                print("✓ 后处理程序已启动（使用系统Python）")
         except Exception as e:
             print(f"✗ 启动后处理程序失败: {e}")
-            print("您可以稍后手动运行: python3 post_annotate.py")
+            print("您可以稍后手动运行: .venv/bin/python post_annotate.py")
         print("=" * 50)
 
     def run(self):
