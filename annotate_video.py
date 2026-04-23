@@ -194,17 +194,23 @@ def get_device():
         import torch
         if torch.cuda.is_available():
             gpu_name = torch.cuda.get_device_name(0)
-            print(f"✓ 检测到GPU: {gpu_name}")
-            return '0'
+            print(f"✓ 检测到NVIDIA GPU: {gpu_name}")
+            # CUDA优化
+            torch.backends.cudnn.benchmark = True
+            torch.backends.cudnn.deterministic = False
+            torch.cuda.empty_cache()
+            return '0', 'cuda'
         elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
             print("✓ 检测到Apple MPS GPU")
-            return 'mps'
+            # MPS优化
+            torch.backends.mps.empty_cache()
+            return 'mps', 'mps'
         else:
             print("✓ 未检测到GPU，使用CPU")
-            return 'cpu'
+            return 'cpu', 'cpu'
     except Exception as e:
         print(f"⚠ GPU检测失败: {e}，使用CPU")
-        return 'cpu'
+        return 'cpu', 'cpu'
 
 @dataclass
 class AnnotationBox:
@@ -442,18 +448,32 @@ class VideoAnnotator:
             from ultralytics.models.sam import SAM3VideoSemanticPredictor
             print("正在加载SAM3视频分割模型...")
 
-            device = get_device()
+            device, device_type = get_device()
 
+            # 根据设备类型优化
+            half = device_type == 'cuda'
+            
             overrides = dict(
                 conf=0.25,
                 task="segment",
                 mode="predict",
                 model=SAM_MODEL_PATH,
                 device=device,
-                half=False,
-                save=True,
+                half=half,
+                save=False,
                 verbose=False
             )
+            # 根据设备类型优化
+            if device_type == 'cuda':
+                # CUDA优化：启用batch和stream
+                overrides['batch'] = 1
+                overrides['stream'] = False
+                overrides['stream_buffer'] = False
+            elif device_type == 'mps':
+                # MPS优化：启用半精度
+                overrides['half'] = True
+                overrides['amp'] = True
+            
             predictor = SAM3VideoSemanticPredictor(overrides=overrides)
             print(f"SAM3视频模型加载成功: {SAM_MODEL_PATH}")
 
@@ -642,12 +662,19 @@ class VideoAnnotator:
 
                 out.write(annotated_frame_rgb)
                 frame_count += 1
-
+                
+                # GPU内存优化：定期清理
                 if frame_count % 30 == 0:
                     print(f"已处理 {frame_count} 帧")
-
-            with open(temp_data_path / 'annotations.json', 'w') as f:
-                json.dump(coco_data, f)
+                    try:
+                        import torch
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    except:
+                        pass
+                
+                with open(temp_data_path / 'annotations.json', 'w') as f:
+                    json.dump(coco_data, f)
 
             out.release()
             print(f"✓ 标注视频已保存到: {output_path}")
@@ -666,7 +693,7 @@ class VideoAnnotator:
             try:
                 from ultralytics import SAM
                 print("正在加载SAM模型...")
-                device = get_device()
+                device, device_type = get_device()
                 sam_model = SAM(SAM_MODEL_PATH)
                 sam_model.to(device)
                 print(f"SAM模型加载成功: {SAM_MODEL_PATH} (device: {device})")
