@@ -93,6 +93,18 @@ class ControlPanel(QMainWindow):
         category_layout.addWidget(self.category_input)
         layout.addLayout(category_layout)
         
+        alpha_layout = QHBoxLayout()
+        alpha_layout.addWidget(QLabel("透明度:"))
+        self.alpha_slider = QSlider(Qt.Horizontal)
+        self.alpha_slider.setMinimum(10)
+        self.alpha_slider.setMaximum(100)
+        self.alpha_slider.setValue(50)
+        self.alpha_slider.valueChanged.connect(self.on_alpha_change)
+        alpha_layout.addWidget(self.alpha_slider)
+        self.alpha_label = QLabel("50%")
+        alpha_layout.addWidget(self.alpha_label)
+        layout.addLayout(alpha_layout)
+        
         self.fence_btns = []
         self.fence_clear_btns = []
         for i in range(self.max_fences):
@@ -228,6 +240,12 @@ class ControlPanel(QMainWindow):
     
     def on_conf_change(self, value):
         self.conf_threshold = value / 100.0
+        if self.viewer:
+            self.viewer.update_display()
+    
+    def on_alpha_change(self, value):
+        self.alpha = value / 100.0
+        self.alpha_label.setText(f"{value}%")
         if self.viewer:
             self.viewer.update_display()
     
@@ -477,11 +495,6 @@ class ControlPanel(QMainWindow):
         dst_path = Path("dst/output_annotated.mp4")
         dst_path.parent.mkdir(exist_ok=True)
         
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        fps = int(self.video_info['fps'])
-        out = cv2.VideoWriter(str(dst_path), fourcc, fps, 
-                            (int(self.video_info['width']), int(self.video_info['height'])))
-        
         labels_dir = self.temp_data_path / "labels"
         frames_dir = self.temp_data_path / "frames"
         output_labels_dir = output_path / "labels"
@@ -489,8 +502,10 @@ class ControlPanel(QMainWindow):
         output_frames_dir = output_path / "frames"
         output_frames_dir.mkdir(exist_ok=True)
         
+        category_name = self.category_input.text() or "Detect"
         all_annotations = []
         
+        print("步骤1: 保存到 temp_data_post...")
         for i in range(self.total_frames):
             frame_path = str(frames_dir / f"frame_{i:06d}.jpg")
             frame = cv2.imread(frame_path)
@@ -505,7 +520,6 @@ class ControlPanel(QMainWindow):
                     annotations = json.load(f)
                 
                 filtered = self.filter_annotations(annotations)
-                category_name = self.category_input.text() or "Detect"
                 
                 frame_anns = []
                 for ann in filtered:
@@ -516,14 +530,7 @@ class ControlPanel(QMainWindow):
                 with open(output_label_path, 'w') as f:
                     json.dump(frame_anns, f)
                 
-                for ann in filtered:
-                    ann_copy = ann.copy()
-                    ann_copy['category'] = category_name
-                    all_annotations.append(ann_copy)
-                
-                frame = self.apply_masks_without_fence(frame, frame_anns, self.conf_threshold)
-            
-            out.write(frame)
+                all_annotations.extend(frame_anns)
         
         coco_output = {
             'info': self.video_info,
@@ -534,10 +541,32 @@ class ControlPanel(QMainWindow):
         with open(output_path / "annotations.json", 'w') as f:
             json.dump(coco_output, f)
         
+        print("步骤2: 制作 dst 视频...")
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        fps = int(self.video_info['fps'])
+        out = cv2.VideoWriter(str(dst_path), fourcc, fps, 
+                            (int(self.video_info['width']), int(self.video_info['height'])))
+        
+        post_labels_dir = output_path / "labels"
+        post_frames_dir = output_path / "frames"
+        
+        for i in range(self.total_frames):
+            frame_path = str(post_frames_dir / f"frame_{i:06d}.jpg")
+            frame = cv2.imread(frame_path)
+            
+            label_path = post_labels_dir / f"frame_{i:06d}.json"
+            if label_path.exists():
+                with open(label_path) as f:
+                    annotations = json.load(f)
+                
+                frame = self.render_frame_for_export(frame, annotations)
+            
+            out.write(frame)
+        
         out.release()
         
+        print("步骤3: 上传到OBS...")
         import subprocess
-        print(f"正在上传视频到OBS...")
         try:
             result = subprocess.run(
                 ['curl', '--upload-file', str(dst_path), 'http://obs.dimond.top/output_annotated.mp4'],
@@ -550,7 +579,46 @@ class ControlPanel(QMainWindow):
             print(f"上传失败: {e}")
         
         QMessageBox.information(self, "完成", 
-                             f"视频已导出到: {dst_path}\n数据已保存到: {output_path}\n已上传到OBS")
+                             f"数据已保存到: {output_path}\n视频已导出到: {dst_path}\n已上传到OBS")
+    
+    def render_frame_for_export(self, frame, annotations):
+        alpha = getattr(self, 'alpha', 0.5)
+        result_frame = frame.copy()
+        overlay = frame.copy()
+        
+        if not annotations:
+            return result_frame
+        
+        mask_colors = [
+            (255, 0, 0), (0, 255, 0), (0, 0, 255),
+            (255, 255, 0), (255, 0, 255), (0, 255, 255)
+        ]
+        
+        for ann in annotations:
+            polygon = ann.get('segmentation')
+            bbox = ann.get('bbox')
+            
+            if not bbox:
+                continue
+            
+            color = mask_colors[ann.get('category_id', 0) % len(mask_colors)]
+            category = ann.get('category', ann.get('category_id', 0))
+            conf = ann.get('confidence', 1.0)
+            
+            if polygon:
+                pts = np.array(polygon[0], dtype=np.int32).reshape(-1, 2)
+                cv2.fillPoly(overlay, [pts], color)
+                cv2.polylines(overlay, [pts], True, (255, 255, 255), 2)
+            
+            x, y = int(bbox[0]), int(bbox[1])
+            w, h = int(bbox[2]), int(bbox[3])
+            cv2.rectangle(overlay, (x, y), (x + w, y + h), color, 2)
+            
+            cv2.putText(overlay, f"{category} {conf:.2f}", (x, y - 5),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+        
+        cv2.addWeighted(overlay, alpha, result_frame, 1 - alpha, 0, result_frame)
+        return result_frame
 
 def main():
     app = QApplication(sys.argv)
