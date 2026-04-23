@@ -465,9 +465,8 @@ class VideoAnnotator:
             )
             # 根据设备类型优化
             if device_type == 'cuda':
-                # CUDA优化：启用batch和stream
+                # CUDA优化
                 overrides['batch'] = 1
-                overrides['stream'] = False
                 overrides['stream_buffer'] = False
             elif device_type == 'mps':
                 # MPS优化：启用半精度
