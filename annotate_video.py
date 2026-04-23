@@ -3,6 +3,7 @@ FIND = []  # 第1行：文本提示词列表，运行时由用户输入，用于
 SRC_DIR = "src"  # 第31行：视频源目录
 DST_DIR = "dst"  # 第67行：输出视频目录
 TEMP_DATA_DIR = "temp_data"  # 第8行：临时数据目录，用于保存每帧画面和COCO格式标注
+IOU_THRESHOLD = 0.5  # 第10行：IoU阈值，默认0.5，用于目标跟踪匹配
 WINDOW_NAME = "视频标注工具"  # 第37行：窗口名称
 SAM_MODEL_PATH = "sam3.pt"  # SAM模型路径（可下载sam_b.pt或sam3.pt）
 BOX_COLORS = [  # 第55行：标注框颜色列表
@@ -805,6 +806,15 @@ def main():
     print("=" * 50)
     print("视频标注工具 - SAM3实例分割")
     print("=" * 50)
+    
+    iou_input = input(f"IoU阈值（默认{IOU_THRESHOLD}）：").strip()
+    if iou_input:
+        try:
+            IOU_THRESHOLD = float(iou_input)
+            print(f"✓ IoU阈值设置为: {IOU_THRESHOLD}")
+        except ValueError:
+            print(f"无效输入，使用默认值: {IOU_THRESHOLD}")
+    
     print("\n请输入要查找的物品名称（可输入多个）：")
     print("输入 'done' 表示完成输入")
     print("-" * 50)
