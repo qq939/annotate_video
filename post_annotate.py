@@ -11,7 +11,7 @@ from pathlib import Path
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QLabel, QSlider, QPushButton, QMessageBox, QFileDialog, QInputDialog)
 from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtGui import QImage, QPixmap
+from PyQt5.QtGui import QImage, QPixmap, QPainter
 
 class ClickableLabel(QLabel):
     """可点击的标签，支持鼠标事件"""
