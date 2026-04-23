@@ -23,8 +23,9 @@ class ControlPanel(QMainWindow):
         self.total_frames = len(self.coco_data['images'])
         self.conf_threshold = 0.5
         self.del_points = []
-        self.fence_points = []
-        self.fence_mode = False
+        self.fences = []  # 多个围栏列表
+        self.current_fence_idx = -1  # 当前绘制的围栏索引
+        self.max_fences = 3
         
         self.init_ui()
     
@@ -92,15 +93,18 @@ class ControlPanel(QMainWindow):
         category_layout.addWidget(self.category_input)
         layout.addLayout(category_layout)
         
-        fence_layout = QHBoxLayout()
-        self.fence_btn = QPushButton("绘制围栏")
-        self.fence_btn.clicked.connect(self.toggle_fence_mode)
-        fence_layout.addWidget(self.fence_btn)
-        
-        clear_fence_btn = QPushButton("清除围栏")
-        clear_fence_btn.clicked.connect(self.clear_fence)
-        fence_layout.addWidget(clear_fence_btn)
-        layout.addLayout(fence_layout)
+        self.fence_btns = []
+        self.fence_clear_btns = []
+        for i in range(self.max_fences):
+            fence_layout = QHBoxLayout()
+            self.fence_btns.append(QPushButton(f"围栏{i+1}绘制"))
+            self.fence_btns[i].clicked.connect(lambda checked, idx=i: self.toggle_fence_mode(idx))
+            fence_layout.addWidget(self.fence_btns[i])
+            
+            self.fence_clear_btns.append(QPushButton(f"围栏{i+1}清除"))
+            self.fence_clear_btns[i].clicked.connect(lambda checked, idx=i: self.clear_fence(idx))
+            fence_layout.addWidget(self.fence_clear_btns[i])
+            layout.addLayout(fence_layout)
         
         play_btn = QPushButton("播放")
         play_btn.clicked.connect(self.toggle_play)
@@ -143,26 +147,38 @@ class ControlPanel(QMainWindow):
         self.timer = QTimer()
         self.timer.timeout.connect(self.play_next)
     
-    def toggle_fence_mode(self):
-        self.fence_mode = not self.fence_mode
-        if self.fence_mode:
-            self.fence_btn.setText("完成围栏")
-            self.fence_btn.setStyleSheet("background-color: #00ff00; color: black;")
+    def toggle_fence_mode(self, fence_idx):
+        if fence_idx >= len(self.fences):
+            self.fences.append({'points': [], 'mode': True})
+            self.current_fence_idx = fence_idx
         else:
-            self.fence_btn.setText("绘制围栏")
-            self.fence_btn.setStyleSheet("")
-            if len(self.fence_points) >= 3:
-                self.apply_fence_filter()
-                if self.viewer:
-                    self.viewer.update_display()
-    
-    def clear_fence(self):
-        self.fence_points = []
-        self.fence_mode = False
-        self.fence_btn.setText("绘制围栏")
-        self.fence_btn.setStyleSheet("")
+            fence = self.fences[fence_idx]
+            fence['mode'] = not fence['mode']
+            if fence['mode']:
+                self.current_fence_idx = fence_idx
+        
+        self.update_fence_buttons()
         if self.viewer:
             self.viewer.update_display()
+    
+    def clear_fence(self, fence_idx):
+        if fence_idx < len(self.fences):
+            self.fences[fence_idx]['points'] = []
+            self.fences[fence_idx]['mode'] = False
+        if self.current_fence_idx == fence_idx:
+            self.current_fence_idx = -1
+        self.update_fence_buttons()
+        if self.viewer:
+            self.viewer.update_display()
+    
+    def update_fence_buttons(self):
+        for i, btn in enumerate(self.fence_btns):
+            if i < len(self.fences) and self.fences[i]['mode']:
+                btn.setStyleSheet("background-color: #00ff00; color: black;")
+                btn.setText(f"围栏{i+1}完成")
+            else:
+                btn.setStyleSheet("")
+                btn.setText(f"围栏{i+1}绘制")
     
     def select_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "选择数据文件夹", str(self.temp_data_path))
@@ -219,37 +235,39 @@ class ControlPanel(QMainWindow):
         return set(dp['track_id'] for dp in self.del_points)
     
     def apply_fence_filter(self):
-        if len(self.fence_points) < 3:
-            return
-        
-        labels_dir = self.temp_data_path / "labels"
-        fence_pts = np.array(self.fence_points, dtype=np.int32)
-        
         deleted_by_fence = set()
-        for i in range(self.total_frames):
-            label_path = labels_dir / f"frame_{i:06d}.json"
-            if not label_path.exists():
+        
+        for fence in self.fences:
+            if len(fence['points']) < 3:
                 continue
-            with open(label_path) as f:
-                annotations = json.load(f)
+            fence_pts = np.array(fence['points'], dtype=np.int32)
             
-            for ann in annotations:
-                track_id = ann.get('track_id', ann['id'])
-                bbox = ann['bbox']
+            for i in range(self.total_frames):
+                label_path = self.temp_data_path / "labels" / f"frame_{i:06d}.json"
+                if not label_path.exists():
+                    continue
+                with open(label_path) as f:
+                    annotations = json.load(f)
                 
-                x1, y1 = bbox[0], bbox[1]
-                x2, y2 = bbox[0] + bbox[2], bbox[1] + bbox[3]
-                x3, y3 = bbox[0], bbox[1] + bbox[3]
-                x4, y4 = bbox[0] + bbox[2], bbox[1]
-                
-                points = [(x1, y1), (x2, y2), (x3, y3), (x4, y4)]
-                outside_fence = any(
-                    cv2.pointPolygonTest(fence_pts, pt, False) < 0 
-                    for pt in points
-                )
-                
-                if outside_fence:
-                    deleted_by_fence.add(track_id)
+                for ann in annotations:
+                    track_id = ann.get('track_id', ann.get('id', 0))
+                    bbox = ann.get('bbox')
+                    if not bbox:
+                        continue
+                    
+                    x1, y1 = bbox[0], bbox[1]
+                    x2, y2 = bbox[0] + bbox[2], bbox[1] + bbox[3]
+                    x3, y3 = bbox[0], bbox[1] + bbox[3]
+                    x4, y4 = bbox[0] + bbox[2], bbox[1]
+                    
+                    points = [(x1, y1), (x2, y2), (x3, y3), (x4, y4)]
+                    outside_fence = any(
+                        cv2.pointPolygonTest(fence_pts, pt, False) < 0 
+                        for pt in points
+                    )
+                    
+                    if outside_fence:
+                        deleted_by_fence.add(track_id)
         
         for track_id in deleted_by_fence:
             if track_id not in self.get_deleted_track_ids():
@@ -268,9 +286,10 @@ class ControlPanel(QMainWindow):
         deleted_ids = self.get_deleted_track_ids()
         filtered = []
         
-        fence_pts = None
-        if self.fence_points and len(self.fence_points) >= 3:
-            fence_pts = np.array(self.fence_points, dtype=np.int32)
+        fence_pts_list = []
+        for fence in self.fences:
+            if len(fence['points']) >= 3:
+                fence_pts_list.append(np.array(fence['points'], dtype=np.int32))
         
         for ann in annotations:
             track_id = ann.get('track_id', ann.get('id', 0))
@@ -282,21 +301,21 @@ class ControlPanel(QMainWindow):
             if track_id in deleted_ids:
                 continue
             
-            if fence_pts is not None:
-                bbox = ann['bbox']
-                x1, y1 = bbox[0], bbox[1]
-                x2, y2 = bbox[0] + bbox[2], bbox[1] + bbox[3]
-                x3, y3 = bbox[0], bbox[1] + bbox[3]
-                x4, y4 = bbox[0] + bbox[2], bbox[1]
-                
-                points = [(x1, y1), (x2, y2), (x3, y3), (x4, y4)]
-                outside_fence = any(
-                    cv2.pointPolygonTest(fence_pts, pt, False) < 0 
-                    for pt in points
-                )
-                
-                if outside_fence:
-                    continue
+            # 围栏过滤：只检查bbox中心点
+            if fence_pts_list:
+                bbox = ann.get('bbox')
+                if bbox:
+                    cx = bbox[0] + bbox[2] / 2
+                    cy = bbox[1] + bbox[3] / 2
+                    
+                    inside_any = False
+                    for fence_pts in fence_pts_list:
+                        if cv2.pointPolygonTest(fence_pts, (cx, cy), False) >= 0:
+                            inside_any = True
+                            break
+                    
+                    if not inside_any:
+                        continue
             
             filtered.append(ann)
         
@@ -310,28 +329,44 @@ class ControlPanel(QMainWindow):
             (255, 255, 0), (255, 0, 255), (0, 255, 255)
         ]
         
+        if not annotations:
+            return result_frame
+        
         for ann in annotations:
-            polygon = ann['segmentation'][0]
-            pts = np.array(polygon, dtype=np.int32).reshape(-1, 2)
+            polygon = ann.get('segmentation')
+            bbox = ann.get('bbox')
+            
+            if not bbox:
+                continue
+            
             color = mask_colors[ann.get('category_id', 0) % len(mask_colors)]
-            
-            cv2.fillPoly(result_frame, [pts], color)
-            cv2.polylines(result_frame, [pts], True, (255, 255, 255), 2)
-            
-            bbox = ann['bbox']
-            track_id = ann.get('track_id', ann['id'])
+            category = ann.get('category', ann.get('category_id', 0))
             conf = ann.get('confidence', 1.0)
             
+            # 绘制mask
+            if polygon:
+                pts = np.array(polygon[0], dtype=np.int32).reshape(-1, 2)
+                cv2.fillPoly(result_frame, [pts], color)
+                cv2.polylines(result_frame, [pts], True, (255, 255, 255), 2)
+            
+            # 绘制bbox
             x, y = int(bbox[0]), int(bbox[1])
-            cv2.putText(result_frame, f"ID:{track_id} {conf:.2f}", (x, y - 5),
+            w, h = int(bbox[2]), int(bbox[3])
+            cv2.rectangle(result_frame, (x, y), (x + w, y + h), color, 2)
+            
+            # 绘制label和置信度
+            cv2.putText(result_frame, f"{category} {conf:.2f}", (x, y - 5),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
         
-        if self.fence_points and len(self.fence_points) >= 3:
-            fence_pts = np.array(self.fence_points, dtype=np.int32)
-            pts_array = fence_pts.reshape((-1, 1, 2))
-            cv2.polylines(result_frame, [pts_array], True, (0, 255, 0), 3)
-            for pt in self.fence_points:
-                cv2.circle(result_frame, pt, 5, (0, 255, 0), -1)
+        fence_colors = [(0, 255, 0), (255, 165, 0), (255, 0, 255)]
+        for i, fence in enumerate(self.fences):
+            if len(fence['points']) >= 3:
+                color = fence_colors[i % len(fence_colors)]
+                pts = np.array(fence['points'], dtype=np.int32)
+                pts_array = pts.reshape((-1, 1, 2))
+                cv2.polylines(result_frame, [pts_array], True, color, 3)
+                for pt in fence['points']:
+                    cv2.circle(result_frame, pt, 5, color, -1)
         
         return result_frame
     
@@ -341,20 +376,23 @@ class ControlPanel(QMainWindow):
         if not self.viewer:
             return
         
-        if self.fence_mode:
-            self.fence_points.append((x, y))
-            print(f"围栏点: {len(self.fence_points)}")
-            self.viewer.update_display()
-            return
+        for fence in self.fences:
+            if fence['mode']:
+                fence['points'].append((x, y))
+                print(f"围栏点: {len(fence['points'])}")
+                self.viewer.update_display()
+                return
         
         frame, annotations = self.viewer.load_frame_data(frame_idx)
         filtered = self.filter_annotations(annotations)
         
         for ann in filtered:
-            polygon = ann['segmentation'][0]
-            pts = np.array(polygon, dtype=np.int32).reshape(-1, 2)
+            polygon = ann.get('segmentation')
+            if not polygon:
+                continue
+            pts = np.array(polygon[0], dtype=np.int32).reshape(-1, 2)
             if cv2.pointPolygonTest(pts, (float(x), float(y)), False) >= 0:
-                track_id = ann.get('track_id', ann['id'])
+                track_id = ann.get('track_id', ann.get('id', 0))
                 self.del_points.append({'x': x, 'y': y, 'frame_idx': frame_idx, 'track_id': track_id})
                 self.del_list.addItem(f"帧{frame_idx+1} ({x},{y}) ID:{track_id}")
                 print(f"删除track_id: {track_id}")
@@ -396,27 +434,41 @@ class ControlPanel(QMainWindow):
         
         for ann in annotations:
             polygon = ann.get('segmentation')
-            if not polygon:
-                continue
-            pts = np.array(polygon[0], dtype=np.int32).reshape(-1, 2)
-            color = mask_colors[ann.get('category_id', 0) % len(mask_colors)]
-            
-            cv2.fillPoly(overlay, [pts], color)
-            cv2.polylines(overlay, [pts], True, (255, 255, 255), 2)
-            
             bbox = ann.get('bbox')
             if not bbox:
                 continue
+            
+            color = mask_colors[ann.get('category_id', 0) % len(mask_colors)]
+            
+            # 绘制mask
+            if polygon:
+                pts = np.array(polygon[0], dtype=np.int32).reshape(-1, 2)
+                cv2.fillPoly(overlay, [pts], color)
+                cv2.polylines(overlay, [pts], True, (255, 255, 255), 2)
+            
+            # 绘制bbox
             x, y = int(bbox[0]), int(bbox[1])
+            w, h = int(bbox[2]), int(bbox[3])
+            cv2.rectangle(overlay, (x, y), (x + w, y + h), color, 2)
+            
             category = ann.get('category', ann.get('category_id', 0))
             conf = ann.get('confidence', 1.0)
             
             cv2.putText(overlay, f"{category} {conf:.2f}", (x, y - 5),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
         
-        cv2.addWeighted(overlay, 0.5, result_frame, 0.5, 0, result_frame)
+        # 渲染多个围栏
+        fence_colors = [(0, 255, 0), (255, 165, 0), (255, 0, 255)]
+        for i, fence in enumerate(self.fences):
+            if len(fence['points']) >= 3:
+                color = fence_colors[i % len(fence_colors)]
+                pts = np.array(fence['points'], dtype=np.int32)
+                pts_array = pts.reshape((-1, 1, 2))
+                cv2.polylines(overlay, [pts_array], True, color, 3)
+                for pt in fence['points']:
+                    cv2.circle(overlay, pt, 5, color, -1)
         
-        return result_frame
+        cv2.addWeighted(overlay, 0.5, result_frame, 0.5, 0, result_frame)
     
     def export_video(self):
         output_path = Path("temp_data_post")
@@ -426,8 +478,9 @@ class ControlPanel(QMainWindow):
         dst_path.parent.mkdir(exist_ok=True)
         
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(str(dst_path), fourcc, self.video_info['fps'], 
-                            (self.video_info['width'], self.video_info['height']))
+        fps = int(self.video_info['fps'])
+        out = cv2.VideoWriter(str(dst_path), fourcc, fps, 
+                            (int(self.video_info['width']), int(self.video_info['height'])))
         
         labels_dir = self.temp_data_path / "labels"
         frames_dir = self.temp_data_path / "frames"
