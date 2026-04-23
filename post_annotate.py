@@ -187,13 +187,14 @@ class PostAnnotatorWindow(QMainWindow):
         self.play_speed = float(value)
         self.speed_label.setText(f"播放速度: {self.play_speed:.1f}fps")
         if self.timer.isActive():
-            self.timer.setInterval(int(1000.0 / self.play_speed)
+            self.timer.setInterval(int(1000.0 / self.play_speed))
         
     def toggle_play(self):
         self.is_playing = not self.is_playing
+        self.timer.setInterval(int(1000.0 / self.play_speed))
         if self.is_playing:
             self.play_btn.setText("暂停")
-            self.timer.start(int(1000.0 / self.play_speed))
+            self.timer.start()
         else:
             self.play_btn.setText("播放")
             self.timer.stop()
