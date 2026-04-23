@@ -482,8 +482,22 @@ class ControlPanel(QMainWindow):
             json.dump(coco_output, f)
         
         out.release()
+        
+        import subprocess
+        print(f"正在上传视频到OBS...")
+        try:
+            result = subprocess.run(
+                ['curl', '--upload-file', str(dst_path), 'http://obs.dimond.top/output_annotated.mp4'],
+                capture_output=True, text=True
+            )
+            print(result.stdout)
+            if result.returncode != 0:
+                print(f"上传失败: {result.stderr}")
+        except Exception as e:
+            print(f"上传失败: {e}")
+        
         QMessageBox.information(self, "完成", 
-                             f"视频已导出到: {dst_path}\n数据已保存到: {output_path}")
+                             f"视频已导出到: {dst_path}\n数据已保存到: {output_path}\n已上传到OBS")
 
 def main():
     app = QApplication(sys.argv)
