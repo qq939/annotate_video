@@ -118,10 +118,18 @@ class ControlPanel(QMainWindow):
             fence_layout.addWidget(self.fence_clear_btns[i])
             layout.addLayout(fence_layout)
         
-        play_btn = QPushButton("播放")
-        play_btn.clicked.connect(self.toggle_play)
-        layout.addWidget(play_btn)
-        self.play_btn = play_btn
+        play_layout = QHBoxLayout()
+        self.play_btn = QPushButton("▶播放")
+        self.play_btn.clicked.connect(self.toggle_play)
+        play_layout.addWidget(self.play_btn)
+        
+        self.backward_btn = QPushButton("◀倒播")
+        self.backward_btn.clicked.connect(self.toggle_backward)
+        play_layout.addWidget(self.backward_btn)
+        layout.addLayout(play_layout)
+        
+        self.is_playing = False
+        self.is_backward = False
         
         export_btn = QPushButton("导出视频")
         export_btn.clicked.connect(self.export_video)
@@ -214,17 +222,38 @@ class ControlPanel(QMainWindow):
             self.viewer.set_zoom(factor)
     
     def toggle_play(self):
-        if self.timer.isActive():
+        self.is_backward = False
+        self.backward_btn.setText("◀倒播")
+        if self.is_playing:
             self.timer.stop()
-            self.play_btn.setText("播放")
+            self.is_playing = False
+            self.play_btn.setText("▶播放")
         else:
             self.timer.start(100)
-            self.play_btn.setText("暂停")
+            self.is_playing = True
+            self.play_btn.setText("⏸播放")
+    
+    def toggle_backward(self):
+        self.is_playing = False
+        self.play_btn.setText("▶播放")
+        if self.is_backward:
+            self.timer.stop()
+            self.is_backward = False
+            self.backward_btn.setText("◀倒播")
+        else:
+            self.timer.start(100)
+            self.is_backward = True
+            self.backward_btn.setText("⏸倒播")
     
     def play_next(self):
-        if self.viewer:
-            self.viewer.play_next_frame()
-            self.frame_label.setText(f"帧: {self.viewer.get_current_frame()+1}/{self.total_frames}")
+        if self.is_backward:
+            if self.viewer:
+                self.viewer.go_to_frame(self.viewer.get_current_frame() - 1)
+                self.frame_label.setText(f"帧: {self.viewer.get_current_frame()+1}/{self.total_frames}")
+        else:
+            if self.viewer:
+                self.viewer.play_next_frame()
+                self.frame_label.setText(f"帧: {self.viewer.get_current_frame()+1}/{self.total_frames}")
     
     def prev_frame(self):
         if self.viewer:

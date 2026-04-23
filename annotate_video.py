@@ -530,24 +530,17 @@ class VideoAnnotator:
             track_manager = TrackManager(iou_threshold=0.5)
             print("✓ 已启用记忆跟踪功能")
 
+            predictor_args = {
+                'source': self.video_path,
+                'stream_buffer': False
+            }
             if bboxes:
-                predictor_args = {
-                    'source': self.video_path,
-                    'bboxes': bboxes,
-                    'labels': [1] * len(bboxes),
-                    'stream': True
-                }
-                if FIND:
-                    predictor_args['text'] = FIND
-                results = predictor(**predictor_args)
-            else:
-                predictor_args = {
-                    'source': self.video_path,
-                    'stream': True
-                }
-                if FIND:
-                    predictor_args['text'] = FIND
-                results = predictor(**predictor_args)
+                predictor_args['bboxes'] = bboxes
+                predictor_args['labels'] = [1] * len(bboxes)
+            if FIND:
+                predictor_args['text'] = FIND
+
+            results = predictor(**predictor_args)
 
             frame_count = 0
             print("正在生成标注视频...")
