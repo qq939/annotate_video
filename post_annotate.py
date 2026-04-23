@@ -144,8 +144,21 @@ class PostAnnotatorWindow(QMainWindow):
         self.threshold_slider.setMaximum(100)
         self.threshold_slider.setValue(int(DEFAULT_CONF_THRESHOLD * 100))
         self.threshold_slider.valueChanged.connect(self.on_conf_change)
-        layout.addWidget(QLabel("置信度阈值:"))
+        layout.addWidget(QLabel("置信度阈值"))
         layout.addWidget(self.threshold_slider)
+        
+        speed_layout = QHBoxLayout()
+        self.play_speed = 4.0
+        self.speed_label = QLabel(f"播放速度: {self.play_speed:.1f}fps")
+        speed_layout.addWidget(self.speed_label)
+        self.speed_slider = QSlider(Qt.Horizontal)
+        self.speed_slider.setMinimum(1)
+        self.speed_slider.setMaximum(20)
+        self.speed_slider.setValue(4)
+        self.speed_slider.valueChanged.connect(self.on_speed_change)
+        speed_layout.addWidget(QLabel("播放速度"))
+        speed_layout.addWidget(self.speed_slider)
+        layout.addLayout(speed_layout)
         
         button_layout = QHBoxLayout()
         self.play_btn = QPushButton("播放")
@@ -169,13 +182,18 @@ class PostAnnotatorWindow(QMainWindow):
         self.conf_threshold = value / 100.0
         self.threshold_label.setText(f"置信度阈值: {self.conf_threshold:.2f}")
         self.update_display()
+    
+    def on_speed_change(self, value):
+        self.play_speed = float(value)
+        self.speed_label.setText(f"播放速度: {self.play_speed:.1f}fps")
+        if self.timer.isActive():
+            self.timer.setInterval(int(1000.0 / self.play_speed)
         
     def toggle_play(self):
         self.is_playing = not self.is_playing
         if self.is_playing:
             self.play_btn.setText("暂停")
-            interval = int(1000.0 / (self.video_info['fps'] * self.play_speed))
-            self.timer.start(interval)
+            self.timer.start(int(1000.0 / self.play_speed))
         else:
             self.play_btn.setText("播放")
             self.timer.stop()
