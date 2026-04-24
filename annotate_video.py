@@ -472,6 +472,7 @@ class VideoAnnotator:
                 # MPS优化：启用半精度
                 overrides['half'] = True
                 overrides['amp'] = True
+                overrides['stream_buffer'] = True
             
             predictor = SAM3VideoSemanticPredictor(overrides=overrides)
             print(f"SAM3视频模型加载成功: {SAM_MODEL_PATH}")
@@ -827,6 +828,23 @@ class VideoAnnotator:
 
                 self.launch_control_panel(output_path)
 
+def run_interactive(video_path, iou_threshold=None, find_list=None):
+    global FIND, IOU_THRESHOLD
+    if iou_threshold is not None:
+        IOU_THRESHOLD = iou_threshold
+    if find_list is not None:
+        FIND = find_list
+
+    print("=" * 50)
+    print("视频标注工具 - SAM3实例分割")
+    print("=" * 50)
+    print(f"IoU阈值: {IOU_THRESHOLD}")
+    print(f"物品列表: {FIND if FIND else '(无)'}")
+
+    annotator = VideoAnnotator(video_path, DST_DIR)
+    annotator.boxes = []
+    annotator.run()
+
 def main():
     global FIND, IOU_THRESHOLD
     FIND = []
@@ -903,4 +921,17 @@ def main():
     annotator.run()
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser(description="视频标注工具 - SAM3实例分割")
+    parser.add_argument('--src', type=str, default=None, help='视频文件路径')
+    parser.add_argument('--iou', type=float, default=None, help='IoU阈值')
+    parser.add_argument('--items', type=str, default=None, help='物品列表，逗号分隔')
+    args = parser.parse_args()
+
+    if args.src:
+        video_path = args.src
+        iou_val = args.iou if args.iou is not None else IOU_THRESHOLD
+        items_val = args.items.split(',') if args.items else []
+        run_interactive(video_path, iou_threshold=iou_val, find_list=items_val)
+    else:
+        main()
