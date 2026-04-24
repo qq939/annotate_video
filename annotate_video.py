@@ -202,8 +202,6 @@ def get_device():
             return '0', 'cuda'
         elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
             print("✓ 检测到Apple MPS GPU")
-            # MPS优化
-            torch.backends.mps.empty_cache()
             return 'mps', 'mps'
         else:
             print("✓ 未检测到GPU，使用CPU")
@@ -469,7 +467,6 @@ class VideoAnnotator:
                 overrides['batch'] = 1
                 overrides['stream_buffer'] = False
             elif device_type == 'mps':
-                # MPS优化：启用半精度
                 overrides['half'] = True
                 overrides['amp'] = True
                 overrides['stream_buffer'] = True
@@ -533,7 +530,7 @@ class VideoAnnotator:
 
             predictor_args = {
                 'source': self.video_path,
-                'stream_buffer': False
+                'stream': True
             }
             if bboxes:
                 predictor_args['bboxes'] = bboxes
@@ -661,13 +658,13 @@ class VideoAnnotator:
                     print(f"已处理 {frame_count} 帧")
                     try:
                         import torch
-                        if torch.cuda.is_available():
+                        if torch.cuda.is_available() and device_type == 'cuda':
                             torch.cuda.empty_cache()
                     except:
                         pass
-                
-                with open(temp_data_path / 'annotations.json', 'w') as f:
-                    json.dump(coco_data, f)
+
+            with open(temp_data_path / 'annotations.json', 'w') as f:
+                json.dump(coco_data, f)
 
             out.release()
             print(f"✓ 标注视频已保存到: {output_path}")
