@@ -397,6 +397,25 @@ class UnifiedPanel(QMainWindow):
             QMessageBox.warning(self, "错误", str(e))
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="视频标注工具 - 统一控制面板")
+    parser.add_argument('--src', type=str, default=None, help='视频文件路径')
+    parser.add_argument('--iou', type=float, default=None, help='IoU阈值')
+    parser.add_argument('--items', type=str, default=None, help='物品列表，逗号分隔')
+    args = parser.parse_args()
+
+    if args.src:
+        # 命令行模式：跳过GUI，直接执行标注
+        cmd = [sys.executable, 'annotate_video.py',
+               '--src', args.src]
+        if args.iou is not None:
+            cmd.extend(['--iou', str(args.iou)])
+        if args.items:
+            cmd.extend(['--items', args.items])
+        subprocess.Popen(cmd, cwd=str(Path.cwd()))
+        return
+
+    # GUI模式
     app = QApplication(sys.argv)
     panel = UnifiedPanel()
     panel.show()
