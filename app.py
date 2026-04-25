@@ -39,7 +39,9 @@ class UnifiedPanel(QMainWindow):
         super().__init__()
         self.temp_data_path = Path("temp_data")
         self.viewer = None
+        self.control_panel = None
         self.video_process = None
+        self.alpha = 0.5
         
         self.init_ui()
     
@@ -144,50 +146,6 @@ class UnifiedPanel(QMainWindow):
         path_layout.addWidget(show_btn)
         layout.addLayout(path_layout)
         
-        self.conf_threshold = 0.5
-        self.alpha = 0.5
-        
-        conf_layout = QHBoxLayout()
-        conf_layout.addWidget(QLabel("置信度:"))
-        self.conf_slider = QSlider(Qt.Horizontal)
-        self.conf_slider.setMinimum(0)
-        self.conf_slider.setMaximum(100)
-        self.conf_slider.setValue(50)
-        self.conf_slider.valueChanged.connect(self.on_conf_change)
-        conf_layout.addWidget(self.conf_slider)
-        layout.addLayout(conf_layout)
-        
-        self.fences = []
-        
-        fence_layout = QHBoxLayout()
-        self.fence_btns = []
-        self.fence_clear_btns = []
-        for i in range(3):
-            fence_btn = QPushButton(f"围栏{i+1}")
-            fence_btn.clicked.connect(lambda checked, idx=i: self.toggle_fence(idx))
-            self.fence_btns.append(fence_btn)
-            fence_layout.addWidget(fence_btn)
-            
-            clear_btn = QPushButton("清除")
-            clear_btn.clicked.connect(lambda checked, idx=i: self.clear_fence(idx))
-            self.fence_clear_btns.append(clear_btn)
-            fence_layout.addWidget(clear_btn)
-        layout.addLayout(fence_layout)
-        
-        play_layout = QHBoxLayout()
-        self.backward_btn = QPushButton("◀ 倒播")
-        self.backward_btn.clicked.connect(self.toggle_backward)
-        play_layout.addWidget(self.backward_btn)
-        
-        self.play_btn = QPushButton("▶ 正播")
-        self.play_btn.clicked.connect(self.toggle_play)
-        play_layout.addWidget(self.play_btn)
-        layout.addLayout(play_layout)
-        
-        self.export_btn = QPushButton("📦 导出到 temp_data_post")
-        self.export_btn.clicked.connect(self.export_to_temp_data_post)
-        layout.addWidget(self.export_btn)
-        
         return group
     
     def create_save_section(self):
@@ -234,60 +192,14 @@ class UnifiedPanel(QMainWindow):
         
         return group
     
-    def on_conf_change(self, value):
-        self.conf_threshold = value / 100.0
-    
-    def on_alpha_change(self, value):
-        self.alpha = value / 100.0
-        self.alpha_label.setText(f"{value}%")
-    
-    def toggle_fence(self, idx):
-        if idx >= len(self.fences):
-            self.fences.append({'points': [], 'mode': True})
-        else:
-            fence = self.fences[idx]
-            fence['mode'] = not fence['mode']
-        
-        for i, btn in enumerate(self.fence_btns):
-            if i < len(self.fences) and self.fences[i]['mode']:
-                btn.setStyleSheet("background: #00ff00")
-            else:
-                btn.setStyleSheet("")
-    
-    def clear_fence(self, idx):
-        if idx < len(self.fences):
-            self.fences[idx]['points'] = []
-            self.fences[idx]['mode'] = False
-            self.fence_btns[idx].setStyleSheet("")
-    
-    def toggle_play(self):
-        self.is_backward = False
-        self.backward_btn.setText("◀ 倒播")
-        if hasattr(self, 'is_playing') and self.is_playing:
-            self.is_playing = False
-            self.play_btn.setText("▶ 正播")
-        else:
-            self.is_playing = True
-            self.play_btn.setText("⏸ 正播")
-    
-    def toggle_backward(self):
-        self.is_playing = False
-        self.play_btn.setText("▶ 正播")
-        if hasattr(self, 'is_backward') and self.is_backward:
-            self.is_backward = False
-            self.backward_btn.setText("◀ 倒播")
-        else:
-            self.is_backward = True
-            self.backward_btn.setText("⏸ 倒播")
-    
     def select_data_dir(self):
         folder = QFileDialog.getExistingDirectory(self, "选择数据目录", ".")
         if folder:
             self.path_input.setText(folder)
-            self.temp_data_path = Path(folder)
 
     def show_viewer(self):
         from video_viewer import VideoViewer
+        from control_panel import ControlPanel
         self.temp_data_path = Path(self.path_input.text())
         if not self.temp_data_path.exists():
             QMessageBox.warning(self, "错误", "数据目录不存在")
@@ -296,12 +208,19 @@ class UnifiedPanel(QMainWindow):
             QMessageBox.warning(self, "错误", "annotations.json 不存在")
             return
         self.viewer = VideoViewer(str(self.temp_data_path), control_panel=None)
+        self.control_panel = ControlPanel(str(self.temp_data_path))
+        self.control_panel.set_viewer(self.viewer)
         self.viewer.show()
+        self.control_panel.show()
     
     def select_save_input_dir(self):
         folder = QFileDialog.getExistingDirectory(self, "选择输入目录", ".")
         if folder:
             self.save_input_dir.setText(folder)
+
+    def on_alpha_change(self, value):
+        self.alpha = value / 100.0
+        self.alpha_label.setText(f"{value}%")
     
     def export_to_temp_data_post(self):
         print("导出到 temp_data_post...")
