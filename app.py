@@ -139,6 +139,9 @@ class UnifiedPanel(QMainWindow):
         open_btn = QPushButton("选择")
         open_btn.clicked.connect(self.select_data_dir)
         path_layout.addWidget(open_btn)
+        show_btn = QPushButton("Show")
+        show_btn.clicked.connect(self.show_viewer)
+        path_layout.addWidget(show_btn)
         layout.addLayout(path_layout)
         
         self.conf_threshold = 0.5
@@ -282,6 +285,18 @@ class UnifiedPanel(QMainWindow):
         if folder:
             self.path_input.setText(folder)
             self.temp_data_path = Path(folder)
+
+    def show_viewer(self):
+        from video_viewer import VideoViewer
+        self.temp_data_path = Path(self.path_input.text())
+        if not self.temp_data_path.exists():
+            QMessageBox.warning(self, "错误", "数据目录不存在")
+            return
+        if not (self.temp_data_path / "annotations.json").exists():
+            QMessageBox.warning(self, "错误", "annotations.json 不存在")
+            return
+        self.viewer = VideoViewer(str(self.temp_data_path), control_panel=None)
+        self.viewer.show()
     
     def select_save_input_dir(self):
         folder = QFileDialog.getExistingDirectory(self, "选择输入目录", ".")
