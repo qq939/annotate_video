@@ -49,6 +49,10 @@ class UnifiedPanel(QMainWindow):
         self.current_frame_idx = 0
         self.is_playing = False
         self.is_backward = False
+        self.prompt_drawing_mode = False
+        self.prompt_frame_idx = -1
+        self.inject_process = None
+        self.inject_timer = None
 
         self.init_ui()
 
@@ -203,6 +207,12 @@ class UnifiedPanel(QMainWindow):
         prev_btn.setFixedWidth(50)
         prev_btn.clicked.connect(self.prev_frame)
         frame_nav_play_layout.addWidget(prev_btn)
+
+        self.prompt_btn = QPushButton("设为提示帧")
+        self.prompt_btn.setFixedWidth(80)
+        self.prompt_btn.setStyleSheet("QPushButton { background-color: #FFA500; color: white; border: none; border-radius: 3px; } QPushButton:hover { background-color: #FF8C00; }")
+        self.prompt_btn.clicked.connect(self.toggle_prompt_mode)
+        frame_nav_play_layout.addWidget(self.prompt_btn)
 
         self.frame_label = QLabel("1/1")
         self.frame_label.setAlignment(Qt.AlignCenter)
@@ -393,6 +403,218 @@ class UnifiedPanel(QMainWindow):
             self.play_timer.start(100)
             self.is_backward = True
             self.backward_btn.setText("⏸")
+
+    def toggle_prompt_mode(self):
+        if not self.viewer:
+            QMessageBox.warning(self, "错误", "请先 Show 打开预览")
+            return
+        if not self.prompt_drawing_mode:
+            self.prompt_drawing_mode = True
+            self.prompt_frame_idx = self.viewer.get_current_frame()
+            self.prompt_btn.setText("执行提示帧")
+            self.prompt_btn.setStyleSheet("QPushButton { background-color: #00CC00; color: white; border: none; border-radius: 3px; } QPushButton:hover { background-color: #009900; }")
+            self.viewer.enable_bbox_drawing(True)
+            self.viewer.clear_prompt_bboxes()
+            print(f"提示帧模式：在帧 {self.prompt_frame_idx + 1} 上绘制 Bbox")
+        else:
+            self.prompt_btn.setEnabled(False)
+            self.prompt_btn.setText("处理中...")
+            self.viewer.enable_bbox_drawing(False)
+            self.prompt_drawing_mode = False
+            self.do_inject()
+
+    def extract_video_clip(self, video_path, start_frame, output_path):
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            raise ValueError(f"无法打开视频: {video_path}")
+        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        frame_count = 0
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            out.write(frame)
+            frame_count += 1
+        out.release()
+        cap.release()
+        print(f"视频片段已提取: {output_path} ({frame_count} 帧)")
+        return frame_count
+
+    def do_inject(self):
+        annotations_file = self.temp_data_path / "annotations.json"
+        if not annotations_file.exists():
+            QMessageBox.warning(self, "错误", "annotations.json 不存在")
+            self.reset_prompt_btn()
+            return
+        with open(annotations_file) as f:
+            coco_data = json.load(f)
+        video_path = coco_data.get('info', {}).get('video_path', '')
+        if not video_path or not Path(video_path).exists():
+            QMessageBox.warning(self, "错误", "找不到原始视频文件")
+            self.reset_prompt_btn()
+            return
+
+        prompt_bboxes = self.viewer.get_prompt_bboxes()
+        if not prompt_bboxes:
+            QMessageBox.warning(self, "错误", "请先绘制至少一个 Bbox")
+            self.reset_prompt_btn()
+            return
+
+        labels_path = self.temp_data_path / "labels" / f"frame_{self.prompt_frame_idx:06d}.json"
+        existing_bboxes = []
+        if labels_path.exists():
+            with open(labels_path) as f:
+                frame_anns = json.load(f)
+            for ann in frame_anns:
+                b = ann.get('bbox')
+                if b:
+                    existing_bboxes.append([int(b[0]), int(b[1]),
+                                            int(b[0] + b[2]), int(b[1] + b[3])])
+
+        all_prompts = existing_bboxes + prompt_bboxes
+        if not all_prompts:
+            QMessageBox.warning(self, "错误", "该帧没有现有 bbox 且未绘制新 bbox")
+            self.reset_prompt_btn()
+            return
+
+        inject_temp_dir = Path("temp_inject")
+        if inject_temp_dir.exists():
+            import shutil
+            shutil.rmtree(inject_temp_dir)
+        inject_temp_dir.mkdir(parents=True, exist_ok=True)
+
+        clip_path = str(inject_temp_dir / "clip.mp4")
+        try:
+            self.extract_video_clip(video_path, self.prompt_frame_idx, clip_path)
+        except Exception as e:
+            QMessageBox.warning(self, "错误", f"提取视频片段失败: {e}")
+            self.reset_prompt_btn()
+            return
+
+        inject_temp_data = str(inject_temp_dir / "temp_data")
+        cmd = [sys.executable, 'annotate_video.py',
+               '--inject',
+               '--src', clip_path,
+               '--iou', self.iou_input.text() or "0.5",
+               '--prompt-bboxes', json.dumps(all_prompts),
+               '--output-temp', inject_temp_data]
+        items_text = self.items_input.text()
+        if items_text:
+            cmd.extend(['--items', items_text])
+
+        print(f"启动注入进程: {cmd}")
+        self.inject_process = subprocess.Popen(cmd, cwd=str(Path.cwd()))
+        self.inject_timer = QTimer()
+        self.inject_timer.timeout.connect(self.check_inject_done)
+        self.inject_timer.start(2000)
+
+    def check_inject_done(self):
+        if self.inject_process is None:
+            return
+        ret = self.inject_process.poll()
+        if ret is not None:
+            self.inject_timer.stop()
+            if ret == 0:
+                self.merge_inject_results()
+            else:
+                QMessageBox.warning(self, "错误", f"注入进程退出码: {ret}")
+                self.reset_prompt_btn()
+
+    def merge_inject_results(self):
+        inject_temp_dir = Path("temp_inject")
+        inject_data_dir = inject_temp_dir / "temp_data"
+        if not inject_data_dir.exists():
+            QMessageBox.warning(self, "错误", "注入结果目录不存在")
+            self.reset_prompt_btn()
+            return
+
+        inject_frames_dir = inject_data_dir / "frames"
+        inject_labels_dir = inject_data_dir / "labels"
+        inject_annotations_file = inject_data_dir / "annotations.json"
+
+        if not inject_annotations_file.exists():
+            QMessageBox.warning(self, "错误", "注入结果 annotations.json 不存在")
+            self.reset_prompt_btn()
+            return
+
+        frames_dir = self.temp_data_path / "frames"
+        labels_dir = self.temp_data_path / "labels"
+        annotations_file = self.temp_data_path / "annotations.json"
+
+        for i in range(self.prompt_frame_idx, self.total_frames):
+            frame_path = frames_dir / f"frame_{i:06d}.jpg"
+            label_path = labels_dir / f"frame_{i:06d}.json"
+            if frame_path.exists():
+                frame_path.unlink()
+            if label_path.exists():
+                label_path.unlink()
+
+        inject_total = len(list(inject_frames_dir.glob("frame_*.jpg")))
+        for i in range(inject_total):
+            src_frame = inject_frames_dir / f"frame_{i:06d}.jpg"
+            src_label = inject_labels_dir / f"frame_{i:06d}.json"
+            dst_frame = frames_dir / f"frame_{i + self.prompt_frame_idx:06d}.jpg"
+            dst_label = labels_dir / f"frame_{i + self.prompt_frame_idx:06d}.json"
+            if src_frame.exists():
+                import shutil
+                shutil.copy2(src_frame, dst_frame)
+            if src_label.exists():
+                shutil.copy2(src_label, dst_label)
+
+        with open(annotations_file) as f:
+            original_coco = json.load(f)
+        with open(inject_annotations_file) as f:
+            inject_coco = json.load(f)
+
+        original_images = [img for img in original_coco.get('images', [])
+                          if img['id'] < self.prompt_frame_idx]
+        original_annotations = [ann for ann in original_coco.get('annotations', [])
+                               if ann['image_id'] < self.prompt_frame_idx]
+
+        offset = self.prompt_frame_idx
+        max_ann_id = max([ann['id'] for ann in original_annotations], default=-1) + 1
+        for img in inject_coco.get('images', []):
+            new_img = dict(img)
+            new_img['id'] = img['id'] + offset
+            original_images.append(new_img)
+        for ann in inject_coco.get('annotations', []):
+            new_ann = dict(ann)
+            new_ann['id'] = ann['id'] + max_ann_id
+            new_ann['image_id'] = ann['image_id'] + offset
+            original_annotations.append(new_ann)
+
+        original_coco['images'] = original_images
+        original_coco['annotations'] = original_annotations
+        with open(annotations_file, 'w') as f:
+            json.dump(original_coco, f)
+
+        self.total_frames = len(original_images)
+
+        if self.viewer:
+            self.viewer.coco_data = original_coco
+            self.viewer.total_frames = self.total_frames
+            self.viewer.go_to_frame(self.prompt_frame_idx)
+            self.frame_label.setText(f"{self.prompt_frame_idx + 1}/{self.total_frames}")
+            self.viewer.clear_prompt_bboxes()
+
+        import shutil
+        shutil.rmtree(inject_temp_dir)
+        print(f"注入完成！从帧 {self.prompt_frame_idx + 1} 开始已覆盖 {inject_total} 帧")
+        self.reset_prompt_btn()
+
+    def reset_prompt_btn(self):
+        self.prompt_drawing_mode = False
+        self.prompt_frame_idx = -1
+        self.prompt_btn.setEnabled(True)
+        self.prompt_btn.setText("设为提示帧")
+        self.prompt_btn.setStyleSheet("QPushButton { background-color: #FFA500; color: white; border: none; border-radius: 3px; } QPushButton:hover { background-color: #FF8C00; }")
+        if self.viewer:
+            self.viewer.enable_bbox_drawing(False)
 
     def remove_selected_del(self):
         row = self.del_list.currentRow()

@@ -10,7 +10,7 @@ import json
 
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel)
 from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtGui import QImage, QPixmap, QPainter
+from PyQt5.QtGui import QImage, QPixmap, QPainter, QPen, QColor
 from PyQt5.QtCore import pyqtSignal
 
 from video_control import VideoController
@@ -18,12 +18,16 @@ from video_control import VideoController
 
 class VideoLabel(QLabel):
     point_clicked = pyqtSignal(int, int)
+    bbox_drawn = pyqtSignal(int, int, int, int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.zoom_factor = 1.0
         self.video_width = 1280
         self.video_height = 720
+        self.drawing_enabled = False
+        self._drag_start = None
+        self._drag_current = None
 
     def set_zoom(self, factor):
         self.zoom_factor = factor
@@ -32,10 +36,46 @@ class VideoLabel(QLabel):
         self.video_width = w
         self.video_height = h
 
+    def set_drawing_enabled(self, enabled):
+        self.drawing_enabled = enabled
+        self._drag_start = None
+        self._drag_current = None
+        if enabled:
+            self.setCursor(Qt.CrossCursor)
+        else:
+            self.setCursor(Qt.ArrowCursor)
+
     def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and self.drawing_enabled:
+            self._drag_start = (event.x(), event.y())
+            self._drag_current = (event.x(), event.y())
+            return
         if event.button() == Qt.LeftButton:
             self.point_clicked.emit(event.x(), event.y())
         super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self.drawing_enabled and self._drag_start is not None:
+            self._drag_current = (event.x(), event.y())
+            self.update()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton and self.drawing_enabled and self._drag_start is not None:
+            x1, y1 = self._drag_start
+            x2, y2 = event.x(), event.y()
+            if x1 > x2:
+                x1, x2 = x2, x1
+            if y1 > y2:
+                y1, y2 = y2, y1
+            if x2 - x1 > 5 and y2 - y1 > 5:
+                self.bbox_drawn.emit(x1, y1, x2, y2)
+            self._drag_start = None
+            self._drag_current = None
+            self.update()
+            return
+        super().mouseReleaseEvent(event)
 
     def paintEvent(self, event):
         super().paintEvent(event)
@@ -51,6 +91,14 @@ class VideoLabel(QLabel):
             x = (self.width() - scaled.width()) // 2
             y = (self.height() - scaled.height()) // 2
             painter.drawPixmap(x, y, scaled)
+            painter.end()
+        if self.drawing_enabled and self._drag_start is not None and self._drag_current is not None:
+            painter = QPainter(self)
+            painter.setPen(QPen(Qt.red, 2, Qt.SolidLine))
+            x1, y1 = self._drag_start
+            x2, y2 = self._drag_current
+            painter.drawRect(min(x1, x2), min(y1, y2), abs(x2 - x1), abs(y2 - y1))
+            painter.end()
 
 
 class VideoViewer(QMainWindow):
@@ -75,6 +123,9 @@ class VideoViewer(QMainWindow):
         self.total_frames = len(self.coco_data['images'])
         self.zoom_factor = 1.0
 
+        self.prompt_bboxes = []
+        self.drawing_mode = False
+
         self.init_ui()
 
     def init_ui(self):
@@ -91,6 +142,7 @@ class VideoViewer(QMainWindow):
         self.image_label.set_video_size(self.video_width, self.video_height)
         self.image_label.setAlignment(Qt.AlignCenter)
         self.image_label.point_clicked.connect(self.on_click)
+        self.image_label.bbox_drawn.connect(self.on_bbox_drawn)
         self.image_label.setStyleSheet("background: black;")
         layout.addWidget(self.image_label)
 
@@ -112,6 +164,38 @@ class VideoViewer(QMainWindow):
             video_x = int((display_x - offset_x) / self.zoom_factor)
             video_y = int((display_y - offset_y) / self.zoom_factor)
             self.video_clicked.emit(video_x, video_y, self.current_frame_idx)
+
+    def on_bbox_drawn(self, display_x1, display_y1, display_x2, display_y2):
+        scaled_w = int(self.video_width * self.zoom_factor)
+        scaled_h = int(self.video_height * self.zoom_factor)
+        label_w = self.image_label.width()
+        label_h = self.image_label.height()
+        offset_x = (label_w - scaled_w) // 2
+        offset_y = (label_h - scaled_h) // 2
+
+        video_x1 = int((display_x1 - offset_x) / self.zoom_factor)
+        video_y1 = int((display_y1 - offset_y) / self.zoom_factor)
+        video_x2 = int((display_x2 - offset_x) / self.zoom_factor)
+        video_y2 = int((display_y2 - offset_y) / self.zoom_factor)
+
+        video_x1 = max(0, min(video_x1, self.video_width))
+        video_y1 = max(0, min(video_y1, self.video_height))
+        video_x2 = max(0, min(video_x2, self.video_width))
+        video_y2 = max(0, min(video_y2, self.video_height))
+
+        self.prompt_bboxes.append([video_x1, video_y1, video_x2, video_y2])
+        self.update_display()
+
+    def enable_bbox_drawing(self, enabled):
+        self.drawing_mode = enabled
+        self.image_label.set_drawing_enabled(enabled)
+
+    def get_prompt_bboxes(self):
+        return list(self.prompt_bboxes)
+
+    def clear_prompt_bboxes(self):
+        self.prompt_bboxes = []
+        self.update_display()
 
     def set_zoom(self, factor):
         self.zoom_factor = factor
@@ -140,6 +224,13 @@ class VideoViewer(QMainWindow):
             annotated_frame = self.controller.apply_threshold_to_masks(frame, filtered)
         else:
             annotated_frame = frame
+
+        for bbox in self.prompt_bboxes:
+            x1, y1, x2, y2 = bbox
+            cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), (0, 255, 0), 3)
+            label = f"prompt {self.prompt_bboxes.index(bbox) + 1}"
+            cv2.putText(annotated_frame, label, (x1, max(10, y1 - 5)),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
         annotated_frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
         h, w, ch = annotated_frame_rgb.shape

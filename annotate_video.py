@@ -273,7 +273,7 @@ class AnnotationBox:
         return frame_with_mask
 
 class VideoAnnotator:
-    def __init__(self, video_path: str, output_dir: str):
+    def __init__(self, video_path: str, output_dir: str, headless=False):
         self.video_path = video_path
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -294,8 +294,9 @@ class VideoAnnotator:
         self.button_clicked = False
 
         self.window_name = WINDOW_NAME
-        cv2.namedWindow(self.window_name)
-        cv2.setMouseCallback(self.window_name, self.mouse_callback, self)
+        if not headless:
+            cv2.namedWindow(self.window_name)
+            cv2.setMouseCallback(self.window_name, self.mouse_callback, self)
 
     def mouse_callback(self, event, x, y, flags, param):
         annotator = param
@@ -434,7 +435,7 @@ class VideoAnnotator:
         cv2.destroyAllWindows()
         self.cap.release()
 
-    def process_video(self):
+    def process_video(self, launch_panel=True):
         if not self.boxes and not FIND:
             print("错误：文字和标注框至少要有一个！")
             print("请重新运行程序并添加物品名称或绘制标注框")
@@ -674,7 +675,8 @@ class VideoAnnotator:
             print(f"✓ 临时数据已保存到: {temp_data_path}")
             upload_to_obs(str(output_path))
 
-            self.launch_control_panel(output_path)
+            if launch_panel:
+                self.launch_control_panel(output_path)
 
         except ImportError as e:
             print(f"SAM3VideoPredictor导入失败: {e}")
@@ -765,7 +767,8 @@ class VideoAnnotator:
                 print(f"✓ 临时数据已保存到: {temp_data_path}")
                 upload_to_obs(str(output_path))
 
-                self.launch_control_panel(output_path)
+                if launch_panel:
+                    self.launch_control_panel(output_path)
 
             except Exception as e:
                 print(f"SAM模型加载失败: {e}")
@@ -823,7 +826,8 @@ class VideoAnnotator:
                 print(f"✓ 标注了 {len(self.boxes) if self.boxes else 0} 个目标区域")
                 upload_to_obs(str(output_path))
 
-                self.launch_control_panel(output_path)
+                if launch_panel:
+                    self.launch_control_panel(output_path)
 
 def run_interactive(video_path, iou_threshold=None, find_list=None):
     global FIND, IOU_THRESHOLD
@@ -841,6 +845,36 @@ def run_interactive(video_path, iou_threshold=None, find_list=None):
     annotator = VideoAnnotator(video_path, DST_DIR)
     annotator.boxes = []
     annotator.run()
+
+def run_inject(video_path, prompt_bboxes, output_temp_dir, iou_threshold=None, find_list=None):
+    global FIND, IOU_THRESHOLD, TEMP_DATA_DIR
+    if iou_threshold is not None:
+        IOU_THRESHOLD = iou_threshold
+    if find_list is not None:
+        FIND = find_list
+
+    old_temp = TEMP_DATA_DIR
+    TEMP_DATA_DIR = output_temp_dir
+
+    try:
+        print("=" * 50)
+        print("SAM3 提示帧注入模式")
+        print("=" * 50)
+        print(f"IoU阈值: {IOU_THRESHOLD}")
+        print(f"提示框: {prompt_bboxes}")
+        print(f"物品: {FIND if FIND else '(无)'}")
+
+        annotator = VideoAnnotator(video_path, DST_DIR, headless=True)
+        annotator.boxes = []
+        for i, bbox in enumerate(prompt_bboxes):
+            color = BOX_COLORS[i % len(BOX_COLORS)]
+            box = AnnotationBox(bbox[0], bbox[1], bbox[2], bbox[3], color)
+            annotator.boxes.append(box)
+        annotator.button_clicked = True
+        annotator.process_video(launch_panel=False)
+        print(f"注入完成，结果保存到: {output_temp_dir}")
+    finally:
+        TEMP_DATA_DIR = old_temp
 
 def main():
     global FIND, IOU_THRESHOLD
@@ -923,9 +957,21 @@ if __name__ == "__main__":
     parser.add_argument('--src', type=str, default=None, help='视频文件路径')
     parser.add_argument('--iou', type=float, default=None, help='IoU阈值')
     parser.add_argument('--items', type=str, default=None, help='物品列表，逗号分隔')
+    parser.add_argument('--inject', action='store_true', help='注入模式：从指定帧开始用prompt bbox向后跟踪')
+    parser.add_argument('--prompt-bboxes', type=str, default=None, help='提示框坐标JSON: [[x1,y1,x2,y2],...]')
+    parser.add_argument('--output-temp', type=str, default=None, help='输出临时目录')
     args = parser.parse_args()
 
-    if args.src:
+    if args.inject:
+        if not args.src or not args.prompt_bboxes or not args.output_temp:
+            print("错误: --inject 模式需要 --src, --prompt-bboxes, --output-temp")
+        else:
+            bboxes = json.loads(args.prompt_bboxes)
+            iou_val = args.iou if args.iou is not None else IOU_THRESHOLD
+            items_val = args.items.split(',') if args.items else []
+            run_inject(args.src, bboxes, args.output_temp,
+                      iou_threshold=iou_val, find_list=items_val)
+    elif args.src:
         video_path = args.src
         iou_val = args.iou if args.iou is not None else IOU_THRESHOLD
         items_val = args.items.split(',') if args.items else []
