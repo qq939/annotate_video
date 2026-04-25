@@ -423,42 +423,28 @@ class UnifiedPanel(QMainWindow):
             self.prompt_drawing_mode = False
             self.do_inject()
 
-    def extract_video_clip(self, video_path, start_frame, output_path):
-        cap = cv2.VideoCapture(video_path)
-        if not cap.isOpened():
-            raise ValueError(f"无法打开视频: {video_path}")
-        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    def extract_video_clip_from_frames(self, frames_dir, start_idx, total_frames, output_path, fps=30):
+        sample = cv2.imread(str(frames_dir / f"frame_{start_idx:06d}.jpg"))
+        if sample is None:
+            raise ValueError(f"无法读取起始帧: frame_{start_idx:06d}.jpg")
+        height, width = sample.shape[:2]
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
         frame_count = 0
-        while True:
-            ret, frame = cap.read()
-            if not ret:
+        for i in range(start_idx, total_frames):
+            frame_path = frames_dir / f"frame_{i:06d}.jpg"
+            if not frame_path.exists():
+                break
+            frame = cv2.imread(str(frame_path))
+            if frame is None:
                 break
             out.write(frame)
             frame_count += 1
         out.release()
-        cap.release()
-        print(f"视频片段已提取: {output_path} ({frame_count} 帧)")
+        print(f"视频片段已从帧目录提取: {output_path} ({frame_count} 帧)")
         return frame_count
 
     def do_inject(self):
-        annotations_file = self.temp_data_path / "annotations.json"
-        if not annotations_file.exists():
-            QMessageBox.warning(self, "错误", "annotations.json 不存在")
-            self.reset_prompt_btn()
-            return
-        with open(annotations_file) as f:
-            coco_data = json.load(f)
-        video_path = coco_data.get('info', {}).get('video_path', '')
-        if not video_path or not Path(video_path).exists():
-            QMessageBox.warning(self, "错误", "找不到原始视频文件")
-            self.reset_prompt_btn()
-            return
-
         prompt_bboxes = self.viewer.get_prompt_bboxes()
         if not prompt_bboxes:
             QMessageBox.warning(self, "错误", "请先绘制至少一个 Bbox")
@@ -490,7 +476,12 @@ class UnifiedPanel(QMainWindow):
 
         clip_path = str(inject_temp_dir / "clip.mp4")
         try:
-            self.extract_video_clip(video_path, self.prompt_frame_idx, clip_path)
+            self.extract_video_clip_from_frames(
+                self.temp_data_path / "frames",
+                self.prompt_frame_idx,
+                self.total_frames,
+                clip_path
+            )
         except Exception as e:
             QMessageBox.warning(self, "错误", f"提取视频片段失败: {e}")
             self.reset_prompt_btn()

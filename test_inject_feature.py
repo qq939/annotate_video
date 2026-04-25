@@ -61,8 +61,8 @@ class TestInjectFeature(unittest.TestCase):
 
     def test_extract_video_clip_logic(self):
         from app import UnifiedPanel
-        self.assertTrue(hasattr(UnifiedPanel, 'extract_video_clip'))
-        self.assertTrue(callable(UnifiedPanel.extract_video_clip))
+        self.assertTrue(hasattr(UnifiedPanel, 'extract_video_clip_from_frames'))
+        self.assertTrue(callable(UnifiedPanel.extract_video_clip_from_frames))
 
     def test_merge_inject_results_logic(self):
         src_data = {
