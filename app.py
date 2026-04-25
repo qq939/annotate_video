@@ -458,14 +458,75 @@ class UnifiedPanel(QMainWindow):
             self.save_input_dir.setText(folder)
 
     def export_to_temp_data_post(self):
-        print("导出到 temp_data_post...")
-        QMessageBox.information(self, "提示", "请在终端运行: python video_viewer.py 进行导出")
+        data_dir = self.temp_data_path
+        if not data_dir.exists():
+            QMessageBox.warning(self, "错误", "数据目录不存在")
+            return
 
-    def filter_annotations(self, annotations):
-        return self.ctrl.filter_annotations(annotations)
+        annotations_file = data_dir / "annotations.json"
+        if not annotations_file.exists():
+            QMessageBox.warning(self, "错误", "annotations.json 不存在")
+            return
 
-    def apply_threshold_to_masks(self, frame, annotations, threshold=None):
-        return self.ctrl.apply_threshold_to_masks(frame, annotations)
+        with open(annotations_file) as f:
+            coco_data = json.load(f)
+
+        video_info = coco_data.get('info', {})
+        total_frames = len(coco_data.get('images', []))
+        if total_frames == 0:
+            QMessageBox.warning(self, "错误", "没有帧数据")
+            return
+
+        output_path = Path("temp_data_post")
+        output_path.mkdir(exist_ok=True)
+        output_labels_dir = output_path / "labels"
+        output_labels_dir.mkdir(exist_ok=True)
+        output_frames_dir = output_path / "frames"
+        output_frames_dir.mkdir(exist_ok=True)
+
+        category_name = self.category_input.text() or self.ctrl.category_name
+        self.ctrl.category_name = category_name
+
+        labels_dir = data_dir / "labels"
+        frames_dir = data_dir / "frames"
+
+        print("步骤1: 保存到 temp_data_post...")
+        for i in range(total_frames):
+            frame_path = str(frames_dir / f"frame_{i:06d}.jpg")
+            frame = cv2.imread(frame_path)
+
+            output_frame_path = str(output_frames_dir / f"frame_{i:06d}.jpg")
+            cv2.imwrite(output_frame_path, frame)
+
+            label_path = labels_dir / f"frame_{i:06d}.json"
+            output_label_path = output_labels_dir / f"frame_{i:06d}.json"
+            if label_path.exists():
+                with open(label_path) as f:
+                    annotations = json.load(f)
+
+                filtered = self.ctrl.filter_annotations(annotations)
+
+                frame_anns = []
+                for ann in filtered:
+                    ann_copy = ann.copy()
+                    ann_copy['category'] = category_name
+                    frame_anns.append(ann_copy)
+
+                with open(output_label_path, 'w') as f:
+                    json.dump(frame_anns, f)
+
+        all_annotations = self.ctrl.export_filtered_annotations(total_frames, labels_dir, category_name)
+        coco_output = {
+            'info': video_info,
+            'images': [{'id': i, 'frame_idx': i} for i in range(total_frames)],
+            'annotations': all_annotations
+        }
+
+        with open(output_path / "annotations.json", 'w') as f:
+            json.dump(coco_output, f)
+
+        QMessageBox.information(self, "完成", f"数据已保存到 {output_path}")
+        print(f"导出完成: {output_path}")
 
     def run_save(self):
         input_dir = self.save_input_dir.text() or "temp_data_post"
