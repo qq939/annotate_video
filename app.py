@@ -79,17 +79,16 @@ class UnifiedPanel(QMainWindow):
         video_layout.addWidget(select_btn)
         layout.addLayout(video_layout)
 
-        iou_layout = QHBoxLayout()
-        iou_layout.addWidget(QLabel("IoU阈值:"))
+        iou_items_layout = QHBoxLayout()
+        iou_items_layout.addWidget(QLabel("IoU:"))
         self.iou_input = QLineEdit("0.5")
-        iou_layout.addWidget(self.iou_input)
-        layout.addLayout(iou_layout)
-
-        items_layout = QHBoxLayout()
-        items_layout.addWidget(QLabel("物品(逗号分隔):"))
+        self.iou_input.setFixedWidth(60)
+        iou_items_layout.addWidget(self.iou_input)
+        iou_items_layout.addWidget(QLabel("物品:"))
         self.items_input = QLineEdit()
-        items_layout.addWidget(self.items_input)
-        layout.addLayout(items_layout)
+        self.items_input.setMinimumWidth(150)
+        iou_items_layout.addWidget(self.items_input)
+        layout.addLayout(iou_items_layout)
 
         self.annotate_btn = QPushButton("▶ 执行标注")
         self.annotate_btn.clicked.connect(self.run_annotate)
@@ -193,18 +192,34 @@ class UnifiedPanel(QMainWindow):
         alpha_layout.addWidget(self.alpha_label)
         layout.addLayout(alpha_layout)
 
-        self.frame_label = QLabel("帧: 1/1")
-        self.frame_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(self.frame_label)
+        frame_nav_play_layout = QHBoxLayout()
 
-        frame_nav_layout = QHBoxLayout()
-        prev_btn = QPushButton("上一帧")
+        self.backward_btn = QPushButton("◀")
+        self.backward_btn.setFixedWidth(40)
+        self.backward_btn.clicked.connect(self.toggle_backward)
+        frame_nav_play_layout.addWidget(self.backward_btn)
+
+        prev_btn = QPushButton("◀帧")
+        prev_btn.setFixedWidth(50)
         prev_btn.clicked.connect(self.prev_frame)
-        frame_nav_layout.addWidget(prev_btn)
-        next_btn = QPushButton("下一帧")
+        frame_nav_play_layout.addWidget(prev_btn)
+
+        self.frame_label = QLabel("1/1")
+        self.frame_label.setAlignment(Qt.AlignCenter)
+        self.frame_label.setFixedWidth(50)
+        frame_nav_play_layout.addWidget(self.frame_label)
+
+        next_btn = QPushButton("帧▶")
+        next_btn.setFixedWidth(50)
         next_btn.clicked.connect(self.next_frame)
-        frame_nav_layout.addWidget(next_btn)
-        layout.addLayout(frame_nav_layout)
+        frame_nav_play_layout.addWidget(next_btn)
+
+        self.play_btn = QPushButton("▶")
+        self.play_btn.setFixedWidth(40)
+        self.play_btn.clicked.connect(self.toggle_play)
+        frame_nav_play_layout.addWidget(self.play_btn)
+
+        layout.addLayout(frame_nav_play_layout)
 
         fence_group_layout = QHBoxLayout()
         self.fence_btns = []
@@ -215,21 +230,12 @@ class UnifiedPanel(QMainWindow):
             self.fence_btns.append(fence_btn)
             fence_group_layout.addWidget(fence_btn)
 
-            clear_btn = QPushButton("清除")
+            clear_btn = QPushButton("清")
+            clear_btn.setFixedWidth(30)
             clear_btn.clicked.connect(lambda checked, idx=i: self.clear_fence(idx))
             self.fence_clear_btns.append(clear_btn)
             fence_group_layout.addWidget(clear_btn)
         layout.addLayout(fence_group_layout)
-
-        play_layout = QHBoxLayout()
-        self.backward_btn = QPushButton("◀ 倒播")
-        self.backward_btn.clicked.connect(self.toggle_backward)
-        play_layout.addWidget(self.backward_btn)
-
-        self.play_btn = QPushButton("▶ 正播")
-        self.play_btn.clicked.connect(self.toggle_play)
-        play_layout.addWidget(self.play_btn)
-        layout.addLayout(play_layout)
 
         del_layout = QHBoxLayout()
         del_layout.addWidget(QLabel("删除列表:"))
@@ -264,20 +270,19 @@ class UnifiedPanel(QMainWindow):
         layout = QVBoxLayout()
         group.setLayout(layout)
 
-        input_layout = QHBoxLayout()
-        input_layout.addWidget(QLabel("输入目录:"))
+        input_dir_name_layout = QHBoxLayout()
+        input_dir_name_layout.addWidget(QLabel("输入:"))
         self.save_input_dir = QLineEdit("temp_data_post")
-        input_layout.addWidget(self.save_input_dir)
+        self.save_input_dir.setFixedWidth(120)
+        input_dir_name_layout.addWidget(self.save_input_dir)
         browse_btn = QPushButton("选择")
         browse_btn.clicked.connect(self.select_save_input_dir)
-        input_layout.addWidget(browse_btn)
-        layout.addLayout(input_layout)
-
-        output_layout = QHBoxLayout()
-        output_layout.addWidget(QLabel("视频名称:"))
+        input_dir_name_layout.addWidget(browse_btn)
+        input_dir_name_layout.addWidget(QLabel("名称:"))
         self.save_output_name = QLineEdit("dst.mp4")
-        output_layout.addWidget(self.save_output_name)
-        layout.addLayout(output_layout)
+        self.save_output_name.setFixedWidth(100)
+        input_dir_name_layout.addWidget(self.save_output_name)
+        layout.addLayout(input_dir_name_layout)
 
         save_alpha_layout = QHBoxLayout()
         save_alpha_layout.addWidget(QLabel("透明度:"))
@@ -328,13 +333,13 @@ class UnifiedPanel(QMainWindow):
         if self.viewer:
             idx = (self.viewer.get_current_frame() - 1) % self.total_frames
             self.viewer.go_to_frame(idx)
-            self.frame_label.setText(f"帧: {idx+1}/{self.total_frames}")
+            self.frame_label.setText(f"{idx+1}/{self.total_frames}")
 
     def next_frame(self):
         if self.viewer:
             idx = (self.viewer.get_current_frame() + 1) % self.total_frames
             self.viewer.go_to_frame(idx)
-            self.frame_label.setText(f"帧: {idx+1}/{self.total_frames}")
+            self.frame_label.setText(f"{idx+1}/{self.total_frames}")
 
     def on_frame_play(self):
         if not self.viewer:
@@ -344,7 +349,7 @@ class UnifiedPanel(QMainWindow):
             self.viewer.go_to_frame(idx)
         else:
             self.viewer.play_next_frame()
-        self.frame_label.setText(f"帧: {self.viewer.get_current_frame()+1}/{self.total_frames}")
+        self.frame_label.setText(f"{self.viewer.get_current_frame()+1}/{self.total_frames}")
 
     def toggle_fence(self, idx):
         self.ctrl.toggle_fence_mode(idx)
@@ -367,27 +372,27 @@ class UnifiedPanel(QMainWindow):
 
     def toggle_play(self):
         self.is_backward = False
-        self.backward_btn.setText("◀ 倒播")
+        self.backward_btn.setText("◀")
         if self.is_playing:
             self.play_timer.stop()
             self.is_playing = False
-            self.play_btn.setText("▶ 正播")
+            self.play_btn.setText("▶")
         else:
             self.play_timer.start(100)
             self.is_playing = True
-            self.play_btn.setText("⏸ 正播")
+            self.play_btn.setText("⏸")
 
     def toggle_backward(self):
         self.is_playing = False
-        self.play_btn.setText("▶ 正播")
+        self.play_btn.setText("▶")
         if self.is_backward:
             self.play_timer.stop()
             self.is_backward = False
-            self.backward_btn.setText("◀ 倒播")
+            self.backward_btn.setText("◀")
         else:
             self.play_timer.start(100)
             self.is_backward = True
-            self.backward_btn.setText("⏸ 倒播")
+            self.backward_btn.setText("⏸")
 
     def remove_selected_del(self):
         row = self.del_list.currentRow()
