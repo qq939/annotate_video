@@ -9,7 +9,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QSlider, QLabel, QLineEdit, QFileDialog, QGroupBox, QTextEdit, QMessageBox)
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QSlider, QLabel, QLineEdit, QFileDialog, QGroupBox, QTextEdit, QMessageBox, QListWidget)
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.Qt import QDragEnterEvent, QDropEvent
 
@@ -39,9 +39,9 @@ class UnifiedPanel(QMainWindow):
         super().__init__()
         self.temp_data_path = Path("temp_data")
         self.viewer = None
-        self.control_panel = None
         self.video_process = None
         self.alpha = 0.5
+        self.conf_threshold = 0.5
         
         self.init_ui()
     
@@ -133,7 +133,7 @@ class UnifiedPanel(QMainWindow):
         group = QGroupBox("2. 预览 (video_viewer)")
         layout = QVBoxLayout()
         group.setLayout(layout)
-        
+
         path_layout = QHBoxLayout()
         path_layout.addWidget(QLabel("数据目录:"))
         self.path_input = QLineEdit("temp_data")
@@ -145,7 +145,84 @@ class UnifiedPanel(QMainWindow):
         show_btn.clicked.connect(self.show_viewer)
         path_layout.addWidget(show_btn)
         layout.addLayout(path_layout)
-        
+
+        self.frame_label = QLabel("帧: 1/1")
+        layout.addWidget(self.frame_label)
+
+        frame_nav_layout = QHBoxLayout()
+        prev_btn = QPushButton("◀上一帧")
+        prev_btn.clicked.connect(self.prev_frame)
+        frame_nav_layout.addWidget(prev_btn)
+        next_btn = QPushButton("下一帧▶")
+        next_btn.clicked.connect(self.next_frame)
+        frame_nav_layout.addWidget(next_btn)
+        layout.addLayout(frame_nav_layout)
+
+        conf_layout = QHBoxLayout()
+        conf_layout.addWidget(QLabel("置信度:"))
+        self.conf_slider = QSlider(Qt.Horizontal)
+        self.conf_slider.setMinimum(0)
+        self.conf_slider.setMaximum(100)
+        self.conf_slider.setValue(50)
+        self.conf_slider.valueChanged.connect(self.on_conf_change)
+        conf_layout.addWidget(self.conf_slider)
+        layout.addLayout(conf_layout)
+
+        alpha_layout = QHBoxLayout()
+        alpha_layout.addWidget(QLabel("透明度:"))
+        self.alpha_slider = QSlider(Qt.Horizontal)
+        self.alpha_slider.setMinimum(10)
+        self.alpha_slider.setMaximum(100)
+        self.alpha_slider.setValue(50)
+        self.alpha_slider.valueChanged.connect(self.on_alpha_change)
+        alpha_layout.addWidget(self.alpha_slider)
+        self.alpha_label = QLabel("50%")
+        alpha_layout.addWidget(self.alpha_label)
+        layout.addLayout(alpha_layout)
+
+        self.fence_btns = []
+        self.fence_clear_btns = []
+        for i in range(3):
+            fence_layout = QHBoxLayout()
+            self.fence_btns.append(QPushButton(f"围栏{i+1}绘制"))
+            self.fence_btns[i].clicked.connect(lambda checked, idx=i: self.toggle_fence_mode(idx))
+            fence_layout.addWidget(self.fence_btns[i])
+            self.fence_clear_btns.append(QPushButton("清除"))
+            self.fence_clear_btns[i].clicked.connect(lambda checked, idx=i: self.clear_fence(idx))
+            fence_layout.addWidget(self.fence_clear_btns[i])
+            layout.addLayout(fence_layout)
+
+        play_layout = QHBoxLayout()
+        self.play_btn = QPushButton("▶播放")
+        self.play_btn.clicked.connect(self.toggle_play)
+        play_layout.addWidget(self.play_btn)
+        self.backward_btn = QPushButton("◀倒播")
+        self.backward_btn.clicked.connect(self.toggle_backward)
+        play_layout.addWidget(self.backward_btn)
+        layout.addLayout(play_layout)
+
+        self.is_playing = False
+        self.is_backward = False
+        self.fences = []
+        self.del_points = []
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.play_next)
+
+        del_layout = QHBoxLayout()
+        del_layout.addWidget(QLabel("删除列表:"))
+        self.del_list = QListWidget()
+        del_layout.addWidget(self.del_list)
+        remove_btn = QPushButton("🗑️")
+        remove_btn.setFixedSize(40, 40)
+        remove_btn.setStyleSheet("QPushButton { background-color: #ff4444; color: white; border: none; border-radius: 5px; font-size: 20px; } QPushButton:hover { background-color: #cc0000; }")
+        remove_btn.clicked.connect(self.remove_selected_del_point)
+        del_layout.addWidget(remove_btn)
+        layout.addLayout(del_layout)
+
+        export_btn = QPushButton("📦 导出到 temp_data_post")
+        export_btn.clicked.connect(self.export_to_temp_data_post)
+        layout.addWidget(export_btn)
+
         return group
     
     def create_save_section(self):
@@ -199,7 +276,6 @@ class UnifiedPanel(QMainWindow):
 
     def show_viewer(self):
         from video_viewer import VideoViewer
-        from control_panel import ControlPanel
         self.temp_data_path = Path(self.path_input.text())
         if not self.temp_data_path.exists():
             QMessageBox.warning(self, "错误", "数据目录不存在")
@@ -207,11 +283,94 @@ class UnifiedPanel(QMainWindow):
         if not (self.temp_data_path / "annotations.json").exists():
             QMessageBox.warning(self, "错误", "annotations.json 不存在")
             return
-        self.viewer = VideoViewer(str(self.temp_data_path), control_panel=None)
-        self.control_panel = ControlPanel(str(self.temp_data_path))
-        self.control_panel.set_viewer(self.viewer)
+        self.viewer = VideoViewer(str(self.temp_data_path))
         self.viewer.show()
-        self.control_panel.show()
+
+    def on_conf_change(self, value):
+        self.conf_threshold = value / 100.0
+        if self.viewer:
+            self.viewer.conf_threshold = self.conf_threshold
+            self.viewer.update_display()
+
+    def toggle_fence_mode(self, fence_idx):
+        if fence_idx >= len(self.fences):
+            self.fences.append({'points': [], 'mode': True})
+        else:
+            fence = self.fences[fence_idx]
+            fence['mode'] = not fence['mode']
+        self.update_fence_buttons()
+        if self.viewer:
+            self.viewer.fences = self.fences
+            self.viewer.update_display()
+
+    def clear_fence(self, fence_idx):
+        if fence_idx < len(self.fences):
+            self.fences[fence_idx] = {'points': [], 'mode': False}
+        self.update_fence_buttons()
+        if self.viewer:
+            self.viewer.fences = self.fences
+            self.viewer.update_display()
+
+    def update_fence_buttons(self):
+        for i, btn in enumerate(self.fence_btns):
+            if i < len(self.fences) and self.fences[i]['mode']:
+                btn.setStyleSheet("background-color: #00ff00; color: black;")
+                btn.setText(f"围栏{i+1}完成")
+            else:
+                btn.setStyleSheet("")
+                btn.setText(f"围栏{i+1}绘制")
+
+    def toggle_play(self):
+        self.is_backward = False
+        self.backward_btn.setText("◀倒播")
+        if self.is_playing:
+            self.timer.stop()
+            self.is_playing = False
+            self.play_btn.setText("▶播放")
+        else:
+            self.timer.start(100)
+            self.is_playing = True
+            self.play_btn.setText("⏸播放")
+
+    def toggle_backward(self):
+        self.is_playing = False
+        self.play_btn.setText("▶播放")
+        if self.is_backward:
+            self.timer.stop()
+            self.is_backward = False
+            self.backward_btn.setText("◀倒播")
+        else:
+            self.timer.start(100)
+            self.is_backward = True
+            self.backward_btn.setText("⏸倒播")
+
+    def play_next(self):
+        if self.viewer:
+            self.viewer.is_backward = self.is_backward
+            self.viewer.play_next()
+            self.frame_label.setText(f"帧: {self.viewer.get_current_frame()+1}/{self.viewer.total_frames}")
+
+    def prev_frame(self):
+        if self.viewer:
+            idx = (self.viewer.get_current_frame() - 1) % self.viewer.total_frames
+            self.viewer.go_to_frame(idx)
+            self.frame_label.setText(f"帧: {idx+1}/{self.viewer.total_frames}")
+
+    def next_frame(self):
+        if self.viewer:
+            idx = (self.viewer.get_current_frame() + 1) % self.viewer.total_frames
+            self.viewer.go_to_frame(idx)
+            self.frame_label.setText(f"帧: {idx+1}/{self.viewer.total_frames}")
+
+    def remove_selected_del_point(self):
+        for item in self.del_list.selectedItems():
+            row = self.del_list.row(item)
+            self.del_list.takeItem(row)
+            if row < len(self.del_points):
+                self.del_points.pop(row)
+        if self.viewer:
+            self.viewer.del_points = self.del_points
+            self.viewer.update_display()
     
     def select_save_input_dir(self):
         folder = QFileDialog.getExistingDirectory(self, "选择输入目录", ".")
@@ -221,6 +380,9 @@ class UnifiedPanel(QMainWindow):
     def on_alpha_change(self, value):
         self.alpha = value / 100.0
         self.alpha_label.setText(f"{value}%")
+        if self.viewer:
+            self.viewer.alpha = self.alpha
+            self.viewer.update_display()
     
     def export_to_temp_data_post(self):
         print("导出到 temp_data_post...")
