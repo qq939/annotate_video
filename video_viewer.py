@@ -235,21 +235,26 @@ class VideoViewer(QMainWindow):
                     cv2.circle(annotated_frame, (tp['x'], tp['y']), 6, (0, 255, 0), -1)
                     cv2.circle(annotated_frame, (tp['x'], tp['y']), 6, (0, 0, 0), 2)
 
-        if self.controller and self.controller.track_ids_to_9999:
-            purple = (128, 0, 128)
-            for ann in annotations:
-                if ann.get('track_id') == 9999:
-                    polygon = ann.get('segmentation')
-                    bbox = ann.get('bbox')
-                    if polygon:
-                        pts = np.array(polygon[0], dtype=np.int32).reshape(-1, 2)
-                        cv2.polylines(annotated_frame, [pts], True, purple, 2)
-                    if bbox:
-                        x, y = int(bbox[0]), int(bbox[1])
-                        w, h = int(bbox[2]), int(bbox[3])
-                        cv2.rectangle(annotated_frame, (x, y), (x + w, y + h), purple, 2)
-                        cv2.putText(annotated_frame, f"9999", (x, max(10, y - 5)),
-                                  cv2.FONT_HERSHEY_SIMPLEX, 0.5, purple, 2)
+        purple = (128, 0, 128)
+        purple_count = 0
+        for ann in annotations:
+            if ann.get('track_id') == 9999:
+                purple_count += 1
+                polygon = ann.get('segmentation')
+                bbox = ann.get('bbox')
+                if polygon:
+                    pts = np.array(polygon[0], dtype=np.int32).reshape(-1, 2)
+                    cv2.polylines(annotated_frame, [pts], True, purple, 2)
+                if bbox:
+                    x, y = int(bbox[0]), int(bbox[1])
+                    w, h = int(bbox[2]), int(bbox[3])
+                    cv2.rectangle(annotated_frame, (x, y), (x + w, y + h), purple, 2)
+                    cv2.putText(annotated_frame, f"9999", (x, max(10, y - 5)),
+                              cv2.FONT_HERSHEY_SIMPLEX, 0.5, purple, 2)
+        if purple_count > 0:
+            print(f"[DEBUG] 帧 {self.current_frame_idx} 有 {purple_count} 个 9999 标注，绘制紫色")
+        elif self.controller and self.controller.track_ids_to_9999:
+            print(f"[DEBUG] track_ids_to_9999={self.controller.track_ids_to_9999} 但帧 {self.current_frame_idx} 的标注无 track_id=9999")
 
         for bbox in self.prompt_bboxes:
             x1, y1, x2, y2 = bbox
