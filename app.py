@@ -633,6 +633,14 @@ class UnifiedPanel(QMainWindow):
 
         if not self.viewer:
             return
+
+        if self.is_playing:
+            self.is_playing = False
+            self.play_timer.stop()
+            self.play_btn.setText("▶")
+            if self.viewer:
+                self.viewer.stop_playback()
+
         _, annotations = self.viewer.load_frame_data(frame_idx)
         filtered = self.ctrl.filter_annotations(annotations)
         found = self.ctrl.find_annotation_at(filtered, video_x, video_y)

@@ -152,6 +152,10 @@ class VideoViewer(QMainWindow):
     def set_controller(self, controller):
         self.controller = controller
 
+    def stop_playback(self):
+        if hasattr(self, 'timer') and self.timer.isActive():
+            self.timer.stop()
+
     def on_click(self, display_x, display_y):
         scaled_w = int(self.video_width * self.zoom_factor)
         scaled_h = int(self.video_height * self.zoom_factor)
@@ -230,6 +234,22 @@ class VideoViewer(QMainWindow):
                 if tp.get('frame_idx') == self.current_frame_idx:
                     cv2.circle(annotated_frame, (tp['x'], tp['y']), 6, (0, 255, 0), -1)
                     cv2.circle(annotated_frame, (tp['x'], tp['y']), 6, (0, 0, 0), 2)
+
+        if self.controller and self.controller.track_ids_to_9999:
+            purple = (128, 0, 128)
+            for ann in annotations:
+                if ann.get('track_id') == 9999:
+                    polygon = ann.get('segmentation')
+                    bbox = ann.get('bbox')
+                    if polygon:
+                        pts = np.array(polygon[0], dtype=np.int32).reshape(-1, 2)
+                        cv2.polylines(annotated_frame, [pts], True, purple, 2)
+                    if bbox:
+                        x, y = int(bbox[0]), int(bbox[1])
+                        w, h = int(bbox[2]), int(bbox[3])
+                        cv2.rectangle(annotated_frame, (x, y), (x + w, y + h), purple, 2)
+                        cv2.putText(annotated_frame, f"9999", (x, max(10, y - 5)),
+                                  cv2.FONT_HERSHEY_SIMPLEX, 0.5, purple, 2)
 
         for bbox in self.prompt_bboxes:
             x1, y1, x2, y2 = bbox
