@@ -442,6 +442,7 @@ class VideoAnnotator:
             return
 
         bboxes = [[box.x1, box.y1, box.x2, box.y2] for box in self.boxes] if self.boxes else None
+        print(f"[DEBUG] process_video: self.boxes数量={len(self.boxes)}, bboxes={bboxes}")
 
         try:
             from ultralytics.models.sam import SAM3VideoSemanticPredictor
@@ -544,15 +545,18 @@ class VideoAnnotator:
             frame_count = 0
             print("正在生成标注视频...")
             for r in results:
-                orig_img = r.orig_img if hasattr(r, 'orig_img') else None
-                if orig_img is None and hasattr(r, 'orig_shape'):
-                    orig_shape = r.orig_shape
+                orig_img = r.orig_img if hasattr(r, 'orig_img') and r.orig_img is not None else None
+                if orig_img is None:
                     cap_temp = cv2.VideoCapture(self.video_path)
                     cap_temp.set(cv2.CAP_PROP_POS_FRAMES, frame_count)
                     ret_temp, orig_img = cap_temp.read()
                     cap_temp.release()
                     if not ret_temp:
                         orig_img = np.zeros((height, width, 3), dtype=np.uint8)
+                    else:
+                        print(f"  [DEBUG] 帧 {frame_count} 使用 cap fallback (无 orig_img)")
+                else:
+                    print(f"  [DEBUG] 帧 {frame_count} 使用 orig_img shape={orig_img.shape}")
 
                 if orig_img is not None:
                     if len(orig_img.shape) == 2:
@@ -574,6 +578,7 @@ class VideoAnnotator:
                 if hasattr(r, 'masks') and r.masks is not None:
                     masks_tensor = r.masks.data
                     if masks_tensor is not None and len(masks_tensor) > 0:
+                        print(f"  [DEBUG] 帧 {frame_count} 检测到 {len(masks_tensor)} 个 mask")
                         masks_array = masks_tensor.cpu().numpy()
 
                         confs = None
@@ -870,6 +875,7 @@ def run_inject(video_path, prompt_bboxes, output_temp_dir, iou_threshold=None, f
             color = BOX_COLORS[i % len(BOX_COLORS)]
             box = AnnotationBox(bbox[0], bbox[1], bbox[2], bbox[3], color)
             annotator.boxes.append(box)
+        print(f"[DEBUG] run_inject: boxes = {[(b.x1,b.y1,b.x2,b.y2) for b in annotator.boxes]}")
         annotator.button_clicked = True
         annotator.process_video(launch_panel=False)
         print(f"注入完成，结果保存到: {output_temp_dir}")
