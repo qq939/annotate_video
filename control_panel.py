@@ -136,14 +136,14 @@ class ControlPanel(QMainWindow):
         export_btn.clicked.connect(self.export_video)
         layout.addWidget(export_btn)
 
-        clear_btn = QPushButton("清空删除点")
-        clear_btn.clicked.connect(self.clear_del_points)
+        clear_btn = QPushButton("清空绿点")
+        clear_btn.clicked.connect(self.clear_track_id_points)
         layout.addWidget(clear_btn)
 
-        layout.addWidget(QLabel("删除列表:"))
+        layout.addWidget(QLabel("绿点列表:"))
         del_list_layout = QHBoxLayout()
-        self.del_list = QListWidget()
-        del_list_layout.addWidget(self.del_list)
+        self.track_id_list = QListWidget()
+        del_list_layout.addWidget(self.track_id_list)
 
         del_btn_layout = QVBoxLayout()
         remove_btn = QPushButton("🗑️")
@@ -160,7 +160,7 @@ class ControlPanel(QMainWindow):
                 background-color: #cc0000;
             }
         """)
-        remove_btn.clicked.connect(self.remove_selected_del_point)
+        remove_btn.clicked.connect(self.remove_selected_track_id_point)
         del_btn_layout.addWidget(remove_btn)
         del_list_layout.addLayout(del_btn_layout)
         layout.addLayout(del_list_layout)
@@ -288,30 +288,48 @@ class ControlPanel(QMainWindow):
 
         if found is not None:
             track_id = found.get('track_id', found.get('id', 0))
-            self.ctrl.add_del_point(video_x, video_y, frame_idx, track_id)
-            self.del_list.addItem(f"帧{frame_idx+1} ({video_x},{video_y}) ID:{track_id}")
-            print(f"删除track_id: {track_id}")
+            self.ctrl.add_track_id_point(video_x, video_y, frame_idx, track_id)
+            self.ctrl.track_ids_to_9999.add(track_id)
+            self.track_id_list.addItem(f"绿点 帧{frame_idx+1} ({video_x},{video_y}) ID:{track_id}→9999")
+            self._convert_track_id_to_9999(track_id)
             if self.viewer:
                 self.viewer.update_display()
         else:
             print("未找到标注")
 
-    def remove_selected_del_point(self):
-        current_row = self.del_list.currentRow()
+    def _convert_track_id_to_9999(self, old_track_id):
+        labels_dir = self.temp_data_path / "labels"
+        converted_count = 0
+        for label_file in sorted(labels_dir.glob("frame_*.json")):
+            with open(label_file) as f:
+                frame_anns = json.load(f)
+            changed = False
+            for ann in frame_anns:
+                if ann.get('track_id') == old_track_id:
+                    ann['track_id'] = 9999
+                    changed = True
+            if changed:
+                with open(label_file, 'w') as f:
+                    json.dump(frame_anns, f)
+                converted_count += 1
+        print(f"已将 track_id={old_track_id} → 9999，共影响 {converted_count} 帧")
+
+    def remove_selected_track_id_point(self):
+        current_row = self.track_id_list.currentRow()
         if current_row >= 0:
-            self.ctrl.remove_del_point(current_row)
-            self.del_list.takeItem(current_row)
+            self.ctrl.remove_track_id_point(current_row)
+            self.track_id_list.takeItem(current_row)
             if self.viewer:
                 self.viewer.update_display()
 
     def update_del_list(self):
-        self.del_list.clear()
-        for dp in self.ctrl.del_points:
-            self.del_list.addItem(f"帧{dp['frame_idx']+1} ({dp['x']},{dp['y']}) ID:{dp['track_id']}")
+        self.track_id_list.clear()
+        for dp in self.ctrl.track_id_points:
+            self.track_id_list.addItem(f"绿点 帧{dp['frame_idx']+1} ({dp['x']},{dp['y']}) ID:{dp['track_id']}→9999")
 
-    def clear_del_points(self):
-        self.ctrl.clear_del_points()
-        self.del_list.clear()
+    def clear_track_id_points(self):
+        self.ctrl.clear_track_id_points()
+        self.track_id_list.clear()
         if self.viewer:
             self.viewer.update_display()
 

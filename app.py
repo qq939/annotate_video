@@ -248,19 +248,19 @@ class UnifiedPanel(QMainWindow):
         layout.addLayout(fence_group_layout)
 
         del_layout = QHBoxLayout()
-        del_layout.addWidget(QLabel("删除列表:"))
-        self.del_list = QListWidget()
-        del_layout.addWidget(self.del_list)
+        del_layout.addWidget(QLabel("绿点列表:"))
+        self.track_id_list = QListWidget()
+        del_layout.addWidget(self.track_id_list)
 
         del_btn_layout = QVBoxLayout()
         remove_btn = QPushButton("🗑️")
         remove_btn.setFixedSize(40, 40)
         remove_btn.setStyleSheet("QPushButton { background-color: #ff4444; color: white; border: none; border-radius: 5px; font-size: 20px; } QPushButton:hover { background-color: #cc0000; }")
-        remove_btn.clicked.connect(self.remove_selected_del)
+        remove_btn.clicked.connect(self.remove_selected_track_id)
         del_btn_layout.addWidget(remove_btn)
 
         clear_del_btn = QPushButton("清空")
-        clear_del_btn.clicked.connect(self.clear_del)
+        clear_del_btn.clicked.connect(self.clear_track_id)
         del_btn_layout.addWidget(clear_del_btn)
 
         del_layout.addLayout(del_btn_layout)
@@ -607,17 +607,17 @@ class UnifiedPanel(QMainWindow):
         if self.viewer:
             self.viewer.enable_bbox_drawing(False)
 
-    def remove_selected_del(self):
-        row = self.del_list.currentRow()
+    def remove_selected_track_id(self):
+        row = self.track_id_list.currentRow()
         if row >= 0:
-            self.ctrl.remove_del_point(row)
-            self.del_list.takeItem(row)
+            self.ctrl.remove_track_id_point(row)
+            self.track_id_list.takeItem(row)
             if self.viewer:
                 self.viewer.update_display()
 
-    def clear_del(self):
-        self.ctrl.clear_del_points()
-        self.del_list.clear()
+    def clear_track_id(self):
+        self.ctrl.clear_track_id_points()
+        self.track_id_list.clear()
         if self.viewer:
             self.viewer.update_display()
 
@@ -639,9 +639,28 @@ class UnifiedPanel(QMainWindow):
 
         if found is not None:
             track_id = found.get('track_id', found.get('id', 0))
-            self.ctrl.add_del_point(video_x, video_y, frame_idx, track_id)
-            self.del_list.addItem(f"帧{frame_idx+1} ({video_x},{video_y}) ID:{track_id}")
+            self.ctrl.add_track_id_point(video_x, video_y, frame_idx, track_id)
+            self.track_id_list.addItem(f"绿点 {len(self.ctrl.track_id_points)} 帧{frame_idx+1} ({video_x},{video_y}) ID:{track_id}→9999")
+            self._convert_track_id_to_9999(track_id)
             self.viewer.update_display()
+
+    def _convert_track_id_to_9999(self, old_track_id):
+        self.ctrl.track_ids_to_9999.add(old_track_id)
+        labels_dir = self.temp_data_path / "labels"
+        converted_count = 0
+        for label_file in sorted(labels_dir.glob("frame_*.json")):
+            with open(label_file) as f:
+                frame_anns = json.load(f)
+            changed = False
+            for ann in frame_anns:
+                if ann.get('track_id') == old_track_id:
+                    ann['track_id'] = 9999
+                    changed = True
+            if changed:
+                with open(label_file, 'w') as f:
+                    json.dump(frame_anns, f)
+                converted_count += 1
+        print(f"已将 track_id={old_track_id} → 9999，共影响 {converted_count} 帧")
 
     def select_data_dir(self):
         folder = QFileDialog.getExistingDirectory(self, "选择数据目录", ".")

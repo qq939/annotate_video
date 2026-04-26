@@ -13,6 +13,8 @@ MASK_COLORS = [
     (255, 0, 0), (0, 255, 0), (0, 0, 255),
     (255, 255, 0), (255, 0, 255), (0, 255, 255)
 ]
+TRACK_ID_9999_COLOR = (128, 0, 128)
+GREEN_POINT_COLOR = (0, 255, 0)
 
 
 class VideoController:
@@ -21,16 +23,17 @@ class VideoController:
         self.conf_threshold = CONF_THRESHOLD_DEFAULT
         self.alpha = ALPHA_DEFAULT
         self.fences = []
-        self.del_points = []
+        self.track_id_points = []
+        self.track_ids_to_9999 = set()
         self.category_name = CATEGORY_DEFAULT
 
-    def get_deleted_track_ids(self):
-        return set(dp['track_id'] for dp in self.del_points)
+    def get_track_id_points(self):
+        return list(self.track_id_points)
 
     def filter_annotations(self, annotations):
         if not annotations:
             return []
-        deleted_ids = self.get_deleted_track_ids()
+        deleted_ids = self.track_ids_to_9999 | {9999}
 
         fence_pts_list = []
         for fence in self.fences:
@@ -78,6 +81,8 @@ class VideoController:
                 continue
 
             color = MASK_COLORS[ann.get('category_id', 0) % len(MASK_COLORS)]
+            if ann.get('track_id', 0) == 9999:
+                color = TRACK_ID_9999_COLOR
             category = ann.get('category', ann.get('category_id', 0))
             conf = ann.get('confidence', 1.0)
 
@@ -121,19 +126,19 @@ class VideoController:
                 return ann
         return None
 
-    def add_del_point(self, x, y, frame_idx, track_id):
-        self.del_points.append({
+    def add_track_id_point(self, x, y, frame_idx, track_id):
+        self.track_id_points.append({
             'x': x, 'y': y,
             'frame_idx': frame_idx,
             'track_id': track_id
         })
 
-    def remove_del_point(self, index):
-        if 0 <= index < len(self.del_points):
-            self.del_points.pop(index)
+    def remove_track_id_point(self, index):
+        if 0 <= index < len(self.track_id_points):
+            self.track_id_points.pop(index)
 
-    def clear_del_points(self):
-        self.del_points = []
+    def clear_track_id_points(self):
+        self.track_id_points = []
 
     def toggle_fence_mode(self, fence_idx):
         if fence_idx >= len(self.fences):
