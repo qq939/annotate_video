@@ -248,8 +248,9 @@ class VideoViewer(QMainWindow):
                 if bbox:
                     x, y = int(bbox[0]), int(bbox[1])
                     w, h = int(bbox[2]), int(bbox[3])
+                    conf = ann.get('confidence', 1.0)
                     cv2.rectangle(annotated_frame, (x, y), (x + w, y + h), purple, 2)
-                    cv2.putText(annotated_frame, f"9999", (x, max(10, y - 5)),
+                    cv2.putText(annotated_frame, f"9999 {conf:.2f}", (x, max(10, y - 5)),
                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, purple, 2)
         if purple_count > 0:
             print(f"[DEBUG] 帧 {self.current_frame_idx} 有 {purple_count} 个 9999 标注，绘制紫色")
