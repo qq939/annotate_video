@@ -25,6 +25,7 @@ class VideoController:
         self.fences = []
         self.track_id_points = []
         self.track_ids_to_9999 = set()
+        self.next_track_id = 9999
         self.category_name = CATEGORY_DEFAULT
 
     def get_track_id_points(self):

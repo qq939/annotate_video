@@ -288,20 +288,43 @@ class ControlPanel(QMainWindow):
 
         if found is not None:
             track_id = found.get('track_id', found.get('id', 0))
+            assigned_id = self.ctrl.next_track_id
+            self.ctrl.next_track_id += 1
             self.ctrl.add_track_id_point(video_x, video_y, frame_idx, track_id)
+            pt = self.ctrl.track_id_points[-1]
+            pt['assigned_id'] = assigned_id
+            self.ctrl.track_ids_to_9999.add(track_id)
+            self._convert_track_id(track_id, assigned_id)
             idx = len(self.ctrl.track_id_points) - 1
-            self.track_id_list.addItem(f"绿点 {idx} 帧{frame_idx+1} ({video_x},{video_y}) ID:{track_id}")
+            self.track_id_list.addItem(f"绿点 {idx} 帧{frame_idx+1} ({video_x},{video_y}) ID:{track_id}→{assigned_id}")
             if self.viewer:
                 self.viewer.update_display()
         else:
             print("未找到标注")
+
+    def _convert_track_id(self, old_id, new_id):
+        labels_dir = self.temp_data_path / "labels"
+        converted_count = 0
+        for label_file in sorted(labels_dir.glob("frame_*.json")):
+            with open(label_file) as f:
+                frame_anns = json.load(f)
+            changed = False
+            for ann in frame_anns:
+                if ann.get('track_id') == old_id:
+                    ann['track_id'] = new_id
+                    changed = True
+            if changed:
+                with open(label_file, 'w') as f:
+                    json.dump(frame_anns, f)
+                converted_count += 1
+        print(f"已将 track_id={old_id} → {new_id}，共影响 {converted_count} 帧")
 
     def remove_selected_track_id_point(self):
         current_row = self.track_id_list.currentRow()
         if current_row >= 0:
             pt = self.ctrl.track_id_points[current_row]
             if pt['assigned_id'] is not None:
-                self.ctrl.revert_track_id(current_row, self.temp_data_path / "labels")
+                self._convert_track_id(pt['assigned_id'], pt['track_id'])
             self.ctrl.remove_track_id_point(current_row)
             self.track_id_list.takeItem(current_row)
             self._refresh_list()
@@ -324,8 +347,9 @@ class ControlPanel(QMainWindow):
         self._refresh_list()
 
     def clear_track_id_points(self):
-        for i in range(len(self.ctrl.track_id_points)):
-            self.ctrl.revert_track_id(i, self.temp_data_path / "labels")
+        for pt in self.ctrl.track_id_points:
+            if pt.get('assigned_id') is not None:
+                self._convert_track_id(pt['assigned_id'], pt['track_id'])
         self.ctrl.clear_track_id_points()
         self.track_id_list.clear()
         if self.viewer:
