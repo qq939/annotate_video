@@ -253,6 +253,12 @@ class UnifiedPanel(QMainWindow):
         del_layout.addWidget(self.track_id_list)
 
         del_btn_layout = QVBoxLayout()
+        add_btn = QPushButton("新增")
+        add_btn.setFixedWidth(50)
+        add_btn.setStyleSheet("QPushButton { background-color: #00CC00; color: white; border: none; border-radius: 3px; } QPushButton:hover { background-color: #009900; }")
+        add_btn.clicked.connect(self.add_track_id)
+        del_btn_layout.addWidget(add_btn)
+
         remove_btn = QPushButton("🗑️")
         remove_btn.setFixedSize(40, 40)
         remove_btn.setStyleSheet("QPushButton { background-color: #ff4444; color: white; border: none; border-radius: 5px; font-size: 20px; } QPushButton:hover { background-color: #cc0000; }")
@@ -260,6 +266,7 @@ class UnifiedPanel(QMainWindow):
         del_btn_layout.addWidget(remove_btn)
 
         clear_del_btn = QPushButton("清空")
+        clear_del_btn.setFixedWidth(50)
         clear_del_btn.clicked.connect(self.clear_track_id)
         del_btn_layout.addWidget(clear_del_btn)
 
@@ -616,10 +623,55 @@ class UnifiedPanel(QMainWindow):
                 self.viewer.update_display()
 
     def clear_track_id(self):
+        labels_dir = self.temp_data_path / "labels"
+        for i in range(len(self.ctrl.track_id_points)):
+            self.ctrl.revert_track_id(i, labels_dir)
         self.ctrl.clear_track_id_points()
         self.track_id_list.clear()
         if self.viewer:
             self.viewer.update_display()
+
+    def add_track_id(self):
+        row = self.track_id_list.currentRow()
+        if row < 0:
+            QMessageBox.warning(self, "错误", "请先在列表中选中一个绿点")
+            return
+        pt = self.ctrl.track_id_points[row]
+        if pt['assigned_id'] is not None:
+            QMessageBox.warning(self, "错误", f"该绿点已分配 ID:{pt['assigned_id']}")
+            return
+        new_id = self.ctrl.assign_next_track_id(row, self.temp_data_path / "labels")
+        if new_id is not None:
+            self.track_id_list.item(row).setText(
+                f"绿点 {row} 帧{pt['frame_idx']+1} ({pt['x']},{pt['y']}) ID:{pt['track_id']}→{new_id}"
+            )
+        if self.viewer:
+            self.viewer.update_display()
+
+    def remove_selected_track_id(self):
+        row = self.track_id_list.currentRow()
+        if row < 0:
+            return
+        pt = self.ctrl.track_id_points[row]
+        if pt['assigned_id'] is not None:
+            self.ctrl.revert_track_id(row, self.temp_data_path / "labels")
+        self.ctrl.remove_track_id_point(row)
+        self.track_id_list.takeItem(row)
+        self._refresh_track_id_list()
+        if self.viewer:
+            self.viewer.update_display()
+
+    def _refresh_track_id_list(self):
+        self.track_id_list.clear()
+        for i, pt in enumerate(self.ctrl.track_id_points):
+            if pt['assigned_id'] is not None:
+                self.track_id_list.addItem(
+                    f"绿点 {i} 帧{pt['frame_idx']+1} ({pt['x']},{pt['y']}) ID:{pt['track_id']}→{pt['assigned_id']}"
+                )
+            else:
+                self.track_id_list.addItem(
+                    f"绿点 {i} 帧{pt['frame_idx']+1} ({pt['x']},{pt['y']}) ID:{pt['track_id']}"
+                )
 
     def handle_viewer_click(self, video_x, video_y, frame_idx):
         if self.ctrl.fence_mode_active():
@@ -648,27 +700,9 @@ class UnifiedPanel(QMainWindow):
         if found is not None:
             track_id = found.get('track_id', found.get('id', 0))
             self.ctrl.add_track_id_point(video_x, video_y, frame_idx, track_id)
-            self.track_id_list.addItem(f"绿点 {len(self.ctrl.track_id_points)} 帧{frame_idx+1} ({video_x},{video_y}) ID:{track_id}→9999")
-            self._convert_track_id_to_9999(track_id)
+            idx = len(self.ctrl.track_id_points) - 1
+            self.track_id_list.addItem(f"绿点 {idx} 帧{frame_idx+1} ({video_x},{video_y}) ID:{track_id}")
             self.viewer.update_display()
-
-    def _convert_track_id_to_9999(self, old_track_id):
-        self.ctrl.track_ids_to_9999.add(old_track_id)
-        labels_dir = self.temp_data_path / "labels"
-        converted_count = 0
-        for label_file in sorted(labels_dir.glob("frame_*.json")):
-            with open(label_file) as f:
-                frame_anns = json.load(f)
-            changed = False
-            for ann in frame_anns:
-                if ann.get('track_id') == old_track_id:
-                    ann['track_id'] = 9999
-                    changed = True
-            if changed:
-                with open(label_file, 'w') as f:
-                    json.dump(frame_anns, f)
-                converted_count += 1
-        print(f"已将 track_id={old_track_id} → 9999，共影响 {converted_count} 帧")
 
     def select_data_dir(self):
         folder = QFileDialog.getExistingDirectory(self, "选择数据目录", ".")

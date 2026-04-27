@@ -238,7 +238,7 @@ class VideoViewer(QMainWindow):
         purple = (128, 0, 128)
         purple_count = 0
         for ann in annotations:
-            if ann.get('track_id') == 9999:
+            if ann.get('track_id', 0) >= 9999:
                 purple_count += 1
                 polygon = ann.get('segmentation')
                 bbox = ann.get('bbox')

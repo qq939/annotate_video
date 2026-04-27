@@ -81,7 +81,7 @@ class VideoController:
                 continue
 
             color = MASK_COLORS[ann.get('category_id', 0) % len(MASK_COLORS)]
-            if ann.get('track_id', 0) == 9999:
+            if ann.get('track_id', 0) >= 9999:
                 color = TRACK_ID_9999_COLOR
             category = ann.get('category', ann.get('category_id', 0))
             conf = ann.get('confidence', 1.0)
@@ -130,7 +130,8 @@ class VideoController:
         self.track_id_points.append({
             'x': x, 'y': y,
             'frame_idx': frame_idx,
-            'track_id': track_id
+            'track_id': track_id,
+            'assigned_id': None
         })
 
     def remove_track_id_point(self, index):
@@ -139,6 +140,56 @@ class VideoController:
 
     def clear_track_id_points(self):
         self.track_id_points = []
+
+    def assign_next_track_id(self, point_index, labels_dir):
+        if point_index < 0 or point_index >= len(self.track_id_points):
+            return None
+        pt = self.track_id_points[point_index]
+        if pt['assigned_id'] is not None:
+            return pt['assigned_id']
+        assigned_id = 9999 + point_index
+        pt['assigned_id'] = assigned_id
+        self.track_ids_to_9999.add(pt['track_id'])
+        converted_count = 0
+        for label_file in sorted(labels_dir.glob("frame_*.json")):
+            with open(label_file) as f:
+                frame_anns = json.load(f)
+            changed = False
+            for ann in frame_anns:
+                if ann.get('track_id') == pt['track_id']:
+                    ann['track_id'] = assigned_id
+                    changed = True
+            if changed:
+                with open(label_file, 'w') as f:
+                    json.dump(frame_anns, f)
+                converted_count += 1
+        print(f"已将 track_id={pt['track_id']} → {assigned_id}，共影响 {converted_count} 帧")
+        return assigned_id
+
+    def revert_track_id(self, point_index, labels_dir):
+        if point_index < 0 or point_index >= len(self.track_id_points):
+            return
+        pt = self.track_id_points[point_index]
+        if pt['assigned_id'] is None:
+            return
+        old_id = pt['track_id']
+        assigned_id = pt['assigned_id']
+        self.track_ids_to_9999.discard(old_id)
+        pt['assigned_id'] = None
+        converted_count = 0
+        for label_file in sorted(labels_dir.glob("frame_*.json")):
+            with open(label_file) as f:
+                frame_anns = json.load(f)
+            changed = False
+            for ann in frame_anns:
+                if ann.get('track_id') == assigned_id:
+                    ann['track_id'] = old_id
+                    changed = True
+            if changed:
+                with open(label_file, 'w') as f:
+                    json.dump(frame_anns, f)
+                converted_count += 1
+        print(f"已还原 track_id={assigned_id} → {old_id}，共影响 {converted_count} 帧")
 
     def toggle_fence_mode(self, fence_idx):
         if fence_idx >= len(self.fences):
