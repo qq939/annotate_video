@@ -13,7 +13,7 @@ MASK_COLORS = [
     (255, 0, 0), (0, 255, 0), (0, 0, 255),
     (255, 255, 0), (255, 0, 255), (0, 255, 255)
 ]
-TRACK_ID_9999_COLOR = (128, 0, 128)
+TRACK_ID_PURPLE_START = 999999
 GREEN_POINT_COLOR = (0, 255, 0)
 
 
@@ -25,7 +25,7 @@ class VideoController:
         self.fences = []
         self.track_id_points = []
         self.track_ids_to_9999 = set()
-        self.next_track_id = 9999
+        self.next_track_id = 1000000
         self.assigned_to_original = {}
         self.category_name = CATEGORY_DEFAULT
 
@@ -84,9 +84,12 @@ class VideoController:
 
             color = MASK_COLORS[ann.get('category_id', 0) % len(MASK_COLORS)]
             track_id = ann.get('track_id', 0)
-            is_purple = track_id >= 9999
+            color_track_id = track_id
+            if track_id >= 1000000:
+                color_track_id = self.assigned_to_original.get(track_id, track_id)
+            is_purple = color_track_id >= TRACK_ID_PURPLE_START
             if is_purple:
-                color = TRACK_ID_9999_COLOR
+                color = (128, 0, 128)
             category = ann.get('category', ann.get('category_id', 0))
             conf = ann.get('confidence', 1.0)
 
@@ -152,7 +155,7 @@ class VideoController:
         pt = self.track_id_points[point_index]
         if pt['assigned_id'] is not None:
             return pt['assigned_id']
-        assigned_id = 9999 + point_index
+        assigned_id = 1000000 + point_index
         pt['assigned_id'] = assigned_id
         self.track_ids_to_9999.add(pt['track_id'])
         converted_count = 0
