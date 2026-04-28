@@ -2,7 +2,7 @@
 """从temp_data_post读取数据，制作标注视频并上传到OBS"""
 
 INPUT_DIR = "temp_data_post"
-OUTPUT_PATH = "dst/dst.mp4"
+OUTPUT_PATH = "1dst/1dst.mp4"
 DEFAULT_ALPHA = 0.5
 DEFAULT_CATEGORY = "Detect"
 

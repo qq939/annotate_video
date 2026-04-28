@@ -9,7 +9,7 @@ def test_sam3_video_predictor():
     try:
         from ultralytics.models.sam import SAM3VideoPredictor
 
-        test_video = Path("src/test_video.mp4")
+        test_video = Path("1src/test_video.mp4")
         if not test_video.exists():
             print("⚠ 测试视频不存在，跳过测试")
             return

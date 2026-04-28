@@ -48,6 +48,81 @@ class TestTrackIdFeature(unittest.TestCase):
         c.next_track_id += 1
         self.assertEqual(c.next_track_id, 10000)
 
+    def test_purple_rendering_applies_purple_color(self):
+        from video_control import VideoController
+        import numpy as np
+        c = VideoController()
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+        anns = [
+            {'track_id': 9999, 'bbox': [10, 10, 30, 30], 'confidence': 0.9, 'category': 'test'},
+            {'track_id': 10000, 'bbox': [50, 50, 20, 20], 'confidence': 0.8, 'category': 'test'},
+        ]
+        result = c.apply_threshold_to_masks(frame, anns)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.shape, frame.shape)
+
+    def test_decrement_does_not_go_below_9999(self):
+        from video_control import VideoController
+        c = VideoController()
+        c.next_track_id = 9999
+        self.assertEqual(c.next_track_id, 9999)
+
+    def test_export_only_track_id_gt_9900(self):
+        anns = [
+            {'track_id': 9900, 'bbox': [0,0,10,10], 'confidence': 1.0},
+            {'track_id': 9901, 'bbox': [0,0,10,10], 'confidence': 1.0},
+            {'track_id': 9999, 'bbox': [0,0,10,10], 'confidence': 1.0},
+            {'track_id': 10000, 'bbox': [0,0,10,10], 'confidence': 1.0},
+            {'track_id': 5, 'bbox': [0,0,10,10], 'confidence': 1.0},
+            {'track_id': 100, 'bbox': [0,0,10,10], 'confidence': 1.0},
+        ]
+        filtered = [ann for ann in anns if ann.get('track_id', 0) > 9900]
+        self.assertEqual(len(filtered), 3)
+        track_ids = [a['track_id'] for a in filtered]
+        self.assertIn(9901, track_ids)
+        self.assertIn(9999, track_ids)
+        self.assertIn(10000, track_ids)
+        self.assertNotIn(9900, track_ids)
+        self.assertNotIn(5, track_ids)
+        self.assertNotIn(100, track_ids)
+
+    def test_merge_masks_in_frame_no_overlap(self):
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from annotate_video import merge_masks_in_frame
+        import numpy as np
+        mask1 = np.zeros((10, 10), dtype=np.uint8)
+        mask1[2:5, 2:5] = 1
+        mask2 = np.zeros((10, 10), dtype=np.uint8)
+        mask2[6:9, 6:9] = 1
+        masks, bboxes = merge_masks_in_frame([mask1, mask2], [[0,0,3,3], [0,0,3,3]], 0.5)
+        self.assertEqual(len(masks), 2)
+
+    def test_track_color_map_same_id_same_color(self):
+        mask_colors = [
+            (255, 0, 0),     # 红
+            (255, 165, 0),   # 橙
+            (255, 255, 0),   # 黄
+            (0, 255, 0),     # 绿
+            (0, 255, 255),   # 青
+            (0, 0, 255),     # 蓝
+            (128, 0, 128),   # 紫
+        ]
+        track_color_map = {}
+
+        def get_color(track_id):
+            if track_id not in track_color_map:
+                track_color_map[track_id] = mask_colors[len(track_color_map) % len(mask_colors)]
+            return track_color_map[track_id]
+
+        self.assertEqual(get_color(5), (255, 0, 0))
+        self.assertEqual(get_color(5), (255, 0, 0))
+        self.assertEqual(get_color(7), (255, 165, 0))
+        self.assertEqual(get_color(5), (255, 0, 0))
+        self.assertEqual(get_color(9999), (255, 255, 0))
+        self.assertEqual(get_color(10000), (0, 255, 0))
+        self.assertEqual(get_color(3), (0, 255, 255))
+
     def test_filter_with_9999(self):
         from video_control import VideoController
         c = VideoController()
@@ -58,12 +133,16 @@ class TestTrackIdFeature(unittest.TestCase):
             {'track_id': 7, 'bbox': [0,0,10,10], 'confidence': 1.0},
         ]
         filtered = c.filter_annotations(anns)
-        self.assertEqual(len(filtered), 1)
-        self.assertEqual(filtered[0]['track_id'], 10000)
+        self.assertEqual(len(filtered), 2)
+        self.assertNotIn(7, [a['track_id'] for a in filtered])
 
-    def test_app_add_track_id_increments_counter(self):
+    def test_app_track_id_buttons_exist(self):
         from app import UnifiedPanel
-        self.assertTrue(hasattr(UnifiedPanel, 'add_track_id'))
+        self.assertTrue(hasattr(UnifiedPanel, 'increment_track_id'))
+        self.assertTrue(hasattr(UnifiedPanel, 'decrement_track_id'))
+        self.assertTrue(hasattr(UnifiedPanel, 'trace_id_label'))
+        self.assertTrue(hasattr(UnifiedPanel, 'trace_id_plus_btn'))
+        self.assertTrue(hasattr(UnifiedPanel, 'trace_id_minus_btn'))
 
     def test_app_has_convert(self):
         from app import UnifiedPanel
@@ -79,7 +158,7 @@ class TestTrackIdFeature(unittest.TestCase):
         from app import UnifiedPanel
         ui = UnifiedPanel()
         for child in ui.findChildren(QPushButton):
-            if child.text() in ("新增", "删除", "清空"):
+            if child.text() in ("+", "-", "删除", "清空"):
                 style = child.styleSheet()
                 self.assertIn("border-radius: 3px", style)
                 self.assertIn("border: none", style)

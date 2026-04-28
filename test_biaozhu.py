@@ -9,8 +9,8 @@ from pathlib import Path
 class TestBiaozhu(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.src_dir = Path("src")
-        cls.dst_dir = Path("dst")
+        cls.src_dir = Path("1src")
+        cls.dst_dir = Path("1dst")
         cls.src_dir.mkdir(exist_ok=True)
         cls.dst_dir.mkdir(exist_ok=True)
 

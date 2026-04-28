@@ -66,7 +66,7 @@ class TestSAMIntegration(unittest.TestCase):
         print("✓ AnnotationBox的SAM掩码应用功能测试通过")
 
     def test_video_processing_with_sam(self):
-        test_video = Path("src/test_video.mp4")
+        test_video = Path("1src/test_video.mp4")
         if not test_video.exists():
             self.skipTest("测试视频不存在")
 

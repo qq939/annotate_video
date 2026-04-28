@@ -235,28 +235,6 @@ class VideoViewer(QMainWindow):
                     cv2.circle(annotated_frame, (tp['x'], tp['y']), 6, (0, 255, 0), -1)
                     cv2.circle(annotated_frame, (tp['x'], tp['y']), 6, (0, 0, 0), 2)
 
-        purple = (128, 0, 128)
-        purple_count = 0
-        render_anns = filtered if self.controller else annotations
-        for ann in render_anns:
-            if ann.get('track_id', 0) >= 9999:
-                purple_count += 1
-                tid = ann.get('track_id', 0)
-                conf = ann.get('confidence', 1.0)
-                polygon = ann.get('segmentation')
-                bbox = ann.get('bbox')
-                if polygon:
-                    pts = np.array(polygon[0], dtype=np.int32).reshape(-1, 2)
-                    cv2.polylines(annotated_frame, [pts], True, purple, 2)
-                if bbox:
-                    x, y = int(bbox[0]), int(bbox[1])
-                    w, h = int(bbox[2]), int(bbox[3])
-                    cv2.rectangle(annotated_frame, (x, y), (x + w, y + h), purple, 2)
-                    cv2.putText(annotated_frame, f"{tid} {conf:.2f}", (x, max(10, y - 5)),
-                              cv2.FONT_HERSHEY_SIMPLEX, 0.5, purple, 2)
-        if purple_count > 0:
-            print(f"[DEBUG] 帧 {self.current_frame_idx} 有 {purple_count} 个紫色标注")
-
         for bbox in self.prompt_bboxes:
             x1, y1, x2, y2 = bbox
             cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), (0, 255, 0), 3)

@@ -14,10 +14,10 @@ def test_chinese_text_rendering():
     assert result is not None, "中文文本渲染失败"
     assert result.shape == img.shape, "图像尺寸应该保持不变"
 
-    Path("dst").mkdir(exist_ok=True)
-    cv2.imwrite("dst/test_chinese_text.png", result)
+    Path("1dst").mkdir(exist_ok=True)
+    cv2.imwrite("1dst/test_chinese_text.png", result)
     print("✅ 中文文本测试通过")
-    print("测试图片已保存到: dst/test_chinese_text.png")
+    print("测试图片已保存到: 1dst/test_chinese_text.png")
 
 if __name__ == "__main__":
     test_chinese_text_rendering()

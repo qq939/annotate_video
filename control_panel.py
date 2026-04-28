@@ -326,6 +326,7 @@ class ControlPanel(QMainWindow):
             if pt['assigned_id'] is not None:
                 self._convert_track_id(pt['assigned_id'], pt['track_id'])
                 self.ctrl.assigned_to_original.pop(pt['assigned_id'], None)
+                self.ctrl.track_ids_to_9999.discard(pt['track_id'])
             self.ctrl.remove_track_id_point(current_row)
             self.track_id_list.takeItem(current_row)
             self._refresh_list()
@@ -352,6 +353,7 @@ class ControlPanel(QMainWindow):
             if pt.get('assigned_id') is not None:
                 self._convert_track_id(pt['assigned_id'], pt['track_id'])
                 self.ctrl.assigned_to_original.pop(pt['assigned_id'], None)
+                self.ctrl.track_ids_to_9999.discard(pt['track_id'])
         self.ctrl.clear_track_id_points()
         self.track_id_list.clear()
         if self.viewer:
@@ -367,7 +369,7 @@ class ControlPanel(QMainWindow):
         output_path = Path("temp_data_post")
         output_path.mkdir(exist_ok=True)
 
-        dst_path = Path("dst/output_annotated.mp4")
+        dst_path = Path("1dst/output_annotated.mp4")
         dst_path.parent.mkdir(exist_ok=True)
 
         labels_dir = self.temp_data_path / "labels"
@@ -415,7 +417,7 @@ class ControlPanel(QMainWindow):
         with open(output_path / "annotations.json", 'w') as f:
             json.dump(coco_output, f)
 
-        print("步骤2: 制作 dst 视频...")
+        print("步骤2: 制作 1dst 视频...")
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         fps = int(self.video_info['fps'])
         out = cv2.VideoWriter(str(dst_path), fourcc, fps,

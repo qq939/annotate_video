@@ -2,6 +2,7 @@
 """视频标注工具 - 统一控制面板，控制逻辑委托给 video_control.VideoController"""
 
 import sys
+import random
 import shutil
 import cv2
 import numpy as np
@@ -54,6 +55,17 @@ class UnifiedPanel(QMainWindow):
         self.inject_process = None
         self.inject_timer = None
 
+        self.palette_colors = [
+            (255, 0, 0),     # 红
+            (255, 165, 0),   # 橙
+            (255, 255, 0),   # 黄
+            (0, 255, 0),     # 绿
+            (0, 255, 255),   # 青
+            (0, 0, 255),     # 蓝
+            (128, 0, 128),   # 紫
+        ]
+        self.selected_color_indices = set(random.sample(range(len(self.palette_colors)), 1))
+
         self.init_ui()
 
     def init_ui(self):
@@ -83,16 +95,20 @@ class UnifiedPanel(QMainWindow):
         video_layout.addWidget(select_btn)
         layout.addLayout(video_layout)
 
-        iou_items_layout = QHBoxLayout()
-        iou_items_layout.addWidget(QLabel("IoU:"))
+        iou_layout = QHBoxLayout()
+        iou_layout.addWidget(QLabel("当前帧IoU:"))
+        self.merge_iou_input = QLineEdit("0.5")
+        self.merge_iou_input.setFixedWidth(50)
+        iou_layout.addWidget(self.merge_iou_input)
+        iou_layout.addWidget(QLabel("前后帧IoU:"))
         self.iou_input = QLineEdit("0.5")
-        self.iou_input.setFixedWidth(60)
-        iou_items_layout.addWidget(self.iou_input)
-        iou_items_layout.addWidget(QLabel("物品:"))
+        self.iou_input.setFixedWidth(50)
+        iou_layout.addWidget(self.iou_input)
+        iou_layout.addWidget(QLabel("物品:"))
         self.items_input = QLineEdit()
-        self.items_input.setMinimumWidth(150)
-        iou_items_layout.addWidget(self.items_input)
-        layout.addLayout(iou_items_layout)
+        self.items_input.setMinimumWidth(120)
+        iou_layout.addWidget(self.items_input)
+        layout.addLayout(iou_layout)
 
         self.annotate_btn = QPushButton("▶ 执行标注")
         self.annotate_btn.clicked.connect(self.run_annotate)
@@ -113,7 +129,7 @@ class UnifiedPanel(QMainWindow):
             QMessageBox.warning(self, "错误", "请先选择视频文件")
             return
 
-        src_dir = Path("src")
+        src_dir = Path("1src")
         src_dir.mkdir(exist_ok=True)
 
         video_name = Path(video_path).name
@@ -122,15 +138,19 @@ class UnifiedPanel(QMainWindow):
             print(f"视频已在src目录，无需拷贝")
         else:
             dst_video = src_dir / video_name
+            if dst_video.exists():
+                dst_video.unlink()
             shutil.copy2(video_path, dst_video)
             print(f"已拷贝到src: {dst_video}")
 
         iou = self.iou_input.text() or "0.5"
+        merge_iou = self.merge_iou_input.text() or "0.5"
         items_text = self.items_input.text()
 
         src_video = src_dir / video_name
         cmd = [sys.executable, 'annotate_video.py',
                '--iou', str(iou),
+               '--merge-iou', str(merge_iou),
                '--src', str(src_video),
                '--items', items_text]
 
@@ -253,11 +273,27 @@ class UnifiedPanel(QMainWindow):
         del_layout.addWidget(self.track_id_list)
 
         del_btn_layout = QVBoxLayout()
-        add_btn = QPushButton("新增")
-        add_btn.setFixedSize(50, 30)
-        add_btn.setStyleSheet("QPushButton { background-color: #00CC00; color: white; border: none; border-radius: 3px; } QPushButton:hover { background-color: #009900; }")
-        add_btn.clicked.connect(self.add_track_id)
-        del_btn_layout.addWidget(add_btn)
+
+        trace_id_ctrl_layout = QHBoxLayout()
+        self.trace_id_minus_btn = QPushButton("-")
+        self.trace_id_minus_btn.setFixedSize(25, 30)
+        self.trace_id_minus_btn.setStyleSheet("QPushButton { background-color: #FFA500; color: white; border: none; border-radius: 3px; font-size: 16px; font-weight: bold; } QPushButton:hover { background-color: #FF8C00; }")
+        self.trace_id_minus_btn.clicked.connect(self.decrement_track_id)
+        trace_id_ctrl_layout.addWidget(self.trace_id_minus_btn)
+
+        self.trace_id_label = QLabel(str(self.ctrl.next_track_id))
+        self.trace_id_label.setAlignment(Qt.AlignCenter)
+        self.trace_id_label.setFixedSize(50, 30)
+        self.trace_id_label.setStyleSheet("QLabel { background-color: #333333; color: #CCCCFF; border: 1px solid #666; border-radius: 3px; font-size: 14px; font-weight: bold; }")
+        trace_id_ctrl_layout.addWidget(self.trace_id_label)
+
+        self.trace_id_plus_btn = QPushButton("+")
+        self.trace_id_plus_btn.setFixedSize(25, 30)
+        self.trace_id_plus_btn.setStyleSheet("QPushButton { background-color: #00CC00; color: white; border: none; border-radius: 3px; font-size: 16px; font-weight: bold; } QPushButton:hover { background-color: #009900; }")
+        self.trace_id_plus_btn.clicked.connect(self.increment_track_id)
+        trace_id_ctrl_layout.addWidget(self.trace_id_plus_btn)
+
+        del_btn_layout.addLayout(trace_id_ctrl_layout)
 
         remove_btn = QPushButton("删除")
         remove_btn.setFixedSize(50, 30)
@@ -297,7 +333,7 @@ class UnifiedPanel(QMainWindow):
         browse_btn.clicked.connect(self.select_save_input_dir)
         input_dir_name_layout.addWidget(browse_btn)
         input_dir_name_layout.addWidget(QLabel("名称:"))
-        self.save_output_name = QLineEdit("dst.mp4")
+        self.save_output_name = QLineEdit("1dst.mp4")
         self.save_output_name.setFixedWidth(100)
         input_dir_name_layout.addWidget(self.save_output_name)
         layout.addLayout(input_dir_name_layout)
@@ -313,6 +349,24 @@ class UnifiedPanel(QMainWindow):
         self.save_alpha_label = QLabel(f"{int(self.ctrl.alpha * 100)}%")
         save_alpha_layout.addWidget(self.save_alpha_label)
         layout.addLayout(save_alpha_layout)
+
+        color_btn_layout = QHBoxLayout()
+        color_btn_layout.addWidget(QLabel("颜色:"))
+        self.color_btns = []
+        self.color_styles = []
+        for idx, (r, g, b) in enumerate(self.palette_colors):
+            btn = QPushButton()
+            btn.setFixedSize(24, 24)
+            color = f"rgb({r},{g},{b})"
+            active_color = "border: 2px solid #FFD700;" if idx in self.selected_color_indices else ""
+            btn.setStyleSheet(
+                f"QPushButton {{ background-color: {color}; border-radius: 4px; {active_color} }}"
+                f"QPushButton:selected {{ border: 2px solid #FFD700; }}"
+            )
+            btn.clicked.connect(lambda _, i=idx: self.on_color_select(i))
+            self.color_btns.append(btn)
+            color_btn_layout.addWidget(btn)
+        layout.addLayout(color_btn_layout)
 
         category_layout = QHBoxLayout()
         category_layout.addWidget(QLabel("标签:"))
@@ -346,6 +400,17 @@ class UnifiedPanel(QMainWindow):
     def on_save_alpha_change(self, value):
         self.ctrl.alpha = value / 100.0
         self.save_alpha_label.setText(f"{value}%")
+
+    def _update_color_btn_styles(self):
+        for idx, btn in enumerate(self.color_btns):
+            r, g, b = self.palette_colors[idx]
+            color = f"rgb({r},{g},{b})"
+            border = "border: 3px solid #FFD700;" if idx in self.selected_color_indices else "border: 1px solid #555555;"
+            btn.setStyleSheet(f"QPushButton {{ background-color: {color}; border-radius: 4px; {border} }}")
+
+    def on_color_select(self, idx):
+        self.selected_color_indices = {idx}
+        self._update_color_btn_styles()
 
     def prev_frame(self):
         if self.viewer:
@@ -500,6 +565,7 @@ class UnifiedPanel(QMainWindow):
                '--inject',
                '--src', clip_path,
                '--iou', self.iou_input.text() or "0.5",
+               '--merge-iou', self.merge_iou_input.text() or "0.5",
                '--prompt-bboxes', json.dumps(all_prompts),
                '--output-temp', inject_temp_data]
         items_text = self.items_input.text()
@@ -628,14 +694,22 @@ class UnifiedPanel(QMainWindow):
             if pt['assigned_id'] is not None:
                 self._convert_track_id(pt['assigned_id'], pt['track_id'])
                 self.ctrl.assigned_to_original.pop(pt['assigned_id'], None)
+                self.ctrl.track_ids_to_9999.discard(pt['track_id'])
         self.ctrl.clear_track_id_points()
         self.track_id_list.clear()
         if self.viewer:
             self.viewer.update_display()
 
-    def add_track_id(self):
+    def increment_track_id(self):
         self.ctrl.next_track_id += 1
-        print(f"计数器已递增，下次绿点将分配 ID: {self.ctrl.next_track_id}")
+        self.trace_id_label.setText(str(self.ctrl.next_track_id))
+        print(f"next_track_id 递增 → {self.ctrl.next_track_id}")
+
+    def decrement_track_id(self):
+        if self.ctrl.next_track_id > 9999:
+            self.ctrl.next_track_id -= 1
+            self.trace_id_label.setText(str(self.ctrl.next_track_id))
+            print(f"next_track_id 递减 → {self.ctrl.next_track_id}")
 
     def remove_selected_track_id(self):
         row = self.track_id_list.currentRow()
@@ -645,6 +719,7 @@ class UnifiedPanel(QMainWindow):
         if pt['assigned_id'] is not None:
             self._convert_track_id(pt['assigned_id'], pt['track_id'])
             self.ctrl.assigned_to_original.pop(pt['assigned_id'], None)
+            self.ctrl.track_ids_to_9999.discard(pt['track_id'])
         self.ctrl.remove_track_id_point(row)
         self.track_id_list.takeItem(row)
         self._refresh_track_id_list()
@@ -799,9 +874,10 @@ class UnifiedPanel(QMainWindow):
                     annotations = json.load(f)
 
                 filtered = self.ctrl.filter_annotations(annotations)
+                track_id_filtered = [ann for ann in filtered if ann.get('track_id', 0) > 9900]
 
                 frame_anns = []
-                for ann in filtered:
+                for ann in track_id_filtered:
                     ann_copy = ann.copy()
                     ann_copy['category'] = category_name
                     frame_anns.append(ann_copy)
@@ -809,7 +885,18 @@ class UnifiedPanel(QMainWindow):
                 with open(output_label_path, 'w') as f:
                     json.dump(frame_anns, f)
 
-        all_annotations = self.ctrl.export_filtered_annotations(total_frames, labels_dir, category_name)
+        all_annotations = []
+        for i in range(total_frames):
+            label_path = labels_dir / f"frame_{i:06d}.json"
+            if label_path.exists():
+                with open(label_path) as f:
+                    annotations = json.load(f)
+                filtered = self.ctrl.filter_annotations(annotations)
+                for ann in filtered:
+                    if ann.get('track_id', 0) > 9900:
+                        ann_copy = ann.copy()
+                        ann_copy['category'] = category_name
+                        all_annotations.append(ann_copy)
         coco_output = {
             'info': video_info,
             'images': [{'id': i, 'frame_idx': i} for i in range(total_frames)],
@@ -824,10 +911,10 @@ class UnifiedPanel(QMainWindow):
 
     def run_save(self):
         input_dir = self.save_input_dir.text() or "temp_data_post"
-        output_name = self.save_output_name.text() or "dst.mp4"
+        output_name = self.save_output_name.text() or "1dst.mp4"
         category = self.save_category.text() or self.ctrl.category_name
 
-        output_path = Path("dst") / output_name
+        output_path = Path("1dst") / output_name
         output_path.parent.mkdir(exist_ok=True)
 
         input_path = Path(input_dir)
@@ -857,6 +944,9 @@ class UnifiedPanel(QMainWindow):
         labels_dir = input_path / "labels"
         frames_dir = input_path / "frames"
 
+        mask_colors = [self.palette_colors[i] for i in sorted(self.selected_color_indices)]
+        track_color_map = {}
+
         print(f"正在生成视频: {output_path}")
 
         for i in range(total_frames):
@@ -874,11 +964,6 @@ class UnifiedPanel(QMainWindow):
                 result_frame = frame.copy()
                 overlay = frame.copy()
 
-                mask_colors = [
-                    (255, 0, 0), (0, 255, 0), (0, 0, 255),
-                    (255, 255, 0), (255, 0, 255), (0, 255, 255)
-                ]
-
                 for ann in annotations:
                     polygon = ann.get('segmentation')
                     bbox = ann.get('bbox')
@@ -886,9 +971,13 @@ class UnifiedPanel(QMainWindow):
                     if not bbox:
                         continue
 
-                    color = mask_colors[ann.get('category_id', 0) % len(mask_colors)]
+                    track_id = ann.get('track_id', 0)
                     cat = ann.get('category', category)
                     conf = ann.get('confidence', 1.0)
+
+                    if track_id not in track_color_map:
+                        track_color_map[track_id] = mask_colors[len(track_color_map) % len(mask_colors)]
+                    color = track_color_map[track_id]
 
                     if polygon:
                         pts = np.array(polygon[0], dtype=np.int32).reshape(-1, 2)
@@ -931,6 +1020,7 @@ def main():
     parser = argparse.ArgumentParser(description="视频标注工具 - 统一控制面板")
     parser.add_argument('--src', type=str, default=None, help='视频文件路径')
     parser.add_argument('--iou', type=float, default=None, help='IoU阈值')
+    parser.add_argument('--merge-iou', type=float, default=None, help='当前帧IoU阈值')
     parser.add_argument('--items', type=str, default=None, help='物品列表，逗号分隔')
     args = parser.parse_args()
 
@@ -939,6 +1029,8 @@ def main():
                '--src', args.src]
         if args.iou is not None:
             cmd.extend(['--iou', str(args.iou)])
+        if args.merge_iou is not None:
+            cmd.extend(['--merge-iou', str(args.merge_iou)])
         if args.items:
             cmd.extend(['--items', args.items])
         subprocess.Popen(cmd, cwd=str(Path.cwd()))

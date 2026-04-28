@@ -1,9 +1,10 @@
 # global参数
 FIND = []  # 第1行：文本提示词列表，运行时由用户输入，用于SAM3语义分割
-SRC_DIR = "src"  # 第31行：视频源目录
-DST_DIR = "dst"  # 第67行：输出视频目录
+SRC_DIR = "1src"  # 第31行：视频源目录
+DST_DIR = "1dst"  # 第67行：输出视频目录
 TEMP_DATA_DIR = "temp_data"  # 第8行：临时数据目录，用于保存每帧画面和COCO格式标注
-IOU_THRESHOLD = 0.5  # 第10行：IoU阈值，默认0.5，用于目标跟踪匹配
+IOU_THRESHOLD = 0.5  # 第10行：IoU阈值，默认0.5，用于目标跟踪匹配（前后帧IoU）
+MERGE_IOU_THRESHOLD = 0.5  # 当前帧IoU阈值，默认0.5，用于合并同帧内重叠的分割
 WINDOW_NAME = "视频标注工具"  # 第37行：窗口名称
 SAM_MODEL_PATH = "sam3.pt"  # SAM模型路径（可下载sam_b.pt或sam3.pt）
 BOX_COLORS = [  # 第55行：标注框颜色列表
@@ -75,6 +76,45 @@ def calculate_mask_iou(mask1, mask2):
         return 0.0
 
     return float(intersection) / float(union)
+
+
+def merge_masks_in_frame(masks, bboxes, merge_iou_threshold):
+    """将同帧内IoU>阈值的mask合并，返回合并后的masks和bboxes"""
+    if len(masks) <= 1 or merge_iou_threshold <= 0:
+        return masks, bboxes
+
+    n = len(masks)
+    merged = [False] * n
+    result_masks = []
+    result_bboxes = []
+
+    for i in range(n):
+        if merged[i]:
+            continue
+        combined_mask = masks[i].copy()
+        combined_bbox = list(bboxes[i])
+        merged[i] = True
+
+        for j in range(i + 1, n):
+            if merged[j]:
+                continue
+            iou = calculate_mask_iou(masks[i], masks[j])
+            if iou >= merge_iou_threshold:
+                combined_mask = np.logical_or(combined_mask, masks[j]).astype(np.uint8)
+                b1 = bboxes[i]
+                b2 = bboxes[j]
+                x1 = min(b1[0], b2[0])
+                y1 = min(b1[1], b2[1])
+                x2 = max(b1[0] + b1[2], b2[0] + b2[2])
+                y2 = max(b1[1] + b1[3], b2[1] + b2[3])
+                combined_bbox = [float(x1), float(y1), float(x2 - x1), float(y2 - y1)]
+                merged[j] = True
+
+        result_masks.append(combined_mask)
+        result_bboxes.append(combined_bbox)
+
+    return result_masks, result_bboxes
+
 
 class TrackManager:
     """跟踪管理器，用于保持目标ID在不同帧间的一致性"""
@@ -609,6 +649,9 @@ class VideoAnnotator:
                                         current_bboxes.append(bbox)
 
                         if current_masks:
+                            current_masks, current_bboxes = merge_masks_in_frame(
+                                current_masks, current_bboxes, MERGE_IOU_THRESHOLD
+                            )
                             track_ids = track_manager.update(current_masks, current_bboxes, frame_count)
 
                             for idx, (mask, bbox) in enumerate(zip(current_masks, current_bboxes)):
@@ -834,27 +877,32 @@ class VideoAnnotator:
                 if launch_panel:
                     self.launch_control_panel(output_path)
 
-def run_interactive(video_path, iou_threshold=None, find_list=None):
-    global FIND, IOU_THRESHOLD
+def run_interactive(video_path, iou_threshold=None, find_list=None, merge_iou_threshold=None):
+    global FIND, IOU_THRESHOLD, MERGE_IOU_THRESHOLD
     if iou_threshold is not None:
         IOU_THRESHOLD = iou_threshold
+    if merge_iou_threshold is not None:
+        MERGE_IOU_THRESHOLD = merge_iou_threshold
     if find_list is not None:
         FIND = find_list
 
     print("=" * 50)
     print("视频标注工具 - SAM3实例分割")
     print("=" * 50)
-    print(f"IoU阈值: {IOU_THRESHOLD}")
+    print(f"前后帧IoU: {IOU_THRESHOLD}")
+    print(f"当前帧IoU: {MERGE_IOU_THRESHOLD}")
     print(f"物品列表: {FIND if FIND else '(无)'}")
 
     annotator = VideoAnnotator(video_path, DST_DIR)
     annotator.boxes = []
     annotator.run()
 
-def run_inject(video_path, prompt_bboxes, output_temp_dir, iou_threshold=None, find_list=None):
-    global FIND, IOU_THRESHOLD, TEMP_DATA_DIR
+def run_inject(video_path, prompt_bboxes, output_temp_dir, iou_threshold=None, find_list=None, merge_iou_threshold=None):
+    global FIND, IOU_THRESHOLD, MERGE_IOU_THRESHOLD, TEMP_DATA_DIR
     if iou_threshold is not None:
         IOU_THRESHOLD = iou_threshold
+    if merge_iou_threshold is not None:
+        MERGE_IOU_THRESHOLD = merge_iou_threshold
     if find_list is not None:
         FIND = find_list
 
@@ -931,7 +979,7 @@ def main():
 
     if not video_files:
         print(f"\n在 {SRC_DIR} 目录下没有找到视频文件")
-        print("请将视频文件放入 src 目录")
+        print("请将视频文件放入 1src 目录")
         return
 
     print("\n找到以下视频文件:")
@@ -961,7 +1009,8 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="视频标注工具 - SAM3实例分割")
     parser.add_argument('--src', type=str, default=None, help='视频文件路径')
-    parser.add_argument('--iou', type=float, default=None, help='IoU阈值')
+    parser.add_argument('--iou', type=float, default=None, help='IoU阈值（前后帧）')
+    parser.add_argument('--merge-iou', type=float, default=None, help='当前帧IoU阈值，合并同帧内重叠分割')
     parser.add_argument('--items', type=str, default=None, help='物品列表，逗号分隔')
     parser.add_argument('--inject', action='store_true', help='注入模式：从指定帧开始用prompt bbox向后跟踪')
     parser.add_argument('--prompt-bboxes', type=str, default=None, help='提示框坐标JSON: [[x1,y1,x2,y2],...]')
@@ -974,13 +1023,15 @@ if __name__ == "__main__":
         else:
             bboxes = json.loads(args.prompt_bboxes)
             iou_val = args.iou if args.iou is not None else IOU_THRESHOLD
+            merge_val = args.merge_iou if args.merge_iou is not None else MERGE_IOU_THRESHOLD
             items_val = args.items.split(',') if args.items else []
             run_inject(args.src, bboxes, args.output_temp,
-                      iou_threshold=iou_val, find_list=items_val)
+                      iou_threshold=iou_val, find_list=items_val, merge_iou_threshold=merge_val)
     elif args.src:
         video_path = args.src
         iou_val = args.iou if args.iou is not None else IOU_THRESHOLD
+        merge_val = args.merge_iou if args.merge_iou is not None else MERGE_IOU_THRESHOLD
         items_val = args.items.split(',') if args.items else []
-        run_interactive(video_path, iou_threshold=iou_val, find_list=items_val)
+        run_interactive(video_path, iou_threshold=iou_val, find_list=items_val, merge_iou_threshold=merge_val)
     else:
         main()

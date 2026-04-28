@@ -600,7 +600,7 @@ def main():
     app = QApplication(sys.argv)
     
     temp_data_path = None
-    output_video_path = "dst/output_annotated.mp4"
+    output_video_path = "1dst/output_annotated.mp4"
     del_track_id_list = []
     
     if len(sys.argv) > 1:

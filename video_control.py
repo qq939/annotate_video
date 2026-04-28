@@ -35,7 +35,7 @@ class VideoController:
     def filter_annotations(self, annotations):
         if not annotations:
             return []
-        deleted_ids = self.track_ids_to_9999 | {9999}
+        deleted_ids = self.track_ids_to_9999.copy()
 
         fence_pts_list = []
         for fence in self.fences:
@@ -83,7 +83,9 @@ class VideoController:
                 continue
 
             color = MASK_COLORS[ann.get('category_id', 0) % len(MASK_COLORS)]
-            if ann.get('track_id', 0) >= 9999:
+            track_id = ann.get('track_id', 0)
+            is_purple = track_id >= 9999
+            if is_purple:
                 color = TRACK_ID_9999_COLOR
             category = ann.get('category', ann.get('category_id', 0))
             conf = ann.get('confidence', 1.0)
@@ -96,7 +98,8 @@ class VideoController:
             x, y = int(bbox[0]), int(bbox[1])
             w, h = int(bbox[2]), int(bbox[3])
             cv2.rectangle(overlay, (x, y), (x + w, y + h), color, 2)
-            cv2.putText(overlay, f"{category} {conf:.2f}", (x, y - 5),
+            label_text = f"{track_id} {conf:.2f}" if is_purple else f"{category} {conf:.2f}"
+            cv2.putText(overlay, label_text, (x, y - 5),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
 
         for i, fence in enumerate(self.fences):
