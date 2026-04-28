@@ -721,10 +721,6 @@ class VideoAnnotator:
             print(f"✓ 标注了 {len(self.boxes) if self.boxes else 0} 个目标区域")
             print(f"✓ COCO格式标注已保存到: {temp_data_path / 'annotations.json'}")
             print(f"✓ 临时数据已保存到: {temp_data_path}")
-            upload_to_obs(str(output_path))
-
-            if launch_panel:
-                self.launch_control_panel(output_path)
 
         except ImportError as e:
             print(f"SAM3VideoPredictor导入失败: {e}")
@@ -813,10 +809,6 @@ class VideoAnnotator:
                 print(f"✓ 共处理 {frame_count} 帧")
                 print(f"✓ 标注了 {len(self.boxes) if self.boxes else 0} 个目标区域")
                 print(f"✓ 临时数据已保存到: {temp_data_path}")
-                upload_to_obs(str(output_path))
-
-                if launch_panel:
-                    self.launch_control_panel(output_path)
 
             except Exception as e:
                 print(f"SAM模型加载失败: {e}")
@@ -872,10 +864,6 @@ class VideoAnnotator:
                 print(f"✓ 标注视频已保存到: {output_path}")
                 print(f"✓ 共处理 {frame_count} 帧")
                 print(f"✓ 标注了 {len(self.boxes) if self.boxes else 0} 个目标区域")
-                upload_to_obs(str(output_path))
-
-                if launch_panel:
-                    self.launch_control_panel(output_path)
 
 def run_interactive(video_path, iou_threshold=None, find_list=None, merge_iou_threshold=None):
     global FIND, IOU_THRESHOLD, MERGE_IOU_THRESHOLD

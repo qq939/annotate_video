@@ -230,10 +230,14 @@ class VideoViewer(QMainWindow):
             annotated_frame = frame
 
         if self.controller:
-            for tp in self.controller.get_track_id_points():
-                if tp.get('frame_idx') == self.current_frame_idx:
-                    cv2.circle(annotated_frame, (tp['x'], tp['y']), 6, (0, 255, 0), -1)
-                    cv2.circle(annotated_frame, (tp['x'], tp['y']), 6, (0, 0, 0), 2)
+                for tp in self.controller.get_track_id_points():
+                    if tp.get('frame_idx') == self.current_frame_idx:
+                        cx, cy = tp['x'], tp['y']
+                        cv2.circle(annotated_frame, (cx, cy), 6, (0, 255, 0), -1)
+                        cv2.circle(annotated_frame, (cx, cy), 6, (0, 0, 0), 2)
+                        label = str(self.controller.track_id_points.index(tp))
+                        cv2.putText(annotated_frame, label, (cx + 8, cy - 5),
+                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
         for bbox in self.prompt_bboxes:
             x1, y1, x2, y2 = bbox
