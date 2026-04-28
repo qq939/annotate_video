@@ -289,7 +289,6 @@ class ControlPanel(QMainWindow):
         if found is not None:
             track_id = found.get('track_id', found.get('id', 0))
             assigned_id = self.ctrl.next_track_id
-            self.ctrl.next_track_id += 1
             self.ctrl.add_track_id_point(video_x, video_y, frame_idx, track_id)
             pt = self.ctrl.track_id_points[-1]
             pt['assigned_id'] = assigned_id
