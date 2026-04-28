@@ -180,11 +180,21 @@ class UnifiedPanel(QMainWindow):
         path_layout.addWidget(show_btn)
         layout.addLayout(path_layout)
 
-        category_layout = QHBoxLayout()
-        category_layout.addWidget(QLabel("类别名称"))
-        self.category_input = QLineEdit(self.ctrl.category_name)
-        self.category_input.setFixedHeight(26)
-        category_layout.addWidget(self.category_input)
+        category_layout = QVBoxLayout()
+        category_layout.setSpacing(4)
+        category_layout.addWidget(QLabel("类别名称 (trace_id → 类别):"))
+        self.category_inputs = []
+        for tid in range(1000000, 1000004):
+            row = QHBoxLayout()
+            row.setSpacing(4)
+            label = QLabel(f"{tid}:")
+            label.setFixedWidth(70)
+            row.addWidget(label)
+            inp = QLineEdit("Detect")
+            inp.setFixedHeight(24)
+            row.addWidget(inp)
+            self.category_inputs.append(inp)
+            category_layout.addLayout(row)
         layout.addLayout(category_layout)
 
         zoom_layout = QHBoxLayout()
@@ -902,6 +912,15 @@ class UnifiedPanel(QMainWindow):
         if folder:
             self.save_input_dir.setText(folder)
 
+    def _get_category_for_track_id(self, track_id):
+        if 1000000 <= track_id <= 1000003:
+            idx = track_id - 1000000
+            name = self.category_inputs[idx].text() or "Detect"
+            return (idx, name)
+        elif track_id >= 1000000:
+            return (track_id - 1000000, "Detect")
+        return (0, self.ctrl.category_name)
+
     def export_to_temp_data_post(self):
         data_dir = self.temp_data_path
         if not data_dir.exists():
@@ -929,11 +948,9 @@ class UnifiedPanel(QMainWindow):
         output_frames_dir = output_path / "frames"
         output_frames_dir.mkdir(exist_ok=True)
 
-        category_name = self.category_input.text() or self.ctrl.category_name
-        self.ctrl.category_name = category_name
-
         labels_dir = data_dir / "labels"
         frames_dir = data_dir / "frames"
+        cat_id_set = set()
 
         print("步骤1: 保存到 temp_data_post...")
         for i in range(total_frames):
@@ -954,8 +971,12 @@ class UnifiedPanel(QMainWindow):
 
                 frame_anns = []
                 for ann in track_id_filtered:
+                    tid = ann.get('track_id', 0)
+                    cat_id, cat_name = self._get_category_for_track_id(tid)
+                    cat_id_set.add((cat_id, cat_name))
                     ann_copy = ann.copy()
-                    ann_copy['category'] = category_name
+                    ann_copy['category_id'] = cat_id
+                    ann_copy['category'] = cat_name
                     frame_anns.append(ann_copy)
 
                 with open(output_label_path, 'w') as f:
@@ -970,13 +991,19 @@ class UnifiedPanel(QMainWindow):
                 filtered = self.ctrl.filter_annotations(annotations)
                 for ann in filtered:
                     if ann.get('track_id', 0) > 999998:
+                        tid = ann.get('track_id', 0)
+                        cat_id, cat_name = self._get_category_for_track_id(tid)
+                        cat_id_set.add((cat_id, cat_name))
                         ann_copy = ann.copy()
-                        ann_copy['category'] = category_name
+                        ann_copy['category_id'] = cat_id
+                        ann_copy['category'] = cat_name
                         all_annotations.append(ann_copy)
+        categories_list = [{'id': cid, 'name': cname} for cid, cname in sorted(cat_id_set, key=lambda x: x[0])]
         coco_output = {
             'info': video_info,
             'images': [{'id': i, 'frame_idx': i} for i in range(total_frames)],
-            'annotations': all_annotations
+            'annotations': all_annotations,
+            'categories': categories_list
         }
 
         with open(output_path / "annotations.json", 'w') as f:
@@ -988,7 +1015,6 @@ class UnifiedPanel(QMainWindow):
     def run_save(self):
         input_dir = self.save_input_dir.text() or "temp_data_post"
         output_name = self.save_output_name.text() or "1dst.mp4"
-        category = self.ctrl.category_name
 
         output_path = Path("1dst") / output_name
         output_path.parent.mkdir(exist_ok=True)
@@ -1047,7 +1073,6 @@ class UnifiedPanel(QMainWindow):
                         continue
 
                     track_id = ann.get('track_id', 0)
-                    cat = ann.get('category', category)
                     conf = ann.get('confidence', 1.0)
                     color = single_color
 
