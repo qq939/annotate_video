@@ -101,7 +101,7 @@ class VideoController:
             x, y = int(bbox[0]), int(bbox[1])
             w, h = int(bbox[2]), int(bbox[3])
             cv2.rectangle(overlay, (x, y), (x + w, y + h), color, 2)
-            label_text = f"{track_id} {conf:.2f}" if is_purple else f"{category} {conf:.2f}"
+            label_text = f"{track_id} {conf:.2f}"
             cv2.putText(overlay, label_text, (x, y - 5),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
 

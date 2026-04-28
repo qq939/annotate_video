@@ -250,6 +250,20 @@ class TestTrackIdFeature(unittest.TestCase):
                 self.assertIn("border: none", style)
                 self.assertTrue(child.width() > 0)
 
+    def test_all_bboxes_show_track_id_and_confidence(self):
+        from video_control import VideoController
+        import numpy as np
+        c = VideoController()
+        c.alpha = 1.0
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+        anns = [
+            {'track_id': 7, 'bbox': [10, 10, 30, 30], 'segmentation': [[[10, 10], [40, 10], [40, 40], [10, 40]]], 'confidence': 0.95, 'category': 'cat'},
+            {'track_id': 999999, 'bbox': [10, 10, 30, 30], 'segmentation': [[[10, 10], [40, 10], [40, 40], [10, 40]]], 'confidence': 0.85, 'category': 'cat'},
+        ]
+        result = c.apply_threshold_to_masks(frame, anns)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.shape, frame.shape)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

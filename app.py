@@ -10,7 +10,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QSlider, QLabel, QLineEdit, QFileDialog, QGroupBox, QTextEdit, QMessageBox, QListWidget)
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QSlider, QLabel, QLineEdit, QFileDialog, QGroupBox, QTextEdit, QMessageBox, QListWidget, QSizePolicy)
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.Qt import QDragEnterEvent, QDropEvent
 
@@ -56,15 +56,15 @@ class UnifiedPanel(QMainWindow):
         self.inject_timer = None
 
         self.palette_colors = [
-            (255, 0, 0),     # 红
-            (255, 165, 0),   # 橙
-            (255, 255, 0),   # 黄
-            (0, 255, 0),     # 绿
-            (0, 255, 255),   # 青
-            (0, 0, 255),     # 蓝
-            (128, 0, 128),   # 紫
+            (0, 0, 255),     # 红 (BGR)
+            (0, 165, 255),   # 橙 (BGR)
+            (0, 255, 255),   # 黄 (BGR)
+            (0, 255, 0),     # 绿 (BGR)
+            (255, 255, 0),   # 青 (BGR)
+            (255, 0, 0),     # 蓝 (BGR)
+            (128, 0, 128),   # 紫 (BGR)
         ]
-        self.selected_color_indices = set(random.sample(range(len(self.palette_colors)), 1))
+        self.selected_color_indices = set(random.sample(range(len(self.palette_colors)), random.randint(2, 4)))
 
         self.init_ui()
 
@@ -160,112 +160,108 @@ class UnifiedPanel(QMainWindow):
         self.video_process = subprocess.Popen(cmd, cwd=str(Path.cwd()))
 
     def create_viewer_section(self):
-        group = QGroupBox("2. 预览 (video_viewer)")
+        group = QGroupBox("2. 预览")
+        group.setStyleSheet("QGroupBox { font-weight: bold; }")
         layout = QVBoxLayout()
         group.setLayout(layout)
 
         path_layout = QHBoxLayout()
-        path_layout.addWidget(QLabel("数据目录:"))
+        path_layout.addWidget(QLabel("数据目录"))
         self.path_input = QLineEdit("temp_data")
+        self.path_input.setFixedHeight(26)
         path_layout.addWidget(self.path_input)
         open_btn = QPushButton("选择")
+        open_btn.setFixedSize(50, 26)
         open_btn.clicked.connect(self.select_data_dir)
         path_layout.addWidget(open_btn)
         show_btn = QPushButton("Show")
+        show_btn.setFixedSize(50, 26)
         show_btn.clicked.connect(self.show_viewer)
         path_layout.addWidget(show_btn)
         layout.addLayout(path_layout)
 
         category_layout = QHBoxLayout()
-        category_layout.addWidget(QLabel("类别名称:"))
+        category_layout.addWidget(QLabel("类别名称"))
         self.category_input = QLineEdit(self.ctrl.category_name)
+        self.category_input.setFixedHeight(26)
         category_layout.addWidget(self.category_input)
         layout.addLayout(category_layout)
 
         zoom_layout = QHBoxLayout()
-        zoom_layout.addWidget(QLabel("缩放:"))
+        zoom_layout.addWidget(QLabel("缩放"))
         self.zoom_slider = QSlider(Qt.Horizontal)
         self.zoom_slider.setMinimum(50)
         self.zoom_slider.setMaximum(200)
         self.zoom_slider.setValue(100)
+        self.zoom_slider.setFixedHeight(20)
         self.zoom_slider.valueChanged.connect(self.on_zoom_change)
         zoom_layout.addWidget(self.zoom_slider)
         self.zoom_label = QLabel("100%")
+        self.zoom_label.setFixedWidth(40)
         zoom_layout.addWidget(self.zoom_label)
         layout.addLayout(zoom_layout)
 
         conf_layout = QHBoxLayout()
-        conf_layout.addWidget(QLabel("置信度:"))
+        conf_layout.addWidget(QLabel("置信度"))
         self.conf_slider = QSlider(Qt.Horizontal)
         self.conf_slider.setMinimum(0)
         self.conf_slider.setMaximum(100)
         self.conf_slider.setValue(int(self.ctrl.conf_threshold * 100))
+        self.conf_slider.setFixedHeight(20)
         self.conf_slider.valueChanged.connect(self.on_conf_change)
         conf_layout.addWidget(self.conf_slider)
         layout.addLayout(conf_layout)
 
-        alpha_layout = QHBoxLayout()
-        alpha_layout.addWidget(QLabel("透明度:"))
-        self.alpha_slider = QSlider(Qt.Horizontal)
-        self.alpha_slider.setMinimum(10)
-        self.alpha_slider.setMaximum(100)
-        self.alpha_slider.setValue(int(self.ctrl.alpha * 100))
-        self.alpha_slider.valueChanged.connect(self.on_alpha_change)
-        alpha_layout.addWidget(self.alpha_slider)
-        self.alpha_label = QLabel(f"{int(self.ctrl.alpha * 100)}%")
-        alpha_layout.addWidget(self.alpha_label)
-        layout.addLayout(alpha_layout)
-
         frame_nav_play_layout = QHBoxLayout()
+        frame_nav_play_layout.setSpacing(4)
+        self.backward_fast_btn = QPushButton("倒播")
+        self.backward_fast_btn.setFixedHeight(30)
+        self.backward_fast_btn.clicked.connect(self.toggle_backward_fast)
+        frame_nav_play_layout.addWidget(self.backward_fast_btn)
 
-        self.backward_btn = QPushButton("◀")
-        self.backward_btn.setFixedWidth(40)
+        self.backward_btn = QPushButton("倒帧")
+        self.backward_btn.setFixedHeight(30)
         self.backward_btn.clicked.connect(self.toggle_backward)
         frame_nav_play_layout.addWidget(self.backward_btn)
 
-        prev_btn = QPushButton("◀帧")
-        prev_btn.setFixedWidth(50)
-        prev_btn.clicked.connect(self.prev_frame)
-        frame_nav_play_layout.addWidget(prev_btn)
-
-        self.prompt_btn = QPushButton("设为提示帧")
-        self.prompt_btn.setFixedWidth(80)
-        self.prompt_btn.setStyleSheet("QPushButton { background-color: #FFA500; color: white; border: none; border-radius: 3px; } QPushButton:hover { background-color: #FF8C00; }")
+        self.prompt_btn = QPushButton("提示帧")
+        self.prompt_btn.setFixedSize(60, 30)
+        self.prompt_btn.setStyleSheet("QPushButton { background-color: #FFA500; color: white; border: none; border-radius: 3px; font-size: 12px; } QPushButton:hover { background-color: #FF8C00; }")
         self.prompt_btn.clicked.connect(self.toggle_prompt_mode)
         frame_nav_play_layout.addWidget(self.prompt_btn)
 
         self.frame_label = QLabel("1/1")
         self.frame_label.setAlignment(Qt.AlignCenter)
-        self.frame_label.setFixedWidth(50)
+        self.frame_label.setFixedSize(55, 30)
+        self.frame_label.setStyleSheet("QLabel { background-color: #333; color: #fff; border-radius: 3px; font-weight: bold; }")
         frame_nav_play_layout.addWidget(self.frame_label)
 
-        next_btn = QPushButton("帧▶")
-        next_btn.setFixedWidth(50)
-        next_btn.clicked.connect(self.next_frame)
-        frame_nav_play_layout.addWidget(next_btn)
+        self.next_btn = QPushButton("正帧")
+        self.next_btn.setFixedHeight(30)
+        self.next_btn.clicked.connect(self.toggle_play)
+        frame_nav_play_layout.addWidget(self.next_btn)
 
-        self.play_btn = QPushButton("▶")
-        self.play_btn.setFixedWidth(40)
-        self.play_btn.clicked.connect(self.toggle_play)
-        frame_nav_play_layout.addWidget(self.play_btn)
-
+        self.forward_fast_btn = QPushButton("正播")
+        self.forward_fast_btn.setFixedHeight(30)
+        self.forward_fast_btn.clicked.connect(self.toggle_play_fast)
+        frame_nav_play_layout.addWidget(self.forward_fast_btn)
         layout.addLayout(frame_nav_play_layout)
 
         delete_trace_layout = QHBoxLayout()
-        delete_trace_layout.addWidget(QLabel("删除trace id:"))
+        delete_trace_layout.addWidget(QLabel("删除trace"))
         self.delete_trace_input = QLineEdit()
-        self.delete_trace_input.setPlaceholderText("输入trace id")
-        self.delete_trace_input.setFixedWidth(80)
+        self.delete_trace_input.setPlaceholderText("输入")
+        self.delete_trace_input.setFixedHeight(30)
         delete_trace_layout.addWidget(self.delete_trace_input)
         delete_trace_btn = QPushButton("删除")
-        delete_trace_btn.setFixedWidth(50)
+        delete_trace_btn.setFixedSize(50, 30)
         delete_trace_btn.setStyleSheet("QPushButton { background-color: #FF4444; color: white; border: none; border-radius: 3px; } QPushButton:hover { background-color: #CC0000; }")
         delete_trace_btn.clicked.connect(self.delete_trace_id)
         delete_trace_layout.addWidget(delete_trace_btn)
         layout.addLayout(delete_trace_layout)
 
         del_layout = QHBoxLayout()
-        del_layout.addWidget(QLabel("绿点列表:"))
+        del_layout.addWidget(QLabel("绿点列表"))
         self.track_id_list = QListWidget()
         del_layout.addWidget(self.track_id_list)
 
@@ -273,36 +269,41 @@ class UnifiedPanel(QMainWindow):
 
         trace_id_ctrl_layout = QHBoxLayout()
         self.trace_id_minus_btn = QPushButton("-")
-        self.trace_id_minus_btn.setFixedSize(25, 30)
+        self.trace_id_minus_btn.setFixedSize(30, 30)
         self.trace_id_minus_btn.setStyleSheet("QPushButton { background-color: #FFA500; color: white; border: none; border-radius: 3px; font-size: 16px; font-weight: bold; } QPushButton:hover { background-color: #FF8C00; }")
         self.trace_id_minus_btn.clicked.connect(self.decrement_track_id)
         trace_id_ctrl_layout.addWidget(self.trace_id_minus_btn)
 
         self.trace_id_label = QLabel(str(self.ctrl.next_track_id))
         self.trace_id_label.setAlignment(Qt.AlignCenter)
-        self.trace_id_label.setFixedSize(50, 30)
-        self.trace_id_label.setStyleSheet("QLabel { background-color: #333333; color: #CCCCFF; border: 1px solid #666; border-radius: 3px; font-size: 14px; font-weight: bold; }")
+        self.trace_id_label.setFixedHeight(30)
+        self.trace_id_label.setStyleSheet("QLabel { background-color: #222; color: #ccc; border: 1px solid #555; border-radius: 3px; font-size: 12px; font-weight: bold; padding: 0 8px; }")
         trace_id_ctrl_layout.addWidget(self.trace_id_label)
 
         self.trace_id_plus_btn = QPushButton("+")
-        self.trace_id_plus_btn.setFixedSize(25, 30)
+        self.trace_id_plus_btn.setFixedSize(30, 30)
         self.trace_id_plus_btn.setStyleSheet("QPushButton { background-color: #00CC00; color: white; border: none; border-radius: 3px; font-size: 16px; font-weight: bold; } QPushButton:hover { background-color: #009900; }")
         self.trace_id_plus_btn.clicked.connect(self.increment_track_id)
         trace_id_ctrl_layout.addWidget(self.trace_id_plus_btn)
 
         del_btn_layout.addLayout(trace_id_ctrl_layout)
 
+        track_btn_row = QHBoxLayout()
+        track_btn_row.setSpacing(2)
         remove_btn = QPushButton("删除")
-        remove_btn.setFixedSize(50, 30)
-        remove_btn.setStyleSheet("QPushButton { background-color: #FFA500; color: white; border: none; border-radius: 3px; } QPushButton:hover { background-color: #FF8C00; }")
+        remove_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        remove_btn.setFixedHeight(30)
+        remove_btn.setStyleSheet("QPushButton { background-color: #FF4444; color: white; border: none; border-radius: 3px; } QPushButton:hover { background-color: #CC0000; }")
         remove_btn.clicked.connect(self.remove_selected_track_id)
-        del_btn_layout.addWidget(remove_btn)
+        track_btn_row.addWidget(remove_btn)
 
         clear_del_btn = QPushButton("清空")
-        clear_del_btn.setFixedSize(50, 30)
-        clear_del_btn.setStyleSheet("QPushButton { background-color: #FFA500; color: white; border: none; border-radius: 3px; } QPushButton:hover { background-color: #FF8C00; }")
+        clear_del_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        clear_del_btn.setFixedHeight(30)
+        clear_del_btn.setStyleSheet("QPushButton { background-color: #555555; color: white; border: none; border-radius: 3px; } QPushButton:hover { background-color: #333333; }")
         clear_del_btn.clicked.connect(self.clear_track_id)
-        del_btn_layout.addWidget(clear_del_btn)
+        track_btn_row.addWidget(clear_del_btn)
+        del_btn_layout.addLayout(track_btn_row)
 
         del_layout.addLayout(del_btn_layout)
         layout.addLayout(del_layout)
@@ -364,12 +365,6 @@ class UnifiedPanel(QMainWindow):
             self.color_btns.append(btn)
             color_btn_layout.addWidget(btn)
         layout.addLayout(color_btn_layout)
-
-        category_layout = QHBoxLayout()
-        category_layout.addWidget(QLabel("标签:"))
-        self.save_category = QLineEdit(self.ctrl.category_name)
-        category_layout.addWidget(self.save_category)
-        layout.addLayout(category_layout)
 
         self.save_btn = QPushButton("💾 保存视频并上传OBS")
         self.save_btn.clicked.connect(self.run_save)
@@ -450,29 +445,71 @@ class UnifiedPanel(QMainWindow):
         if self.viewer:
             self.viewer.update_display()
 
-    def toggle_play(self):
+    def toggle_play_fast(self):
         self.is_backward = False
-        self.backward_btn.setText("◀")
-        if self.is_playing:
+        self.backward_btn.setText("倒帧")
+        self.backward_fast_btn.setText("倒播")
+        if self.is_playing and not self.is_backward and self.play_timer.interval() == 100:
             self.play_timer.stop()
             self.is_playing = False
-            self.play_btn.setText("▶")
+            self.next_btn.setText("正帧")
+            self.forward_fast_btn.setText("正播")
         else:
+            self.play_timer.stop()
             self.play_timer.start(100)
             self.is_playing = True
-            self.play_btn.setText("⏸")
+            self.is_backward = False
+            self.next_btn.setText("正帧")
+            self.forward_fast_btn.setText("■正播")
+
+    def toggle_play(self):
+        self.is_backward = False
+        self.backward_btn.setText("倒帧")
+        self.backward_fast_btn.setText("倒播")
+        if self.is_playing and not self.is_backward and self.play_timer.interval() == 1000:
+            self.play_timer.stop()
+            self.is_playing = False
+            self.next_btn.setText("正帧")
+            self.forward_fast_btn.setText("正播")
+        else:
+            self.play_timer.stop()
+            self.play_timer.start(1000)
+            self.is_playing = True
+            self.is_backward = False
+            self.next_btn.setText("▶正帧")
+            self.forward_fast_btn.setText("正播")
 
     def toggle_backward(self):
         self.is_playing = False
-        self.play_btn.setText("▶")
-        if self.is_backward:
+        self.next_btn.setText("正帧")
+        self.forward_fast_btn.setText("正播")
+        if self.is_backward and self.play_timer.interval() == 1000:
             self.play_timer.stop()
             self.is_backward = False
-            self.backward_btn.setText("◀")
+            self.backward_btn.setText("倒帧")
+            self.backward_fast_btn.setText("倒播")
         else:
+            self.play_timer.stop()
+            self.play_timer.start(1000)
+            self.is_backward = True
+            self.backward_btn.setText("▶倒帧")
+            self.backward_fast_btn.setText("倒播")
+
+    def toggle_backward_fast(self):
+        self.is_playing = False
+        self.next_btn.setText("正帧")
+        self.forward_fast_btn.setText("正播")
+        if self.is_backward and self.play_timer.interval() == 100:
+            self.play_timer.stop()
+            self.is_backward = False
+            self.backward_btn.setText("倒帧")
+            self.backward_fast_btn.setText("倒播")
+        else:
+            self.play_timer.stop()
             self.play_timer.start(100)
             self.is_backward = True
-            self.backward_btn.setText("⏸")
+            self.backward_btn.setText("倒帧")
+            self.backward_fast_btn.setText("■倒播")
 
     def toggle_prompt_mode(self):
         if not self.viewer:
@@ -703,7 +740,7 @@ class UnifiedPanel(QMainWindow):
         print(f"next_track_id 递增 → {self.ctrl.next_track_id}")
 
     def decrement_track_id(self):
-        if self.ctrl.next_track_id > 9999:
+        if self.ctrl.next_track_id > 1000000:
             self.ctrl.next_track_id -= 1
             self.trace_id_label.setText(str(self.ctrl.next_track_id))
             print(f"next_track_id 递减 → {self.ctrl.next_track_id}")
@@ -809,7 +846,8 @@ class UnifiedPanel(QMainWindow):
         if self.is_playing:
             self.is_playing = False
             self.play_timer.stop()
-            self.play_btn.setText("▶")
+            self.next_btn.setText("正帧")
+            self.forward_fast_btn.setText("正播")
             if self.viewer:
                 self.viewer.stop_playback()
 
@@ -912,7 +950,7 @@ class UnifiedPanel(QMainWindow):
                     annotations = json.load(f)
 
                 filtered = self.ctrl.filter_annotations(annotations)
-                track_id_filtered = [ann for ann in filtered if ann.get('track_id', 0) > 9900]
+                track_id_filtered = [ann for ann in filtered if ann.get('track_id', 0) > 999998]
 
                 frame_anns = []
                 for ann in track_id_filtered:
@@ -931,7 +969,7 @@ class UnifiedPanel(QMainWindow):
                     annotations = json.load(f)
                 filtered = self.ctrl.filter_annotations(annotations)
                 for ann in filtered:
-                    if ann.get('track_id', 0) > 9900:
+                    if ann.get('track_id', 0) > 999998:
                         ann_copy = ann.copy()
                         ann_copy['category'] = category_name
                         all_annotations.append(ann_copy)
@@ -950,7 +988,7 @@ class UnifiedPanel(QMainWindow):
     def run_save(self):
         input_dir = self.save_input_dir.text() or "temp_data_post"
         output_name = self.save_output_name.text() or "1dst.mp4"
-        category = self.save_category.text() or self.ctrl.category_name
+        category = self.ctrl.category_name
 
         output_path = Path("1dst") / output_name
         output_path.parent.mkdir(exist_ok=True)
@@ -982,7 +1020,7 @@ class UnifiedPanel(QMainWindow):
         labels_dir = input_path / "labels"
         frames_dir = input_path / "frames"
 
-        mask_colors = [self.palette_colors[i] for i in sorted(self.selected_color_indices)]
+        mask_colors = [self.palette_colors[i] for i in list(self.selected_color_indices)]
         track_color_map = {}
 
         print(f"正在生成视频: {output_path}")
@@ -1025,7 +1063,7 @@ class UnifiedPanel(QMainWindow):
                     x, y = int(bbox[0]), int(bbox[1])
                     w, h = int(bbox[2]), int(bbox[3])
                     cv2.rectangle(overlay, (x, y), (x + w, y + h), color, 2)
-                    cv2.putText(overlay, f"{cat} {conf:.2f}", (x, y - 5),
+                    cv2.putText(overlay, f"{track_id} {conf:.2f}", (x, y - 5),
                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
 
                 cv2.addWeighted(overlay, self.ctrl.alpha, result_frame, 1 - self.ctrl.alpha, 0, result_frame)
