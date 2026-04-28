@@ -739,6 +739,8 @@ class UnifiedPanel(QMainWindow):
 
         self.viewer = VideoViewer(str(self.temp_data_path), controller=self.ctrl)
         self.viewer.video_clicked.connect(self.handle_viewer_click)
+        geo = self.geometry()
+        self.viewer.move(geo.right(), geo.top())
         self.viewer.show()
         self.viewer.update_display()
 
