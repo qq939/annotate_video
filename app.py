@@ -64,7 +64,7 @@ class UnifiedPanel(QMainWindow):
             (255, 0, 0),     # 蓝 (BGR)
             (128, 0, 128),   # 紫 (BGR)
         ]
-        self.selected_color_indices = set(random.sample(range(len(self.palette_colors)), random.randint(2, 4)))
+        self.selected_color_index = random.randint(0, 6)
 
         self.init_ui()
 
@@ -356,7 +356,7 @@ class UnifiedPanel(QMainWindow):
             btn = QPushButton()
             btn.setFixedSize(24, 24)
             color = f"rgb({r},{g},{b})"
-            active_color = "border: 2px solid #FFD700;" if idx in self.selected_color_indices else ""
+            active_color = "border: 2px solid #FFD700;" if idx == self.selected_color_index else ""
             btn.setStyleSheet(
                 f"QPushButton {{ background-color: {color}; border-radius: 4px; {active_color} }}"
                 f"QPushButton:selected {{ border: 2px solid #FFD700; }}"
@@ -397,11 +397,11 @@ class UnifiedPanel(QMainWindow):
         for idx, btn in enumerate(self.color_btns):
             r, g, b = self.palette_colors[idx]
             color = f"rgb({r},{g},{b})"
-            border = "border: 3px solid #FFD700;" if idx in self.selected_color_indices else "border: 1px solid #555555;"
+            border = "border: 3px solid #FFD700;" if idx == self.selected_color_index else "border: 1px solid #555555;"
             btn.setStyleSheet(f"QPushButton {{ background-color: {color}; border-radius: 4px; {border} }}")
 
     def on_color_select(self, idx):
-        self.selected_color_indices = {idx}
+        self.selected_color_index = idx
         self._update_color_btn_styles()
 
     def prev_frame(self):
@@ -1020,8 +1020,7 @@ class UnifiedPanel(QMainWindow):
         labels_dir = input_path / "labels"
         frames_dir = input_path / "frames"
 
-        mask_colors = [self.palette_colors[i] for i in list(self.selected_color_indices)]
-        track_color_map = {}
+        single_color = self.palette_colors[self.selected_color_index]
 
         print(f"正在生成视频: {output_path}")
 
@@ -1050,10 +1049,7 @@ class UnifiedPanel(QMainWindow):
                     track_id = ann.get('track_id', 0)
                     cat = ann.get('category', category)
                     conf = ann.get('confidence', 1.0)
-
-                    if track_id not in track_color_map:
-                        track_color_map[track_id] = mask_colors[len(track_color_map) % len(mask_colors)]
-                    color = track_color_map[track_id]
+                    color = single_color
 
                     if polygon:
                         pts = np.array(polygon[0], dtype=np.int32).reshape(-1, 2)
