@@ -240,9 +240,7 @@ class VideoViewer(QMainWindow):
         for ann in annotations:
             if ann.get('track_id', 0) >= 9999:
                 purple_count += 1
-                orig_tid = ann.get('track_id', 0)
-                if self.controller and orig_tid in self.controller.assigned_to_original:
-                    orig_tid = self.controller.assigned_to_original[orig_tid]
+                tid = ann.get('track_id', 0)
                 conf = ann.get('confidence', 1.0)
                 polygon = ann.get('segmentation')
                 bbox = ann.get('bbox')
@@ -253,12 +251,10 @@ class VideoViewer(QMainWindow):
                     x, y = int(bbox[0]), int(bbox[1])
                     w, h = int(bbox[2]), int(bbox[3])
                     cv2.rectangle(annotated_frame, (x, y), (x + w, y + h), purple, 2)
-                    cv2.putText(annotated_frame, f"{orig_tid} {conf:.2f}", (x, max(10, y - 5)),
+                    cv2.putText(annotated_frame, f"{tid} {conf:.2f}", (x, max(10, y - 5)),
                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, purple, 2)
         if purple_count > 0:
             print(f"[DEBUG] 帧 {self.current_frame_idx} 有 {purple_count} 个紫色标注")
-        elif self.controller and self.controller.track_ids_to_9999:
-            print(f"[DEBUG] track_ids_to_9999={self.controller.track_ids_to_9999} 但帧 {self.current_frame_idx} 的标注无 track_id=9999")
 
         for bbox in self.prompt_bboxes:
             x1, y1, x2, y2 = bbox
