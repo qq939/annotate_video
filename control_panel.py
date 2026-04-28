@@ -293,6 +293,7 @@ class ControlPanel(QMainWindow):
             pt = self.ctrl.track_id_points[-1]
             pt['assigned_id'] = assigned_id
             self.ctrl.track_ids_to_9999.add(track_id)
+            self.ctrl.assigned_to_original[assigned_id] = track_id
             self._convert_track_id(track_id, assigned_id)
             idx = len(self.ctrl.track_id_points) - 1
             self.track_id_list.addItem(f"绿点 {idx} 帧{frame_idx+1} ({video_x},{video_y}) ID:{track_id}→{assigned_id}")
@@ -324,6 +325,7 @@ class ControlPanel(QMainWindow):
             pt = self.ctrl.track_id_points[current_row]
             if pt['assigned_id'] is not None:
                 self._convert_track_id(pt['assigned_id'], pt['track_id'])
+                self.ctrl.assigned_to_original.pop(pt['assigned_id'], None)
             self.ctrl.remove_track_id_point(current_row)
             self.track_id_list.takeItem(current_row)
             self._refresh_list()
@@ -349,6 +351,7 @@ class ControlPanel(QMainWindow):
         for pt in self.ctrl.track_id_points:
             if pt.get('assigned_id') is not None:
                 self._convert_track_id(pt['assigned_id'], pt['track_id'])
+                self.ctrl.assigned_to_original.pop(pt['assigned_id'], None)
         self.ctrl.clear_track_id_points()
         self.track_id_list.clear()
         if self.viewer:
