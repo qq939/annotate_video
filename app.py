@@ -352,10 +352,10 @@ class UnifiedPanel(QMainWindow):
         color_btn_layout.addWidget(QLabel("颜色:"))
         self.color_btns = []
         self.color_styles = []
-        for idx, (r, g, b) in enumerate(self.palette_colors):
+        for idx, (b_val, g_val, r_val) in enumerate(self.palette_colors):
             btn = QPushButton()
             btn.setFixedSize(24, 24)
-            color = f"rgb({r},{g},{b})"
+            color = f"rgb({r_val},{g_val},{b_val})"
             active_color = "border: 2px solid #FFD700;" if idx == self.selected_color_index else ""
             btn.setStyleSheet(
                 f"QPushButton {{ background-color: {color}; border-radius: 4px; {active_color} }}"
@@ -395,8 +395,8 @@ class UnifiedPanel(QMainWindow):
 
     def _update_color_btn_styles(self):
         for idx, btn in enumerate(self.color_btns):
-            r, g, b = self.palette_colors[idx]
-            color = f"rgb({r},{g},{b})"
+            b_val, g_val, r_val = self.palette_colors[idx]
+            color = f"rgb({r_val},{g_val},{b_val})"
             border = "border: 3px solid #FFD700;" if idx == self.selected_color_index else "border: 1px solid #555555;"
             btn.setStyleSheet(f"QPushButton {{ background-color: {color}; border-radius: 4px; {border} }}")
 
