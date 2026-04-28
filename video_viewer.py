@@ -234,6 +234,9 @@ class VideoViewer(QMainWindow):
                 if tp.get('frame_idx') == self.current_frame_idx:
                     cv2.circle(annotated_frame, (tp['x'], tp['y']), 6, (0, 255, 0), -1)
                     cv2.circle(annotated_frame, (tp['x'], tp['y']), 6, (0, 0, 0), 2)
+                    tid = tp.get('assigned_id') or 9999
+                    cv2.putText(annotated_frame, str(tid), (tp['x'] + 8, tp['y'] + 4),
+                              cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
         purple = (128, 0, 128)
         purple_count = 0
@@ -244,18 +247,25 @@ class VideoViewer(QMainWindow):
                 bbox = ann.get('bbox')
                 if polygon:
                     pts = np.array(polygon[0], dtype=np.int32).reshape(-1, 2)
-                    cv2.polylines(annotated_frame, [pts], True, purple, 2)
+                    overlay = annotated_frame.copy()
+                    cv2.fillPoly(overlay, [pts], purple)
+                    cv2.addWeighted(overlay, 0.4, annotated_frame, 0.6, 0, annotated_frame)
+                    cv2.polylines(annotated_frame, [pts], True, (255, 255, 255), 2)
                 if bbox:
                     x, y = int(bbox[0]), int(bbox[1])
                     w, h = int(bbox[2]), int(bbox[3])
                     conf = ann.get('confidence', 1.0)
-                    cv2.rectangle(annotated_frame, (x, y), (x + w, y + h), purple, 2)
-                    cv2.putText(annotated_frame, f"9999 {conf:.2f}", (x, max(10, y - 5)),
-                              cv2.FONT_HERSHEY_SIMPLEX, 0.5, purple, 2)
+                    tid = ann.get('track_id', 0)
+                    overlay = annotated_frame.copy()
+                    cv2.rectangle(overlay, (x, y), (x + w, y + h), purple, -1)
+                    cv2.addWeighted(overlay, 0.4, annotated_frame, 0.6, 0, annotated_frame)
+                    cv2.rectangle(annotated_frame, (x, y), (x + w, y + h), (255, 255, 255), 2)
+                    cv2.putText(annotated_frame, f"{tid} {conf:.2f}", (x, max(10, y - 5)),
+                              cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
         if purple_count > 0:
-            print(f"[DEBUG] 帧 {self.current_frame_idx} 有 {purple_count} 个 9999 标注，绘制紫色")
+            print(f"[DEBUG] 帧 {self.current_frame_idx} 有 {purple_count} 个 >=9999 标注，绘制紫色")
         elif self.controller and self.controller.track_ids_to_9999:
-            print(f"[DEBUG] track_ids_to_9999={self.controller.track_ids_to_9999} 但帧 {self.current_frame_idx} 的标注无 track_id=9999")
+            print(f"[DEBUG] track_ids_to_9999={self.controller.track_ids_to_9999} 但帧 {self.current_frame_idx} 的标注无 track_id>=9999")
 
         for bbox in self.prompt_bboxes:
             x1, y1, x2, y2 = bbox
