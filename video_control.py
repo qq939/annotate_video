@@ -84,10 +84,7 @@ class VideoController:
 
             color = MASK_COLORS[ann.get('category_id', 0) % len(MASK_COLORS)]
             track_id = ann.get('track_id', 0)
-            color_track_id = track_id
-            if track_id >= 1000000:
-                color_track_id = self.assigned_to_original.get(track_id, track_id)
-            is_purple = color_track_id >= TRACK_ID_PURPLE_START
+            is_purple = track_id >= TRACK_ID_PURPLE_START
             if is_purple:
                 color = (128, 0, 128)
             category = ann.get('category', ann.get('category_id', 0))

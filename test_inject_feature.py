@@ -48,41 +48,7 @@ class TestTrackIdFeature(unittest.TestCase):
         c.next_track_id += 1
         self.assertEqual(c.next_track_id, 1000001)
 
-    def test_green_point_original_trace_id_determines_purple_color(self):
-        from video_control import VideoController
-        import numpy as np
-        c = VideoController()
-        c.alpha = 1.0
-        frame = np.zeros((100, 100, 3), dtype=np.uint8)
-        c.assigned_to_original[1000000] = 7
-        anns = [
-            {'track_id': 1000000, 'bbox': [10, 10, 30, 30], 'segmentation': [[[10, 10], [40, 10], [40, 40], [10, 40]]], 'confidence': 0.9, 'category': 'test'},
-        ]
-        result = c.apply_threshold_to_masks(frame, anns)
-        purple_pixel = result[25, 25]
-        self.assertFalse(
-            np.array_equal(purple_pixel, [128, 0, 128]),
-            f"track_id=1000000 mapped to original=7 should NOT be purple (7 < 999999), got {purple_pixel}"
-        )
-
-    def test_green_point_original_999999_becomes_purple(self):
-        from video_control import VideoController
-        import numpy as np
-        c = VideoController()
-        c.alpha = 1.0
-        frame = np.zeros((100, 100, 3), dtype=np.uint8)
-        c.assigned_to_original[1000000] = 999999
-        anns = [
-            {'track_id': 1000000, 'bbox': [10, 10, 30, 30], 'segmentation': [[[10, 10], [40, 10], [40, 40], [10, 40]]], 'confidence': 0.9, 'category': 'test'},
-        ]
-        result = c.apply_threshold_to_masks(frame, anns)
-        purple_pixel = result[25, 25]
-        self.assertTrue(
-            np.array_equal(purple_pixel, [128, 0, 128]),
-            f"track_id=1000000 mapped to original=999999 SHOULD be purple (999999 >= 999999), got {purple_pixel}"
-        )
-
-    def test_unassigned_large_track_id_still_purple(self):
+    def test_green_point_overwrites_to_1000000_should_be_purple(self):
         from video_control import VideoController
         import numpy as np
         c = VideoController()
@@ -95,10 +61,10 @@ class TestTrackIdFeature(unittest.TestCase):
         purple_pixel = result[25, 25]
         self.assertTrue(
             np.array_equal(purple_pixel, [128, 0, 128]),
-            f"track_id=1000000 with no mapping should be purple, got {purple_pixel}"
+            f"track_id=1000000 SHOULD be purple (last-layer trace_id >= 999999), got {purple_pixel}"
         )
 
-    def test_original_small_trace_id_not_purple(self):
+    def test_small_trace_id_not_purple(self):
         from video_control import VideoController
         import numpy as np
         c = VideoController()
@@ -114,7 +80,7 @@ class TestTrackIdFeature(unittest.TestCase):
             f"track_id=7 should NOT be purple, got {purple_pixel}"
         )
 
-    def test_original_999999_is_purple(self):
+    def test_trace_id_999999_is_purple(self):
         from video_control import VideoController
         import numpy as np
         c = VideoController()
@@ -263,6 +229,50 @@ class TestTrackIdFeature(unittest.TestCase):
         result = c.apply_threshold_to_masks(frame, anns)
         self.assertIsNotNone(result)
         self.assertEqual(result.shape, frame.shape)
+
+    def test_e2e_green_point_immediately_renders_purple_after_file_save(self):
+        import tempfile
+        import json
+        from pathlib import Path
+        from video_control import VideoController
+        import numpy as np
+        with tempfile.TemporaryDirectory() as tmpdir:
+            labels_dir = Path(tmpdir)
+            original_anns = [
+                {'track_id': 7, 'bbox': [10, 10, 30, 30], 'segmentation': [[[10, 10], [40, 10], [40, 40], [10, 40]]], 'confidence': 0.95, 'category': 'cat'},
+            ]
+            (labels_dir / 'frame_000000.json').write_text(json.dumps(original_anns))
+            c = VideoController()
+            c.alpha = 1.0
+            c.next_track_id = 1000000
+            frame = np.zeros((100, 100, 3), dtype=np.uint8)
+            anns_before = json.loads((labels_dir / 'frame_000000.json').read_text())
+            result_before = c.apply_threshold_to_masks(frame, anns_before)
+            purple_pixel_before = result_before[25, 25]
+            self.assertFalse(
+                np.array_equal(purple_pixel_before, [128, 0, 128]),
+                f"Before green point: track_id=7 should NOT be purple, got {purple_pixel_before}"
+            )
+            assigned_id = 1000000
+            for label_file in sorted(labels_dir.glob("frame_*.json")):
+                with open(label_file) as f:
+                    frame_anns = json.load(f)
+                changed = False
+                for ann in frame_anns:
+                    if ann.get('track_id') == 7:
+                        ann['track_id'] = assigned_id
+                        changed = True
+                if changed:
+                    with open(label_file, 'w') as f:
+                        json.dump(frame_anns, f)
+            anns_after = json.loads((labels_dir / 'frame_000000.json').read_text())
+            self.assertEqual(anns_after[0]['track_id'], 1000000)
+            result_after = c.apply_threshold_to_masks(frame, anns_after)
+            purple_pixel_after = result_after[25, 25]
+            self.assertTrue(
+                np.array_equal(purple_pixel_after, [128, 0, 128]),
+                f"After green point: track_id=1000000 SHOULD be purple (1000000 >= 999999), got {purple_pixel_after}"
+            )
 
 
 if __name__ == "__main__":
