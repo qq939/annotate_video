@@ -86,6 +86,23 @@ class TestTrackIdFeature(unittest.TestCase):
         self.assertNotIn(5, track_ids)
         self.assertNotIn(100, track_ids)
 
+    def test_delete_trace_id_filters_correctly(self):
+        import tempfile
+        import json
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmpdir:
+            labels_dir = Path(tmpdir)
+            (labels_dir / "frame_000000.json").write_text(json.dumps([
+                {'track_id': 7, 'bbox': [0,0,10,10], 'confidence': 1.0},
+                {'track_id': 5, 'bbox': [0,0,10,10], 'confidence': 1.0},
+            ]))
+            anns = json.loads((labels_dir / "frame_000000.json").read_text())
+            anns = [a for a in anns if a.get('track_id') != 7]
+            (labels_dir / "frame_000000.json").write_text(json.dumps(anns))
+            result = json.loads((labels_dir / "frame_000000.json").read_text())
+            self.assertEqual(len(result), 1)
+            self.assertEqual(result[0]['track_id'], 5)
+
     def test_merge_masks_in_frame_no_overlap(self):
         import sys
         sys.path.insert(0, str(Path(__file__).parent))

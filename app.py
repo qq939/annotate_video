@@ -251,21 +251,18 @@ class UnifiedPanel(QMainWindow):
 
         layout.addLayout(frame_nav_play_layout)
 
-        fence_group_layout = QHBoxLayout()
-        self.fence_btns = []
-        self.fence_clear_btns = []
-        for i in range(3):
-            fence_btn = QPushButton(f"围栏{i+1}")
-            fence_btn.clicked.connect(lambda checked, idx=i: self.toggle_fence(idx))
-            self.fence_btns.append(fence_btn)
-            fence_group_layout.addWidget(fence_btn)
-
-            clear_btn = QPushButton("清")
-            clear_btn.setFixedWidth(30)
-            clear_btn.clicked.connect(lambda checked, idx=i: self.clear_fence(idx))
-            self.fence_clear_btns.append(clear_btn)
-            fence_group_layout.addWidget(clear_btn)
-        layout.addLayout(fence_group_layout)
+        delete_trace_layout = QHBoxLayout()
+        delete_trace_layout.addWidget(QLabel("删除trace id:"))
+        self.delete_trace_input = QLineEdit()
+        self.delete_trace_input.setPlaceholderText("输入trace id")
+        self.delete_trace_input.setFixedWidth(80)
+        delete_trace_layout.addWidget(self.delete_trace_input)
+        delete_trace_btn = QPushButton("删除")
+        delete_trace_btn.setFixedWidth(50)
+        delete_trace_btn.setStyleSheet("QPushButton { background-color: #FF4444; color: white; border: none; border-radius: 3px; } QPushButton:hover { background-color: #CC0000; }")
+        delete_trace_btn.clicked.connect(self.delete_trace_id)
+        delete_trace_layout.addWidget(delete_trace_btn)
+        layout.addLayout(delete_trace_layout)
 
         del_layout = QHBoxLayout()
         del_layout.addWidget(QLabel("绿点列表:"))
@@ -710,6 +707,47 @@ class UnifiedPanel(QMainWindow):
             self.ctrl.next_track_id -= 1
             self.trace_id_label.setText(str(self.ctrl.next_track_id))
             print(f"next_track_id 递减 → {self.ctrl.next_track_id}")
+
+    def delete_trace_id(self):
+        trace_id_text = self.delete_trace_input.text().strip()
+        if not trace_id_text:
+            QMessageBox.warning(self, "错误", "请输入要删除的 trace id")
+            return
+        try:
+            trace_id = int(trace_id_text)
+        except ValueError:
+            QMessageBox.warning(self, "错误", "trace id 必须是整数")
+            return
+
+        labels_dir = self.temp_data_path / "labels"
+        annotations_file = self.temp_data_path / "annotations.json"
+        if not labels_dir.exists():
+            QMessageBox.warning(self, "错误", "labels 目录不存在")
+            return
+
+        frame_count = 0
+        for label_file in sorted(labels_dir.glob("frame_*.json")):
+            with open(label_file) as f:
+                anns = json.load(f)
+            original_len = len(anns)
+            anns = [ann for ann in anns if ann.get('track_id') != trace_id]
+            if len(anns) < original_len:
+                with open(label_file, 'w') as f:
+                    json.dump(anns, f)
+                frame_count += 1
+
+        if annotations_file.exists():
+            with open(annotations_file) as f:
+                coco = json.load(f)
+            original_len = len(coco.get('annotations', []))
+            coco['annotations'] = [ann for ann in coco.get('annotations', []) if ann.get('track_id') != trace_id]
+            if len(coco['annotations']) < original_len:
+                with open(annotations_file, 'w') as f:
+                    json.dump(coco, f)
+
+        QMessageBox.information(self, "完成", f"已从 {frame_count} 帧中删除 trace_id={trace_id}")
+        if self.viewer:
+            self.viewer.update_display()
 
     def remove_selected_track_id(self):
         row = self.track_id_list.currentRow()
