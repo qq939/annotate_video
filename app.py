@@ -1433,19 +1433,21 @@ class UnifiedPanel(QMainWindow):
             self.viewer.update_display()
 
     def select_data_dir(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "选择数据目录或视频", ".",
-            "所有文件 (*);;目录"
+        path = QFileDialog.getExistingDirectory(
+            self, "选择数据目录", "."
         )
-        if not path:
-            return
-        p = Path(path)
-        video_exts = {'.mp4', '.avi', '.mov', '.mkv', '.mp4', '.flv', '.wmv', '.webm'}
-        if p.suffix.lower() in video_exts:
-            self._extract_video_to_temp_data(p)
-        else:
+        if path:
+            p = Path(path)
             self.path_input.setText(str(p))
             self.temp_data_path = p
+            return
+
+        video_path, _ = QFileDialog.getOpenFileName(
+            self, "选择视频文件", "",
+            "视频文件 (*.mp4 *.avi *.mov *.mkv *.MP4);;所有文件 (*)"
+        )
+        if video_path:
+            self._extract_video_to_temp_data(Path(video_path))
 
     def _extract_video_to_temp_data(self, video_path=None):
         if video_path is None:
