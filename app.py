@@ -1037,6 +1037,10 @@ class UnifiedPanel(QMainWindow):
                         frames_written += 1
                 out.release()
                 print(f"[DEBUG {direction}] ✓ 视频片段生成完成: {frames_written} 帧")
+                cap_check = cv2.VideoCapture(clip_path)
+                actual_clip_frames = int(cap_check.get(cv2.CAP_PROP_FRAME_COUNT))
+                cap_check.release()
+                print(f"[DEBUG {direction}] clip文件实际帧数: {actual_clip_frames}, expected: {end_frame - start_frame}")
 
                 print(f"[DEBUG {direction}] 正在加载 SAM3VideoPredictor 处理...")
                 print(f"[DEBUG {direction}] prompt_bboxes={prompt_bboxes}")
@@ -1155,6 +1159,10 @@ class UnifiedPanel(QMainWindow):
                         print(f"[DEBUG {direction}] [帧{total_results}] ⚠️ 无masks属性或masks为None")
 
                     orig_frame_idx = frame_idx + start_frame
+                    if orig_frame_idx >= total:
+                        print(f"[DEBUG {direction}] [帧{total_results}] ⚠️ orig_frame_idx={orig_frame_idx} >= total={total}，跳过")
+                        frame_idx += 1
+                        continue
                     print(f"[DEBUG {direction}] [帧{total_results}] clip_frame={frame_idx} → 原帧{orig_frame_idx}, 新增标注数={len(frame_anns)}")
                     label_file = labels_dir / f"frame_{orig_frame_idx:06d}.json"
                     existing_anns = []
@@ -1169,7 +1177,9 @@ class UnifiedPanel(QMainWindow):
                     frame_idx += 1
 
                 print(f"[DEBUG {direction}] === process_clip 完成 ===")
-                print(f"[DEBUG {direction}] 总results数={total_results}, 总frame_idx={frame_idx}, 总annotations={len(result_anns)}")
+                print(f"[DEBUG {direction}] 总results数={total_results}, 总frame_idx={frame_idx}, 总annotations={len(result_anns)}, clip帧数={end_frame - start_frame}")
+                if total_results != (end_frame - start_frame):
+                    print(f"[DEBUG {direction}] ⚠️ 警告: predictor返回{total_results}个结果，但clip有{end_frame - start_frame}帧，可能有帧对齐问题！")
                 print(f"[DEBUG {direction}] id范围: {FIRST_ID} ~ {ann_id - 1}")
                 return result_anns
 
