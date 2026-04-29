@@ -1189,10 +1189,11 @@ class UnifiedPanel(QMainWindow):
                 return result_anns
 
             print(f"=== 双向标注开始 === 提示帧: {prompt_idx}, 总帧数: {total}, prompt_bboxes数量: {len(prompt_bboxes)}")
-            print(f"[1/2] 向前标注: 帧 {prompt_idx} → {total-1} (共 {total - prompt_idx} 帧)")
-            forward_anns = process_clip(prompt_idx, total, forward=True, prompt_bboxes=prompt_bboxes)
+            forward_start = prompt_idx + 1
+            print(f"[1/2] 向前标注: 帧 {forward_start} → {total-1} (共 {total - forward_start} 帧)")
+            forward_anns = process_clip(forward_start, total, forward=True, prompt_bboxes=prompt_bboxes)
 
-            print(f"\n[2/2] 向后标注: 帧 0 → {prompt_idx} (共 {prompt_idx} 帧)")
+            print(f"\n[2/2] 向后标注: 帧 0 → {prompt_idx-1} (共 {prompt_idx} 帧)")
             backward_anns = process_clip(0, prompt_idx, forward=False, prompt_bboxes=prompt_bboxes)
 
             all_new_anns = backward_anns + forward_anns
