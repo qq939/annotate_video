@@ -206,8 +206,6 @@ class UnifiedPanel(QMainWindow):
         self.is_backward = False
         self.prompt_drawing_mode = False
         self.prompt_frame_idx = -1
-        self.inject_process = None
-        self.inject_timer = None
 
         self.palette_colors = [
             (0, 0, 255),     # 红 (BGR)
@@ -935,7 +933,7 @@ class UnifiedPanel(QMainWindow):
             self.prompt_btn.setText("处理中...")
             self.viewer.enable_bbox_drawing(False)
             self.prompt_drawing_mode = False
-            self.do_inject()
+            self.do_bidirectional_inject()
 
     def extract_video_clip_from_frames(self, frames_dir, start_idx, total_frames, output_path, fps=30):
         sample = cv2.imread(str(frames_dir / f"frame_{start_idx:06d}.jpg"))
@@ -958,160 +956,271 @@ class UnifiedPanel(QMainWindow):
         print(f"视频片段已从帧目录提取: {output_path} ({frame_count} 帧)")
         return frame_count
 
-    def do_inject(self):
+    def do_bidirectional_inject(self):
         prompt_bboxes = self.viewer.get_prompt_bboxes()
         if not prompt_bboxes:
             QMessageBox.warning(self, "错误", "请先绘制至少一个 Bbox")
             self.reset_prompt_btn()
             return
 
-        labels_path = self.temp_data_path / "labels" / f"frame_{self.prompt_frame_idx:06d}.json"
-        existing_bboxes = []
-        if labels_path.exists():
-            with open(labels_path) as f:
-                frame_anns = json.load(f)
-            for ann in frame_anns:
-                b = ann.get('bbox')
-                if b:
-                    existing_bboxes.append([int(b[0]), int(b[1]),
-                                            int(b[0] + b[2]), int(b[1] + b[3])])
-
-        all_prompts = existing_bboxes + prompt_bboxes
-        if not all_prompts:
-            QMessageBox.warning(self, "错误", "该帧没有现有 bbox 且未绘制新 bbox")
-            self.reset_prompt_btn()
-            return
-
-        inject_temp_dir = Path("temp_inject")
-        if inject_temp_dir.exists():
-            import shutil
-            shutil.rmtree(inject_temp_dir)
-        inject_temp_dir.mkdir(parents=True, exist_ok=True)
-
-        clip_path = str(inject_temp_dir / "clip.mp4")
-        try:
-            self.extract_video_clip_from_frames(
-                self.temp_data_path / "frames",
-                self.prompt_frame_idx,
-                self.total_frames,
-                clip_path
-            )
-        except Exception as e:
-            QMessageBox.warning(self, "错误", f"提取视频片段失败: {e}")
-            self.reset_prompt_btn()
-            return
-
-        inject_temp_data = str(inject_temp_dir / "temp_data")
-        cmd = [sys.executable, 'annotate_video.py',
-               '--inject',
-               '--src', clip_path,
-               '--iou', self.iou_input.text() or "0.5",
-               '--merge-iou', self.merge_iou_input.text() or "0.5",
-               '--prompt-bboxes', json.dumps(all_prompts),
-               '--output-temp', inject_temp_data]
-        items_text = self.items_input.text()
-        if items_text:
-            cmd.extend(['--items', items_text])
-
-        print(f"启动注入进程: {cmd}")
-        self.inject_process = subprocess.Popen(cmd, cwd=str(Path.cwd()))
-        self.inject_timer = QTimer()
-        self.inject_timer.timeout.connect(self.check_inject_done)
-        self.inject_timer.start(2000)
-
-    def check_inject_done(self):
-        if self.inject_process is None:
-            return
-        ret = self.inject_process.poll()
-        if ret is not None:
-            self.inject_timer.stop()
-            if ret == 0:
-                self.merge_inject_results()
-            else:
-                QMessageBox.warning(self, "错误", f"注入进程退出码: {ret}")
-                self.reset_prompt_btn()
-
-    def merge_inject_results(self):
-        inject_temp_dir = Path("temp_inject")
-        inject_data_dir = inject_temp_dir / "temp_data"
-        if not inject_data_dir.exists():
-            QMessageBox.warning(self, "错误", "注入结果目录不存在")
-            self.reset_prompt_btn()
-            return
-
-        inject_frames_dir = inject_data_dir / "frames"
-        inject_labels_dir = inject_data_dir / "labels"
-        inject_annotations_file = inject_data_dir / "annotations.json"
-
-        if not inject_annotations_file.exists():
-            QMessageBox.warning(self, "错误", "注入结果 annotations.json 不存在")
-            self.reset_prompt_btn()
-            return
-
+        prompt_idx = self.prompt_frame_idx
+        total = self.total_frames
         frames_dir = self.temp_data_path / "frames"
         labels_dir = self.temp_data_path / "labels"
         annotations_file = self.temp_data_path / "annotations.json"
 
-        for i in range(self.prompt_frame_idx, self.total_frames):
-            frame_path = frames_dir / f"frame_{i:06d}.jpg"
-            label_path = labels_dir / f"frame_{i:06d}.json"
-            if frame_path.exists():
-                frame_path.unlink()
-            if label_path.exists():
-                label_path.unlink()
+        self.prompt_btn.setText("正在处理...")
+        QApplication.processEvents()
 
-        inject_total = len(list(inject_frames_dir.glob("frame_*.jpg")))
-        for i in range(inject_total):
-            src_frame = inject_frames_dir / f"frame_{i:06d}.jpg"
-            src_label = inject_labels_dir / f"frame_{i:06d}.json"
-            dst_frame = frames_dir / f"frame_{i + self.prompt_frame_idx:06d}.jpg"
-            dst_label = labels_dir / f"frame_{i + self.prompt_frame_idx:06d}.json"
-            if src_frame.exists():
-                import shutil
-                shutil.copy2(src_frame, dst_frame)
-            if src_label.exists():
-                shutil.copy2(src_label, dst_label)
+        try:
+            from annotate_video import merge_masks_in_frame, TrackManager, get_device, SAM_MODEL_PATH, put_chinese_text
+            from ultralytics.models.sam import SAM3VideoPredictor
 
-        with open(annotations_file) as f:
-            original_coco = json.load(f)
-        with open(inject_annotations_file) as f:
-            inject_coco = json.load(f)
+            device, device_type = get_device()
+            half = device_type == 'cuda'
+            overrides = dict(
+                conf=0.25, task="segment", mode="predict",
+                model=SAM_MODEL_PATH, device=device,
+                half=half, save=False, verbose=False
+            )
+            if device_type == 'cuda':
+                overrides['batch'] = 1
+                overrides['stream_buffer'] = False
+            elif device_type == 'mps':
+                overrides['half'] = True
+                overrides['amp'] = True
+                overrides['stream_buffer'] = True
 
-        original_images = [img for img in original_coco.get('images', [])
-                          if img['id'] < self.prompt_frame_idx]
-        original_annotations = [ann for ann in original_coco.get('annotations', [])
-                               if ann['image_id'] < self.prompt_frame_idx]
+            predictor = SAM3VideoPredictor(overrides=overrides)
+            print(f"使用 SAM3VideoPredictor 进行双向标注，track_id 起始: 50000")
 
-        offset = self.prompt_frame_idx
-        max_ann_id = max([ann['id'] for ann in original_annotations], default=-1) + 1
-        for img in inject_coco.get('images', []):
-            new_img = dict(img)
-            new_img['id'] = img['id'] + offset
-            original_images.append(new_img)
-        for ann in inject_coco.get('annotations', []):
-            new_ann = dict(ann)
-            new_ann['id'] = ann['id'] + max_ann_id
-            new_ann['image_id'] = ann['image_id'] + offset
-            original_annotations.append(new_ann)
+            sample_frame = cv2.imread(str(frames_dir / f"frame_{0:06d}.jpg"))
+            height, width = sample_frame.shape[:2]
 
-        original_coco['images'] = original_images
-        original_coco['annotations'] = original_annotations
-        with open(annotations_file, 'w') as f:
-            json.dump(original_coco, f)
+            FIRST_ID = 50000
+            forward_annotations = []
+            backward_annotations = []
 
-        self.total_frames = len(original_images)
+            def process_clip(start_frame, end_frame, forward=True):
+                direction = "向前" if forward else "向后"
+                print(f"\n[DEBUG {direction}] === 进入 process_clip ===")
+                print(f"[DEBUG {direction}] start_frame={start_frame}, end_frame={end_frame}, 总帧数={end_frame - start_frame}")
 
-        if self.viewer:
-            self.viewer.coco_data = original_coco
-            self.viewer.total_frames = self.total_frames
-            self.viewer.go_to_frame(self.prompt_frame_idx)
-            self.frame_label.setText(f"{self.prompt_frame_idx + 1}/{self.total_frames}")
-            self.viewer.clear_prompt_bboxes()
+                if start_frame >= end_frame:
+                    print(f"[DEBUG {direction}] start_frame >= end_frame, 直接返回空列表")
+                    return []
 
-        import shutil
-        shutil.rmtree(inject_temp_dir)
-        print(f"注入完成！从帧 {self.prompt_frame_idx + 1} 开始已覆盖 {inject_total} 帧")
-        self.reset_prompt_btn()
+                temp_frames = Path("temp_inject") / ("forward" if forward else "backward")
+                temp_frames.mkdir(parents=True, exist_ok=True)
+
+                frame_count = end_frame - start_frame
+                print(f"[DEBUG {direction}] 正在复制 {frame_count} 帧到临时目录...")
+                for i in range(start_frame, end_frame):
+                    src = frames_dir / f"frame_{i:06d}.jpg"
+                    dst = temp_frames / f"frame_{i - start_frame:06d}.jpg"
+                    if src.exists():
+                        shutil.copy2(src, dst)
+                    else:
+                        print(f"[DEBUG {direction}] ⚠️ 帧文件不存在: {src}")
+                print(f"[DEBUG {direction}] ✓ 帧复制完成: {frame_count} 帧")
+
+                clip_path = str(temp_frames / "clip.mp4")
+                print(f"[DEBUG {direction}] 正在生成视频片段: {clip_path}")
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                fps_cap = 30
+                out = cv2.VideoWriter(clip_path, fourcc, fps_cap, (width, height))
+                frames_written = 0
+                for i in range(start_frame, end_frame):
+                    frame = cv2.imread(str(frames_dir / f"frame_{i:06d}.jpg"))
+                    if frame is not None:
+                        out.write(frame)
+                        frames_written += 1
+                out.release()
+                print(f"[DEBUG {direction}] ✓ 视频片段生成完成: {frames_written} 帧")
+
+                print(f"[DEBUG {direction}] 正在加载 SAM3VideoPredictor 处理...")
+                results = predictor(source=clip_path, stream=True)
+                manager = TrackManager(iou_threshold=float(self.iou_input.text() or "0.5"))
+                manager.next_track_id = FIRST_ID
+                ann_id = FIRST_ID
+                merge_iou_val = float(self.merge_iou_input.text() or "0.5")
+                print(f"[DEBUG {direction}] TrackManager 初始化: next_track_id={manager.next_track_id}, iou={manager.iou_threshold}")
+
+                result_anns = []
+                frame_idx = 0
+                total_results = 0
+
+                print(f"[DEBUG {direction}] 开始遍历 predictor 结果...")
+                for r in results:
+                    total_results += 1
+                    print(f"[DEBUG {direction}] [帧{total_results}] 收到结果对象")
+
+                    orig_img = r.orig_img if hasattr(r, 'orig_img') and r.orig_img is not None else None
+                    if orig_img is None:
+                        cap_t = cv2.VideoCapture(clip_path)
+                        cap_t.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+                        ret_t, orig_img = cap_t.read()
+                        cap_t.release()
+                        if not ret_t:
+                            orig_img = np.zeros((height, width, 3), dtype=np.uint8)
+                            print(f"[DEBUG {direction}] [帧{total_results}] ⚠️ cap fallback 也失败，使用空白图")
+                    else:
+                        print(f"[DEBUG {direction}] [帧{total_results}] 使用 orig_img")
+
+                    if len(orig_img.shape) == 2:
+                        orig_img = cv2.cvtColor(orig_img, cv2.COLOR_GRAY2BGR)
+                    elif orig_img.shape[2] == 4:
+                        orig_img = cv2.cvtColor(orig_img, cv2.COLOR_BGRA2BGR)
+                    cv2.imwrite(str(temp_frames / f"frame_{frame_idx:06d}.jpg"), orig_img)
+
+                    frame_anns = []
+                    debug_masks_count = 0
+                    debug_contours_count = 0
+                    debug_merged_count = 0
+                    debug_track_ids = []
+
+                    has_masks = hasattr(r, 'masks') and r.masks is not None
+                    print(f"[DEBUG {direction}] [帧{total_results}] has_masks={has_masks}")
+
+                    if has_masks:
+                        masks_tensor = r.masks.data
+                        has_tensor = masks_tensor is not None and len(masks_tensor) > 0
+                        print(f"[DEBUG {direction}] [帧{total_results}] masks_tensor: {has_tensor}, len={len(masks_tensor) if has_tensor else 0}")
+
+                        if has_tensor:
+                            debug_masks_count = len(masks_tensor)
+                            confs = None
+                            if hasattr(r, 'boxes') and r.boxes is not None and hasattr(r.boxes, 'conf'):
+                                confs = r.boxes.conf.cpu().numpy()
+                                print(f"[DEBUG {direction}] [帧{total_results}] boxes.conf={confs.tolist()}")
+
+                            cur_masks = []
+                            cur_bboxes = []
+                            for mask in masks_tensor:
+                                mask_np = mask.cpu().numpy() if hasattr(mask, 'numpy') else np.array(mask)
+                                mask_binary = (mask_np > 0.5).astype(np.uint8)
+                                contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                                debug_contours_count += len(contours)
+                                for cnt in contours:
+                                    if len(cnt) >= 3:
+                                        poly = cnt.squeeze().flatten().tolist()
+                                        xs = poly[0::2]
+                                        ys = poly[1::2]
+                                        x1, x2 = min(xs), max(xs)
+                                        y1, y2 = min(ys), max(ys)
+                                        bb = [float(x1), float(y1), float(x2 - x1), float(y2 - y1)]
+                                        area = cv2.contourArea(cnt)
+                                        if area > 0:
+                                            cur_masks.append(mask_binary)
+                                            cur_bboxes.append(bb)
+
+                            debug_merged_count = len(cur_masks)
+                            print(f"[DEBUG {direction}] [帧{total_results}] masks={debug_masks_count}, contours={debug_contours_count}, 有效polygon={debug_merged_count}")
+
+                            if cur_masks:
+                                cur_masks, cur_bboxes = merge_masks_in_frame(cur_masks, cur_bboxes, merge_iou_val)
+                                track_ids = manager.update(cur_masks, cur_bboxes, frame_idx)
+                                debug_track_ids = track_ids
+                                print(f"[DEBUG {direction}] [帧{total_results}] merge后={len(cur_masks)}, track_ids={track_ids}")
+
+                                for idx, (m, bb) in enumerate(zip(cur_masks, cur_bboxes)):
+                                    m_bin = (m > 0.5).astype(np.uint8)
+                                    cnts2, _ = cv2.findContours(m_bin, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                                    for cnt2 in cnts2:
+                                        if len(cnt2) >= 3:
+                                            poly2 = cnt2.squeeze().flatten().tolist()
+                                            area2 = cv2.contourArea(cnt2)
+                                            tid = track_ids[idx] if idx < len(track_ids) else ann_id
+                                            conf = float(confs[idx]) if confs is not None and idx < len(confs) else float(m.max())
+                                            ann = {
+                                                'id': ann_id, 'track_id': tid, 'image_id': frame_idx,
+                                                'category_id': tid, 'bbox': bb, 'area': float(area2),
+                                                'segmentation': [poly2], 'iscrowd': 0, 'confidence': conf,
+                                                'category': 'Detect'
+                                            }
+                                            result_anns.append(ann)
+                                            frame_anns.append(ann)
+                                            ann_id += 1
+                                print(f"[DEBUG {direction}] [帧{total_results}] 本帧标注数={len(frame_anns)}, 累计={len(result_anns)}")
+                            else:
+                                print(f"[DEBUG {direction}] [帧{total_results}] ⚠️ cur_masks为空，跳过")
+                        else:
+                            print(f"[DEBUG {direction}] [帧{total_results}] ⚠️ masks_tensor为空或长度=0")
+                    else:
+                        print(f"[DEBUG {direction}] [帧{total_results}] ⚠️ 无masks属性或masks为None")
+
+                    with open(labels_dir / f"frame_{frame_idx:06d}.json", 'w') as f:
+                        json.dump(frame_anns, f)
+                    print(f"[DEBUG {direction}] [帧{total_results}] 保存label文件, 帧标注数={len(frame_anns)}")
+                    frame_idx += 1
+
+                print(f"[DEBUG {direction}] === process_clip 完成 ===")
+                print(f"[DEBUG {direction}] 总results数={total_results}, 总frame_idx={frame_idx}, 总annotations={len(result_anns)}")
+                print(f"[DEBUG {direction}] id范围: {FIRST_ID} ~ {ann_id - 1}")
+                return result_anns
+
+            print(f"=== 双向标注开始 === 提示帧: {prompt_idx}, 总帧数: {total}, prompt_bboxes数量: {len(prompt_bboxes)}")
+            print(f"[1/2] 向前标注: 帧 {prompt_idx} → {total-1} (共 {total - prompt_idx} 帧)")
+            forward_anns = process_clip(prompt_idx, total, forward=True)
+
+            print(f"\n[2/2] 向后标注: 帧 0 → {prompt_idx} (共 {prompt_idx} 帧)")
+            backward_anns = process_clip(0, prompt_idx, forward=False)
+
+            all_new_anns = backward_anns + forward_anns
+            print(f"\n[DEBUG 汇总] 向后标注={len(backward_anns)}, 向前标注={len(forward_anns)}, 合计={len(all_new_anns)}")
+
+            if not all_new_anns:
+                QMessageBox.warning(self, "提示", "未检测到任何分割结果")
+                self.reset_prompt_btn()
+                return
+
+            if annotations_file.exists():
+                with open(annotations_file) as f:
+                    coco = json.load(f)
+                print(f"[DEBUG 汇总] 现有coco: 已有annotations={len(coco.get('annotations', []))}")
+            else:
+                coco = {'info': {}, 'images': [], 'annotations': [], 'categories': []}
+                print(f"[DEBUG 汇总] annotations.json 不存在，创建新的coco结构")
+
+            max_img_id = max([img['id'] for img in coco.get('images', [])], default=-1)
+            max_ann_id = max([ann['id'] for ann in coco.get('annotations', [])], default=FIRST_ID - 1)
+            max_track_id = max([ann['track_id'] for ann in coco.get('annotations', [])], default=FIRST_ID - 1)
+            print(f"[DEBUG 汇总] 现有max_ann_id={max_ann_id}, max_track_id={max_track_id}")
+
+            new_anns_count = 0
+            for ann in all_new_anns:
+                new_ann = dict(ann)
+                max_ann_id += 1
+                new_ann['id'] = max_ann_id
+                new_ann['track_id'] = max_track_id + 1
+                new_ann['category_id'] = new_ann['track_id']
+                max_track_id = new_ann['track_id']
+                coco['annotations'].append(new_ann)
+                new_anns_count += 1
+
+            print(f"[DEBUG 汇总] 追加 {new_anns_count} 条标注, 最终track_id范围: {FIRST_ID}~{max_track_id}")
+
+            with open(annotations_file, 'w') as f:
+                json.dump(coco, f)
+            print(f"[DEBUG 汇总] ✓ annotations.json 已写入")
+            shutil.rmtree(Path("temp_inject"), ignore_errors=True)
+
+            print(f"=== 双向标注完成 === 新增标注: {len(all_new_anns)}, 总标注: {len(coco['annotations'])}")
+            self.statusBar().showMessage(f"双向标注完成: +{len(all_new_anns)} 条")
+            QMessageBox.information(self, "完成", f"双向标注完成！\n新增标注: {len(all_new_anns)} 条\n追加到 temp_data")
+            if self.viewer:
+                self.viewer.coco_data = coco
+                self.viewer.total_frames = total
+                self.viewer.go_to_frame(prompt_idx)
+                self.frame_label.setText(f"{prompt_idx + 1}/{total}")
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self.statusBar().showMessage("双向标注失败")
+            QMessageBox.critical(self, "错误", f"双向标注失败:\n{e}")
+        finally:
+            self.reset_prompt_btn()
 
     def reset_prompt_btn(self):
         self.prompt_drawing_mode = False
