@@ -325,7 +325,6 @@ class UnifiedPanel(QMainWindow):
             from annotate_video import merge_masks_in_frame, TrackManager, get_device, get_output_filename
             from annotate_video import put_chinese_text, IOU_THRESHOLD as OrigIOU, MERGE_IOU_THRESHOLD as OrigMergeIOU
             import annotate_video as av_module
-            import subprocess
 
             av_module.IOU_THRESHOLD = iou_val
             av_module.MERGE_IOU_THRESHOLD = merge_iou_val
@@ -382,7 +381,6 @@ class UnifiedPanel(QMainWindow):
 
             temp_data_path = Path(TEMP_DATA_DIR)
             if temp_data_path.exists():
-                import shutil
                 shutil.rmtree(temp_data_path)
             temp_data_path.mkdir(parents=True, exist_ok=True)
             frames_dir = temp_data_path / "frames"
