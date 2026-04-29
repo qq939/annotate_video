@@ -401,9 +401,6 @@ class UnifiedPanel(QMainWindow):
                 for i, t in enumerate(find_list):
                     bbox_str = " | ".join(f"({int(b[0])},{int(b[1])},{int(b[2])},{int(b[3])})" for b in boxes)
                     print(f"  [{i}] 文本: '{t}' | bboxes: {bbox_str}")
-                if len(boxes) > len(find_list):
-                    for i, b in enumerate(boxes[len(find_list):]):
-                        print(f"  [{len(find_list)+i}] 文本: (无) | bbox: ({int(b[0])},{int(b[1])},{int(b[2])},{int(b[3])})")
             elif has_text:
                 print(f"  文本提示词: {find_list}")
             elif has_bbox:
