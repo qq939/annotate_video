@@ -311,9 +311,6 @@ class UnifiedPanel(QMainWindow):
         if dialog.exec_() != QDialog.Accepted:
             return
         boxes = dialog.get_boxes()
-        if not boxes:
-            QMessageBox.warning(self, "提示", "请至少框选一个目标")
-            return
 
         iou_val = float(self.iou_input.text() or "0.5")
         merge_iou_val = float(self.merge_iou_input.text() or "0.5")
