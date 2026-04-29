@@ -1138,7 +1138,7 @@ class UnifiedPanel(QMainWindow):
                                             tid = track_ids[idx] if idx < len(track_ids) else ann_id
                                             conf = float(confs[idx]) if confs is not None and idx < len(confs) else float(m.max())
                                             ann = {
-                                                'id': ann_id, 'track_id': tid, 'image_id': frame_idx,
+                                                'id': ann_id, 'track_id': tid, 'image_id': frame_idx + start_frame,
                                                 'category_id': tid, 'bbox': bb, 'area': float(area2),
                                                 'segmentation': [poly2], 'iscrowd': 0, 'confidence': conf,
                                                 'category': 'Detect'
@@ -1154,9 +1154,11 @@ class UnifiedPanel(QMainWindow):
                     else:
                         print(f"[DEBUG {direction}] [帧{total_results}] ⚠️ 无masks属性或masks为None")
 
-                    with open(labels_dir / f"frame_{frame_idx:06d}.json", 'w') as f:
+                    orig_frame_idx = frame_idx + start_frame
+                    print(f"[DEBUG {direction}] [帧{total_results}] clip_frame={frame_idx} → 原帧{orig_frame_idx}, 标注数={len(frame_anns)}")
+                    with open(labels_dir / f"frame_{orig_frame_idx:06d}.json", 'w') as f:
                         json.dump(frame_anns, f)
-                    print(f"[DEBUG {direction}] [帧{total_results}] 保存label文件, 帧标注数={len(frame_anns)}")
+                    print(f"[DEBUG {direction}] [帧{total_results}] 保存label文件: frame_{orig_frame_idx:06d}.json, 帧标注数={len(frame_anns)}")
                     frame_idx += 1
 
                 print(f"[DEBUG {direction}] === process_clip 完成 ===")
