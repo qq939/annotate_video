@@ -1155,10 +1155,17 @@ class UnifiedPanel(QMainWindow):
                         print(f"[DEBUG {direction}] [帧{total_results}] ⚠️ 无masks属性或masks为None")
 
                     orig_frame_idx = frame_idx + start_frame
-                    print(f"[DEBUG {direction}] [帧{total_results}] clip_frame={frame_idx} → 原帧{orig_frame_idx}, 标注数={len(frame_anns)}")
-                    with open(labels_dir / f"frame_{orig_frame_idx:06d}.json", 'w') as f:
-                        json.dump(frame_anns, f)
-                    print(f"[DEBUG {direction}] [帧{total_results}] 保存label文件: frame_{orig_frame_idx:06d}.json, 帧标注数={len(frame_anns)}")
+                    print(f"[DEBUG {direction}] [帧{total_results}] clip_frame={frame_idx} → 原帧{orig_frame_idx}, 新增标注数={len(frame_anns)}")
+                    label_file = labels_dir / f"frame_{orig_frame_idx:06d}.json"
+                    existing_anns = []
+                    if label_file.exists():
+                        with open(label_file) as f:
+                            existing_anns = json.load(f)
+                        print(f"[DEBUG {direction}] [帧{total_results}] 已存在标注{len(existing_anns)}条，追加新标注")
+                    merged_anns = existing_anns + frame_anns
+                    with open(label_file, 'w') as f:
+                        json.dump(merged_anns, f)
+                    print(f"[DEBUG {direction}] [帧{total_results}] 保存label文件: frame_{orig_frame_idx:06d}.json, 原有{len(existing_anns)}+新增{len(frame_anns)}=合计{len(merged_anns)}")
                     frame_idx += 1
 
                 print(f"[DEBUG {direction}] === process_clip 完成 ===")
