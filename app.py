@@ -397,10 +397,21 @@ class UnifiedPanel(QMainWindow):
 
             predictor_name = "SAM3VideoSemanticPredictor" if has_text else "SAM3VideoPredictor"
             print(f"正在使用 {predictor_name} 进行视频分割跟踪...")
-            if has_text:
+            if has_text and has_bbox:
+                for i, (t, b) in enumerate(zip(find_list, boxes)):
+                    print(f"  [{i}] 文本: '{t}' | bbox: {tuple(int(x) for x in b)}")
+                extra_texts = len(find_list) - len(boxes)
+                extra_boxes = len(boxes) - len(find_list)
+                if extra_texts > 0:
+                    for i, t in enumerate(find_list[len(boxes):]):
+                        print(f"  [{len(boxes)+i}] 文本: '{t}' | bbox: (无)")
+                if extra_boxes > 0:
+                    for i, b in enumerate(boxes[len(find_list):]):
+                        print(f"  [{len(find_list)+i}] 文本: (无) | bbox: {tuple(int(x) for x in b)}")
+            elif has_text:
                 print(f"  文本提示词: {find_list}")
-            if has_bbox:
-                print(f"  bbox提示框: {boxes}")
+            elif has_bbox:
+                print(f"  bbox提示框: {[tuple(int(x) for x in b) for b in boxes]}")
 
             device, device_type = get_device()
             half = device_type == 'cuda'
