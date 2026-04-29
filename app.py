@@ -18,6 +18,41 @@ from PyQt5.QtWidgets import QShortcut
 
 from video_control import VideoController
 
+_SAM3_SEMANTIC_PATCHED = False
+def _patch_sam3_video_semantic():
+    global _SAM3_SEMANTIC_PATCHED
+    if _SAM3_SEMANTIC_PATCHED:
+        return
+    _SAM3_SEMANTIC_PATCHED = True
+    import torch
+    from ultralytics.utils import ops as ultralytics_ops
+    from ultralytics.models.sam import SAM3VideoSemanticPredictor
+    _orig = SAM3VideoSemanticPredictor.add_prompt
+
+    def _new_add_prompt(self, frame_idx, text=None, bboxes=None, labels=None, inference_state=None):
+        if bboxes is None:
+            return _orig(self, frame_idx, text, bboxes, labels, inference_state)
+        text_batch = [text] if isinstance(text, str) else (list(text) if text else [])
+        n = len(text_batch)
+        _raw = torch.as_tensor(bboxes, dtype=self.torch_dtype, device=self.device)
+        _raw = _raw[None] if _raw.ndim == 1 else _raw
+        _raw = ultralytics_ops.xyxy2xywh(_raw)
+        _raw[:, 0::2] /= self.batch[1][0].shape[1]
+        _raw[:, 1::2] /= self.batch[1][0].shape[0]
+        nb = len(_raw)
+        if labels is None:
+            _lbl = torch.ones(nb, device=self.device, dtype=torch.int32)
+        else:
+            _lbl = torch.as_tensor(labels, dtype=torch.int32, device=self.device)
+        _raw = _raw.view(-1, 1, 4)
+        _lbl = _lbl.view(-1, 1)
+        if n > 0 and nb < n:
+            rep = (n + nb - 1) // nb
+            _raw = _raw.repeat(rep, 1, 1)[:n]
+            _lbl = _lbl.repeat(rep, 1)[:n]
+        return _orig(self, frame_idx, text, _raw, _lbl, inference_state)
+
+    SAM3VideoSemanticPredictor.add_prompt = _new_add_prompt
 
 BOX_COLORS = [
     (255, 0, 0), (0, 255, 0), (0, 0, 255),
@@ -358,6 +393,7 @@ class UnifiedPanel(QMainWindow):
                 overrides['stream_buffer'] = True
 
             if predictor_name == "SAM3VideoSemanticPredictor":
+                _patch_sam3_video_semantic()
                 from ultralytics.models.sam import SAM3VideoSemanticPredictor
                 predictor = SAM3VideoSemanticPredictor(overrides=overrides)
             else:
@@ -1433,21 +1469,26 @@ class UnifiedPanel(QMainWindow):
             self.viewer.update_display()
 
     def select_data_dir(self):
-        path = QFileDialog.getExistingDirectory(
-            self, "选择数据目录", "."
-        )
-        if path:
-            p = Path(path)
-            self.path_input.setText(str(p))
-            self.temp_data_path = p
-            return
+        msg = QMessageBox(self)
+        msg.setWindowTitle("选择类型")
+        msg.setText("请选择要打开的类型：")
+        btn_video = msg.addButton("视频文件", QMessageBox.ActionRole)
+        btn_dir = msg.addButton("文件夹", QMessageBox.ActionRole)
+        msg.addButton("取消", QMessageBox.RejectRole)
+        msg.exec()
 
-        video_path, _ = QFileDialog.getOpenFileName(
-            self, "选择视频文件", "",
-            "视频文件 (*.mp4 *.avi *.mov *.mkv *.MP4);;所有文件 (*)"
-        )
-        if video_path:
-            self._extract_video_to_temp_data(Path(video_path))
+        if msg.clickedButton() == btn_video:
+            path, _ = QFileDialog.getOpenFileName(
+                self, "选择视频文件", ".",
+                "视频文件 (*.mp4 *.avi *.mov *.mkv *.MP4 *.AVI *.MOV *.MKV);;所有文件 (*)"
+            )
+            if path:
+                self._extract_video_to_temp_data(Path(path))
+        elif msg.clickedButton() == btn_dir:
+            folder = QFileDialog.getExistingDirectory(self, "选择数据目录", ".")
+            if folder:
+                self.path_input.setText(folder)
+                self.temp_data_path = Path(folder)
 
     def _extract_video_to_temp_data(self, video_path=None):
         if video_path is None:
@@ -1499,7 +1540,7 @@ class UnifiedPanel(QMainWindow):
             coco_data = {
                 'info': {
                     'description': 'Video Annotation Dataset',
-                    'video_path': video_path,
+                    'video_path': str(video_path),
                     'fps': fps,
                     'width': width,
                     'height': height,
@@ -1545,12 +1586,20 @@ class UnifiedPanel(QMainWindow):
         if not self.temp_data_path.exists():
             QMessageBox.warning(self, "错误", "数据目录不存在")
             return
-        if not (self.temp_data_path / "annotations.json").exists():
+        ann_file = self.temp_data_path / "annotations.json"
+        if not ann_file.exists():
             QMessageBox.warning(self, "错误", "annotations.json 不存在")
             return
 
-        with open(self.temp_data_path / "annotations.json") as f:
-            coco_data = json.load(f)
+        try:
+            with open(ann_file) as f:
+                coco_data = json.load(f)
+        except json.JSONDecodeError:
+            QMessageBox.critical(self, "错误",
+                f"annotations.json 文件损坏!\n"
+                f"请删除 {self.temp_data_path} 文件夹后重新选择数据。\n"
+                f"（之前切帧过程中程序崩溃导致文件未写完）")
+            return
         self.total_frames = len(coco_data.get('images', []))
 
         self.viewer = VideoViewer(str(self.temp_data_path), controller=self.ctrl)
