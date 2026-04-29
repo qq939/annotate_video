@@ -53,18 +53,12 @@ def _patch_sam3_video_semantic():
         _lbl = torch.as_tensor(_lbl_arr, dtype=torch.int32, device=self.device)
         _raw = _raw.view(-1, 1, 4)
         _lbl = _lbl.view(-1, 1)
-        if n > 0 and nb < n:
-            rep = (n + nb - 1) // nb
-            _raw = _raw.repeat(rep, 1, 1)[:n]
-            _lbl = _lbl.repeat(rep, 1)[:n]
-        else:
-            _raw = _raw[:n]
-            _lbl = _lbl[:n]
+        if n > 1:
+            _raw = _raw.repeat(1, n, 1)
+            _lbl = _lbl.repeat(1, n)
         geometric_prompt = self._get_dummy_prompt(num_prompts=n)
         for i in range(len(_raw)):
-            box_rep = _raw[[i]].repeat(1, n, 1)
-            lbl_rep = _lbl[[i]].squeeze(-1).repeat(n).unsqueeze(0)
-            geometric_prompt.append_boxes(box_rep, lbl_rep)
+            geometric_prompt.append_boxes(_raw[[i]], _lbl[[i]])
         inference_state["per_frame_geometric_prompt"][frame_idx] = geometric_prompt
         out = self._run_single_frame_inference(frame_idx, reverse=False, inference_state=inference_state)
         return frame_idx, out
