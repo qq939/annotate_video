@@ -1557,9 +1557,8 @@ class UnifiedPanel(QMainWindow):
         labels_dir = input_path / "labels"
         frames_dir = input_path / "frames"
 
-        single_color = self.palette_colors[self.selected_color_index]
-
         print(f"正在生成视频: {output_path}")
+        print(f"[DEBUG run_save] 已选颜色索引={self.selected_color_index}, 颜色={self.palette_colors[self.selected_color_index]}, 调色板长度={len(self.palette_colors)}")
 
         for i in range(total_frames):
             frame_path = frames_dir / f"frame_{i:06d}.jpg"
@@ -1585,7 +1584,11 @@ class UnifiedPanel(QMainWindow):
 
                     cat_name = ann.get('category', 'Unknown')
                     conf = ann.get('confidence', 1.0)
-                    color = single_color
+                    track_id = ann.get('track_id', 0)
+                    if track_id == 1000000:
+                        color = self.palette_colors[self.selected_color_index]
+                    else:
+                        color = self.palette_colors[track_id % len(self.palette_colors)]
 
                     if polygon:
                         pts = np.array(polygon[0], dtype=np.int32).reshape(-1, 2)
