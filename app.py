@@ -1015,13 +1015,22 @@ class UnifiedPanel(QMainWindow):
 
                 frame_count = end_frame - start_frame
                 print(f"[DEBUG {direction}] 正在复制 {frame_count} 帧到临时目录...")
-                for i in range(start_frame, end_frame):
-                    src = frames_dir / f"frame_{i:06d}.jpg"
-                    dst = temp_frames / f"frame_{i - start_frame:06d}.jpg"
-                    if src.exists():
-                        shutil.copy2(src, dst)
-                    else:
-                        print(f"[DEBUG {direction}] ⚠️ 帧文件不存在: {src}")
+                if forward:
+                    for i in range(start_frame, end_frame):
+                        src = frames_dir / f"frame_{i:06d}.jpg"
+                        dst = temp_frames / f"frame_{i - start_frame:06d}.jpg"
+                        if src.exists():
+                            shutil.copy2(src, dst)
+                        else:
+                            print(f"[DEBUG {direction}] ⚠️ 帧文件不存在: {src}")
+                else:
+                    for rev_idx, i in enumerate(range(end_frame - 1, start_frame - 1, -1)):
+                        src = frames_dir / f"frame_{i:06d}.jpg"
+                        dst = temp_frames / f"frame_{rev_idx:06d}.jpg"
+                        if src.exists():
+                            shutil.copy2(src, dst)
+                        else:
+                            print(f"[DEBUG {direction}] ⚠️ 帧文件不存在: {src}")
                 print(f"[DEBUG {direction}] ✓ 帧复制完成: {frame_count} 帧")
 
                 clip_path = str(temp_frames / "clip.mp4")
@@ -1030,11 +1039,18 @@ class UnifiedPanel(QMainWindow):
                 fps_cap = 30
                 out = cv2.VideoWriter(clip_path, fourcc, fps_cap, (width, height))
                 frames_written = 0
-                for i in range(start_frame, end_frame):
-                    frame = cv2.imread(str(frames_dir / f"frame_{i:06d}.jpg"))
-                    if frame is not None:
-                        out.write(frame)
-                        frames_written += 1
+                if forward:
+                    for i in range(start_frame, end_frame):
+                        frame = cv2.imread(str(frames_dir / f"frame_{i:06d}.jpg"))
+                        if frame is not None:
+                            out.write(frame)
+                            frames_written += 1
+                else:
+                    for rev_idx, i in enumerate(range(end_frame - 1, start_frame - 1, -1)):
+                        frame = cv2.imread(str(frames_dir / f"frame_{i:06d}.jpg"))
+                        if frame is not None:
+                            out.write(frame)
+                            frames_written += 1
                 out.release()
                 print(f"[DEBUG {direction}] ✓ 视频片段生成完成: {frames_written} 帧")
                 cap_check = cv2.VideoCapture(clip_path)
@@ -1141,8 +1157,12 @@ class UnifiedPanel(QMainWindow):
                                             area2 = cv2.contourArea(cnt2)
                                             tid = track_ids[idx] if idx < len(track_ids) else ann_id
                                             conf = float(confs[idx]) if confs is not None and idx < len(confs) else float(m.max())
+                                            if forward:
+                                                img_id = frame_idx + start_frame
+                                            else:
+                                                img_id = end_frame - 1 - frame_idx
                                             ann = {
-                                                'id': ann_id, 'track_id': tid, 'image_id': frame_idx + start_frame,
+                                                'id': ann_id, 'track_id': tid, 'image_id': img_id,
                                                 'category_id': tid, 'bbox': bb, 'area': float(area2),
                                                 'segmentation': [poly2], 'iscrowd': 0, 'confidence': conf,
                                                 'category': 'Detect'
@@ -1158,7 +1178,10 @@ class UnifiedPanel(QMainWindow):
                     else:
                         print(f"[DEBUG {direction}] [帧{total_results}] ⚠️ 无masks属性或masks为None")
 
-                    orig_frame_idx = frame_idx + start_frame
+                    if forward:
+                        orig_frame_idx = frame_idx + start_frame
+                    else:
+                        orig_frame_idx = end_frame - 1 - frame_idx
                     if orig_frame_idx >= total:
                         print(f"[DEBUG {direction}] [帧{total_results}] ⚠️ orig_frame_idx={orig_frame_idx} >= total={total}，跳过")
                         frame_idx += 1
