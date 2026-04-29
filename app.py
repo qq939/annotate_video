@@ -534,7 +534,14 @@ class UnifiedPanel(QMainWindow):
                             current_masks, current_bboxes = merge_masks_in_frame(current_masks, current_bboxes, merge_iou_val)
                             track_ids = track_manager.update(current_masks, current_bboxes, frame_count)
                             debug_track_ids = track_ids
-                            print(f"[DEBUG 帧{frame_count}] 原始contours={debug_contours_count}, 有效polygon={debug_merged_count}, merge后={len(current_masks)}, track_ids={track_ids}")
+                            after_merge_contours = 0
+                            for mask in current_masks:
+                                mask_binary = (mask > 0.5).astype(np.uint8)
+                                contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                                for contour in contours:
+                                    if len(contour) >= 3:
+                                        after_merge_contours += 1
+                            print(f"[DEBUG 帧{frame_count}] 原始contours={debug_contours_count}, 有效polygon={debug_merged_count}, merge后={len(current_masks)}, merge后contours={after_merge_contours}, track_ids={track_ids}")
                             for idx, (mask, bbox) in enumerate(zip(current_masks, current_bboxes)):
                                 mask_binary = (mask > 0.5).astype(np.uint8)
                                 contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
