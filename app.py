@@ -552,6 +552,11 @@ class UnifiedPanel(QMainWindow):
         open_btn.setFixedSize(40, 22)
         open_btn.clicked.connect(self.select_data_dir)
         path_layout.addWidget(open_btn)
+        video_btn = QPushButton("视频")
+        video_btn.setFixedSize(40, 22)
+        video_btn.setStyleSheet("QPushButton { background-color: #2196F3; color: white; border: none; border-radius: 3px; font-size: 11px; } QPushButton:hover { background-color: #1976D2; }")
+        video_btn.clicked.connect(self.extract_video_to_temp_data)
+        path_layout.addWidget(video_btn)
         show_btn = QPushButton("Show")
         show_btn.setFixedSize(40, 22)
         show_btn.clicked.connect(self.show_viewer)
@@ -1413,6 +1418,94 @@ class UnifiedPanel(QMainWindow):
         if folder:
             self.path_input.setText(folder)
             self.temp_data_path = Path(folder)
+
+    def extract_video_to_temp_data(self):
+        video_path, _ = QFileDialog.getOpenFileName(
+            self, "选择视频文件", "",
+            "视频文件 (*.mp4 *.avi *.mov *.mkv *.MP4 *.AVI *.MOV *.MKV);;所有文件 (*)"
+        )
+        if not video_path:
+            return
+
+        temp_dir = self.temp_data_path = Path(self.path_input.text() or "temp_data")
+        frames_dir = temp_dir / "frames"
+        labels_dir = temp_dir / "labels"
+
+        if frames_dir.exists():
+            import shutil
+            shutil.rmtree(frames_dir)
+        frames_dir.mkdir(parents=True, exist_ok=True)
+        labels_dir.mkdir(parents=True, exist_ok=True)
+
+        self.statusBar().showMessage("正在切帧，请稍候...")
+        QApplication.processEvents()
+
+        try:
+            cap = cv2.VideoCapture(video_path)
+            if not cap.isOpened():
+                QMessageBox.warning(self, "错误", f"无法打开视频: {video_path}")
+                return
+
+            fourcc_int = int(cap.get(cv2.CAP_PROP_FOURCC))
+            fourcc_str = ''.join([chr(fourcc_int & 0xFF), chr((fourcc_int >> 8) & 0xFF), chr((fourcc_int >> 16) & 0xFF), chr((fourcc_int >> 24) & 0xFF)])
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+            frame_count = 0
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                cv2.imwrite(str(frames_dir / f"frame_{frame_count:06d}.jpg"), frame)
+                frame_count += 1
+                if frame_count % 100 == 0:
+                    self.statusBar().showMessage(f"正在切帧... {frame_count} 帧")
+                    QApplication.processEvents()
+            cap.release()
+
+            coco_data = {
+                'info': {
+                    'description': 'Video Annotation Dataset',
+                    'video_path': video_path,
+                    'fps': fps,
+                    'width': width,
+                    'height': height,
+                    'fourcc': fourcc_str,
+                    'FIND': []
+                },
+                'images': [
+                    {'id': i, 'file_name': f"frame_{i:06d}.jpg", 'width': width, 'height': height, 'frame_count': i}
+                    for i in range(frame_count)
+                ],
+                'annotations': [],
+                'categories': []
+            }
+
+            with open(temp_dir / 'annotations.json', 'w') as f:
+                json.dump(coco_data, f)
+
+            for i in range(frame_count):
+                with open(labels_dir / f"frame_{i:06d}.json", 'w') as f:
+                    json.dump([], f)
+
+            self.total_frames = frame_count
+            self.path_input.setText(str(temp_dir))
+            self.statusBar().showMessage(f"切帧完成: {frame_count} 帧")
+            print(f"[DEBUG] 视频切帧完成: {frame_count} 帧, 保存到 {temp_dir}")
+            QMessageBox.information(self, "完成", f"视频切帧完成！\n共 {frame_count} 帧\n保存到: {temp_dir}")
+
+            if self.viewer:
+                self.viewer.coco_data = coco_data
+                self.viewer.total_frames = frame_count
+                self.viewer.go_to_frame(0)
+                self.frame_label.setText(f"1/{frame_count}")
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self.statusBar().showMessage("切帧失败")
+            QMessageBox.critical(self, "错误", f"切帧失败:\n{e}")
 
     def show_viewer(self):
         from video_viewer import VideoViewer
