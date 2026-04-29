@@ -398,16 +398,12 @@ class UnifiedPanel(QMainWindow):
             predictor_name = "SAM3VideoSemanticPredictor" if has_text else "SAM3VideoPredictor"
             print(f"正在使用 {predictor_name} 进行视频分割跟踪...")
             if has_text and has_bbox:
-                for i, (t, b) in enumerate(zip(find_list, boxes)):
-                    print(f"  [{i}] 文本: '{t}' | bbox: {tuple(int(x) for x in b)}")
-                extra_texts = len(find_list) - len(boxes)
-                extra_boxes = len(boxes) - len(find_list)
-                if extra_texts > 0:
-                    for i, t in enumerate(find_list[len(boxes):]):
-                        print(f"  [{len(boxes)+i}] 文本: '{t}' | bbox: (无)")
-                if extra_boxes > 0:
+                for i, t in enumerate(find_list):
+                    bbox_str = " | ".join(f"({int(b[0])},{int(b[1])},{int(b[2])},{int(b[3])})" for b in boxes)
+                    print(f"  [{i}] 文本: '{t}' | bboxes: {bbox_str}")
+                if len(boxes) > len(find_list):
                     for i, b in enumerate(boxes[len(find_list):]):
-                        print(f"  [{len(find_list)+i}] 文本: (无) | bbox: {tuple(int(x) for x in b)}")
+                        print(f"  [{len(find_list)+i}] 文本: (无) | bbox: ({int(b[0])},{int(b[1])},{int(b[2])},{int(b[3])})")
             elif has_text:
                 print(f"  文本提示词: {find_list}")
             elif has_bbox:
