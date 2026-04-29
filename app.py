@@ -443,7 +443,8 @@ class UnifiedPanel(QMainWindow):
                         current_masks = []
                         current_bboxes = []
                         for mask in masks_tensor:
-                            mask_binary = (mask > 0.5).astype(np.uint8)
+                            mask_np = mask.cpu().numpy() if hasattr(mask, 'numpy') else np.array(mask)
+                            mask_binary = (mask_np > 0.5).astype(np.uint8)
                             contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                             for contour in contours:
                                 if len(contour) >= 3:
