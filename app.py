@@ -323,7 +323,7 @@ class UnifiedPanel(QMainWindow):
         try:
             from annotate_video import SAM_MODEL_PATH, DST_DIR, TEMP_DATA_DIR
             from annotate_video import merge_masks_in_frame, TrackManager, get_device, get_output_filename
-            from annotate_video import put_chinese_text, IOU_THRESHOLD as OrigIOU, MERGE_IOU_THRESHOLD as OrigMergeIOU
+            from annotate_video import put_chinese_text, IOU_THRESHOLD as OrigIOU, MERGE_IOU_THRESHOLD as OrigMergeIOU, FIND as OrigFIND
             import annotate_video as av_module
 
             av_module.IOU_THRESHOLD = iou_val
