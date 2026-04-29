@@ -1590,7 +1590,13 @@ class UnifiedPanel(QMainWindow):
                     if track_id == 1000000:
                         color = self.palette_colors[self.selected_color_index]
                     else:
-                        color = self.palette_colors[track_id % len(self.palette_colors)]
+                        n_colors = len(self.palette_colors) - 1
+                        color_idx_in_remapped = track_id % n_colors
+                        selected_idx = self.selected_color_index
+                        if color_idx_in_remapped < selected_idx:
+                            color = self.palette_colors[color_idx_in_remapped]
+                        else:
+                            color = self.palette_colors[color_idx_in_remapped + 1]
 
                     if polygon:
                         pts = np.array(polygon[0], dtype=np.int32).reshape(-1, 2)
