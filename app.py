@@ -10,11 +10,165 @@ import json
 import subprocess
 from pathlib import Path
 
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QSlider, QLabel, QLineEdit, QFileDialog, QGroupBox, QTextEdit, QMessageBox, QListWidget, QSizePolicy)
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QSlider, QLabel, QLineEdit, QFileDialog, QGroupBox, QTextEdit, QMessageBox, QListWidget, QSizePolicy, QDialog)
+from PyQt5.QtCore import Qt, QTimer, QPoint, QRect
 from PyQt5.Qt import QDragEnterEvent, QDropEvent
+from PyQt5.QtGui import QImage, QPainter, QPen, QColor, QFont, QPixmap, QKeySequence
+from PyQt5.QtWidgets import QShortcut
 
 from video_control import VideoController
+
+
+BOX_COLORS = [
+    (255, 0, 0), (0, 255, 0), (0, 0, 255),
+    (255, 255, 0), (255, 0, 255), (0, 255, 255),
+    (255, 128, 0), (128, 0, 255),
+]
+
+
+class AnnotationImageWidget(QWidget):
+    def __init__(self, frame, boxes, color_index, parent=None):
+        super().__init__(parent)
+        self.frame = frame
+        self.boxes = boxes
+        self.color_index = color_index
+        self.drawing = False
+        self.start_point = QPoint()
+        self.current_rect = QRect()
+        h, w = frame.shape[:2]
+        self.setFixedSize(w, h)
+        self.setMinimumSize(w, h)
+        self.setMaximumSize(w, h)
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        self.qimage = QImage(rgb.data, w, h, w * 3, QImage.Format_RGB888)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.drawing = True
+            self.start_point = event.pos()
+            self.current_rect = QRect(self.start_point, self.start_point)
+
+    def mouseMoveEvent(self, event):
+        if self.drawing:
+            self.current_rect = QRect(self.start_point, event.pos()).normalized()
+            self.update()
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton and self.drawing:
+            self.drawing = False
+            rect = QRect(self.start_point, event.pos()).normalized()
+            if rect.width() > 5 and rect.height() > 5:
+                color = BOX_COLORS[self.color_index[0] % len(BOX_COLORS)]
+                self.boxes.append({
+                    'x1': rect.left(), 'y1': rect.top(),
+                    'x2': rect.right(), 'y2': rect.bottom(),
+                    'color': color
+                })
+                self.color_index[0] += 1
+            self.current_rect = QRect()
+            self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.drawImage(0, 0, self.qimage)
+        for i, box in enumerate(self.boxes):
+            color = QColor(*box['color'][::-1])
+            pen = QPen(color, 2)
+            painter.setPen(pen)
+            painter.drawRect(box['x1'], box['y1'], box['x2'] - box['x1'], box['y2'] - box['y1'])
+            painter.setFont(QFont("Arial", 14))
+            painter.drawText(box['x1'], box['y1'] - 5, f"目标 {i + 1}")
+        if self.drawing and not self.current_rect.isNull():
+            color = QColor(*BOX_COLORS[self.color_index[0] % len(BOX_COLORS)][::-1])
+            pen = QPen(color, 2)
+            painter.setPen(pen)
+            painter.drawRect(self.current_rect)
+
+
+class AnnotationDialog(QDialog):
+    def __init__(self, video_path, parent=None):
+        super().__init__(parent)
+        self.video_path = video_path
+        self.boxes = []
+        self.color_index = [0]
+        self._read_first_frame()
+        self._setup_ui()
+        self._setup_shortcut()
+
+    def _read_first_frame(self):
+        cap = cv2.VideoCapture(self.video_path)
+        ret, frame = cap.read()
+        cap.release()
+        if not ret:
+            raise ValueError(f"无法读取视频首帧: {self.video_path}")
+        self.frame = frame
+
+    def _setup_ui(self):
+        h, w = self.frame.shape[:2]
+        self.setWindowTitle("视频标注")
+        self.setFixedSize(w, h)
+        self.setMaximumSize(w, h)
+        self.setMinimumSize(w, h)
+        self.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint)
+
+        central = QWidget()
+        central.setFixedSize(w, h)
+        central.setStyleSheet("background: #111;")
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        header = QWidget()
+        header.setFixedSize(w, 36)
+        header.setStyleSheet("background: rgba(0,0,0,180);")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(8, 0, 8, 0)
+        header_layout.setSpacing(4)
+
+        instr_label = QLabel("操作：框选目标 | C:撤销 | Q:退出")
+        instr_label.setStyleSheet("color: #ccc; font-size: 12px;")
+        instr_label.setFixedWidth(320)
+        header_layout.addWidget(instr_label)
+        header_layout.addStretch()
+
+        self.done_btn = QPushButton("✓ 完成标注")
+        self.done_btn.setFixedSize(100, 28)
+        self.done_btn.setStyleSheet(
+            "QPushButton { background: #00CC00; color: white; border: none; border-radius: 4px; font-weight: bold; font-size: 13px; }"
+            "QPushButton:hover { background: #009900; }"
+        )
+        self.done_btn.clicked.connect(self.accept)
+        header_layout.addWidget(self.done_btn)
+
+        main_layout.addWidget(header)
+
+        self.img_widget = AnnotationImageWidget(self.frame, self.boxes, self.color_index)
+        self.img_widget.setFocus()
+        main_layout.addWidget(self.img_widget)
+
+    def _setup_shortcut(self):
+        QShortcut(QKeySequence("c"), self).activated.connect(self._undo_last)
+        QShortcut(QKeySequence("q"), self).activated.connect(self.reject)
+        QShortcut(QKeySequence("C"), self).activated.connect(self._undo_last)
+        QShortcut(QKeySequence("Q"), self).activated.connect(self.reject)
+
+    def _undo_last(self):
+        if self.boxes:
+            self.boxes.pop()
+            self.color_index[0] = max(0, self.color_index[0] - 1)
+            self.img_widget.update()
+
+    def keyPressEvent(self, event):
+        key = event.key()
+        if key in (Qt.Key_C, Qt.Key_c):
+            self._undo_last()
+        elif key in (Qt.Key_Q, Qt.Key_q):
+            self.reject()
+        else:
+            super().keyPressEvent(event)
+
+    def get_boxes(self):
+        return [(b['x1'], b['y1'], b['x2'], b['y2']) for b in self.boxes]
 
 
 class DragLineEdit(QLineEdit):
@@ -143,33 +297,61 @@ class UnifiedPanel(QMainWindow):
 
         src_dir = Path("1src")
         src_dir.mkdir(exist_ok=True)
-
         video_name = Path(video_path).name
 
-        if Path(video_path).parent.resolve() == src_dir.resolve():
-            print(f"视频已在src目录，无需拷贝")
-        else:
+        if Path(video_path).parent.resolve() != src_dir.resolve():
             dst_video = src_dir / video_name
             if dst_video.exists():
                 dst_video.unlink()
             shutil.copy2(video_path, dst_video)
             print(f"已拷贝到src: {dst_video}")
 
-        iou = self.iou_input.text() or "0.5"
-        merge_iou = self.merge_iou_input.text() or "0.5"
+        src_video = str(src_dir / video_name)
+        dialog = AnnotationDialog(src_video, self)
+        if dialog.exec_() != QDialog.Accepted:
+            return
+        boxes = dialog.get_boxes()
+        if not boxes:
+            QMessageBox.warning(self, "提示", "请至少框选一个目标")
+            return
+
+        iou_val = float(self.iou_input.text() or "0.5")
+        merge_iou_val = float(self.merge_iou_input.text() or "0.5")
         items_text = self.items_input.text()
+        find_list = [s.strip() for s in items_text.split(',') if s.strip()]
 
-        src_video = src_dir / video_name
-        cmd = [sys.executable, 'annotate_video.py',
-               '--iou', str(iou),
-               '--merge-iou', str(merge_iou),
-               '--src', str(src_video),
-               '--items', items_text]
+        self.statusBar().showMessage("正在处理视频，请稍候...")
+        QApplication.processEvents()
 
-        sys.stderr.write(f"[DEBUG app] cmd={cmd}\n")
-        sys.stderr.flush()
+        try:
+            from annotate_video import VideoAnnotator, SAM_MODEL_PATH, DST_DIR, TEMP_DATA_DIR
+            from annotate_video import IOU_THRESHOLD as OrigIOU, MERGE_IOU_THRESHOLD as OrigMergeIOU
+            from annotate_video import FIND as OrigFIND
+            import annotate_video as av_module
 
-        self.video_process = subprocess.Popen(cmd, cwd=str(Path.cwd()))
+            av_module.IOU_THRESHOLD = iou_val
+            av_module.MERGE_IOU_THRESHOLD = merge_iou_val
+            av_module.FIND = find_list
+
+            annotator = VideoAnnotator(src_video, DST_DIR, headless=True)
+            annotator.boxes = []
+            from annotate_video import AnnotationBox, BOX_COLORS as AV_BOX_COLORS
+            for i, bbox in enumerate(boxes):
+                color = AV_BOX_COLORS[i % len(AV_BOX_COLORS)]
+                annotator.boxes.append(AnnotationBox(bbox[0], bbox[1], bbox[2], bbox[3], color))
+
+            annotator.process_video(launch_panel=False)
+            self.statusBar().showMessage(f"标注完成: {DST_DIR}")
+            QMessageBox.information(self, "完成", f"标注完成！\n输出目录: {DST_DIR}")
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self.statusBar().showMessage("处理失败")
+            QMessageBox.critical(self, "错误", f"处理失败:\n{e}")
+        finally:
+            av_module.IOU_THRESHOLD = OrigIOU
+            av_module.MERGE_IOU_THRESHOLD = OrigMergeIOU
+            av_module.FIND = OrigFIND
 
     def create_viewer_section(self):
         group = QGroupBox("2. 预览")
