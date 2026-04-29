@@ -549,16 +549,11 @@ class UnifiedPanel(QMainWindow):
         self.path_input.setFixedHeight(22)
         path_layout.addWidget(self.path_input)
         open_btn = QPushButton("选择")
-        open_btn.setFixedSize(40, 22)
+        open_btn.setFixedSize(44, 22)
         open_btn.clicked.connect(self.select_data_dir)
         path_layout.addWidget(open_btn)
-        video_btn = QPushButton("视频")
-        video_btn.setFixedSize(40, 22)
-        video_btn.setStyleSheet("QPushButton { background-color: #2196F3; color: white; border: none; border-radius: 3px; font-size: 11px; } QPushButton:hover { background-color: #1976D2; }")
-        video_btn.clicked.connect(self.extract_video_to_temp_data)
-        path_layout.addWidget(video_btn)
-        show_btn = QPushButton("Show")
-        show_btn.setFixedSize(40, 22)
+        show_btn = QPushButton("显示")
+        show_btn.setFixedSize(44, 22)
         show_btn.clicked.connect(self.show_viewer)
         path_layout.addWidget(show_btn)
         layout.addLayout(path_layout)
@@ -1415,18 +1410,29 @@ class UnifiedPanel(QMainWindow):
             self.viewer.update_display()
 
     def select_data_dir(self):
-        folder = QFileDialog.getExistingDirectory(self, "选择数据目录", ".")
-        if folder:
-            self.path_input.setText(folder)
-            self.temp_data_path = Path(folder)
-
-    def extract_video_to_temp_data(self):
-        video_path, _ = QFileDialog.getOpenFileName(
-            self, "选择视频文件", "",
-            "视频文件 (*.mp4 *.avi *.mov *.mkv *.MP4 *.AVI *.MOV *.MKV);;所有文件 (*)"
+        path, _ = QFileDialog.getOpenFileName(
+            self, "选择数据目录或视频", ".",
+            "所有文件 (*);;目录"
         )
-        if not video_path:
+        if not path:
             return
+        p = Path(path)
+        video_exts = {'.mp4', '.avi', '.mov', '.mkv', '.mp4', '.flv', '.wmv', '.webm'}
+        if p.suffix.lower() in video_exts:
+            self._extract_video_to_temp_data(p)
+        else:
+            self.path_input.setText(str(p))
+            self.temp_data_path = p
+
+    def _extract_video_to_temp_data(self, video_path=None):
+        if video_path is None:
+            video_path_selected, _ = QFileDialog.getOpenFileName(
+                self, "选择视频文件", "",
+                "视频文件 (*.mp4 *.avi *.mov *.mkv *.MP4 *.AVI *.MOV *.MKV);;所有文件 (*)"
+            )
+            if not video_path_selected:
+                return
+            video_path = video_path_selected
 
         temp_dir = self.temp_data_path = Path(self.path_input.text() or "temp_data")
         frames_dir = temp_dir / "frames"
