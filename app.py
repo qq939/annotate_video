@@ -1469,7 +1469,7 @@ class UnifiedPanel(QMainWindow):
                     if not bbox:
                         continue
 
-                    track_id = ann.get('track_id', 0)
+                    cat_name = ann.get('category', 'Unknown')
                     conf = ann.get('confidence', 1.0)
                     color = single_color
 
@@ -1481,7 +1481,7 @@ class UnifiedPanel(QMainWindow):
                     x, y = int(bbox[0]), int(bbox[1])
                     w, h = int(bbox[2]), int(bbox[3])
                     cv2.rectangle(overlay, (x, y), (x + w, y + h), color, 2)
-                    cv2.putText(overlay, f"{track_id} {conf:.2f}", (x, y - 5),
+                    cv2.putText(overlay, f"{cat_name} {conf:.2f}", (x, y - 5),
                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
 
                 cv2.addWeighted(overlay, self.ctrl.alpha, result_frame, 1 - self.ctrl.alpha, 0, result_frame)
