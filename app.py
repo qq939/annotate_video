@@ -321,23 +321,195 @@ class UnifiedPanel(QMainWindow):
         QApplication.processEvents()
 
         try:
-            from annotate_video import VideoAnnotator, SAM_MODEL_PATH, DST_DIR, TEMP_DATA_DIR
-            from annotate_video import IOU_THRESHOLD as OrigIOU, MERGE_IOU_THRESHOLD as OrigMergeIOU
-            from annotate_video import FIND as OrigFIND
+            from annotate_video import SAM_MODEL_PATH, DST_DIR, TEMP_DATA_DIR
+            from annotate_video import merge_masks_in_frame, TrackManager, get_device, get_output_filename
+            from annotate_video import put_chinese_text, IOU_THRESHOLD as OrigIOU, MERGE_IOU_THRESHOLD as OrigMergeIOU
             import annotate_video as av_module
+            import subprocess
 
             av_module.IOU_THRESHOLD = iou_val
             av_module.MERGE_IOU_THRESHOLD = merge_iou_val
             av_module.FIND = find_list
 
-            annotator = VideoAnnotator(src_video, DST_DIR, headless=True)
-            annotator.boxes = []
-            from annotate_video import AnnotationBox, BOX_COLORS as AV_BOX_COLORS
-            for i, bbox in enumerate(boxes):
-                color = AV_BOX_COLORS[i % len(AV_BOX_COLORS)]
-                annotator.boxes.append(AnnotationBox(bbox[0], bbox[1], bbox[2], bbox[3], color))
+            has_text = bool(find_list)
+            has_bbox = bool(boxes)
 
-            annotator.process_video(launch_panel=False)
+            if not has_text and not has_bbox:
+                QMessageBox.warning(self, "提示", "请至少框选目标或填写物品名称")
+                return
+
+            predictor_name = "SAM3VideoSemanticPredictor" if has_text else "SAM3VideoPredictor"
+            print(f"正在使用 {predictor_name} 进行视频分割跟踪...")
+            if has_text:
+                print(f"  文本提示词: {find_list}")
+            if has_bbox:
+                print(f"  bbox提示框: {boxes}")
+
+            device, device_type = get_device()
+            half = device_type == 'cuda'
+            overrides = dict(
+                conf=0.25, task="segment", mode="predict",
+                model=SAM_MODEL_PATH, device=device,
+                half=half, save=False, verbose=False
+            )
+            if device_type == 'cuda':
+                overrides['batch'] = 1
+                overrides['stream_buffer'] = False
+            elif device_type == 'mps':
+                overrides['half'] = True
+                overrides['amp'] = True
+                overrides['stream_buffer'] = True
+
+            if predictor_name == "SAM3VideoSemanticPredictor":
+                from ultralytics.models.sam import SAM3VideoSemanticPredictor
+                predictor = SAM3VideoSemanticPredictor(overrides=overrides)
+            else:
+                from ultralytics.models.sam import SAM3VideoPredictor
+                predictor = SAM3VideoPredictor(overrides=overrides)
+
+            cap = cv2.VideoCapture(src_video)
+            fourcc_int = int(cap.get(cv2.CAP_PROP_FOURCC))
+            fourcc_str = ''.join([chr(fourcc_int & 0xFF), chr((fourcc_int >> 8) & 0xFF), chr((fourcc_int >> 16) & 0xFF), chr((fourcc_int >> 24) & 0xFF)])
+            fourcc = cv2.VideoWriter_fourcc(*fourcc_str)
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            cap.release()
+
+            output_filename = get_output_filename(src_video)
+            output_path = Path(DST_DIR) / output_filename
+            out = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
+
+            temp_data_path = Path(TEMP_DATA_DIR)
+            if temp_data_path.exists():
+                import shutil
+                shutil.rmtree(temp_data_path)
+            temp_data_path.mkdir(parents=True, exist_ok=True)
+            frames_dir = temp_data_path / "frames"
+            labels_dir = temp_data_path / "labels"
+            frames_dir.mkdir(exist_ok=True)
+            labels_dir.mkdir(exist_ok=True)
+
+            coco_data = {
+                'info': {'description': 'Video Annotation Dataset', 'video_path': src_video,
+                         'fps': fps, 'width': width, 'height': height, 'fourcc': fourcc_str,
+                         'FIND': find_list},
+                'images': [], 'annotations': [],
+                'categories': [{'id': i, 'name': f'object_{i}'} for i in range(len(boxes) if boxes else 8)]
+            }
+
+            annotation_id = [0]
+            track_manager = TrackManager(iou_threshold=iou_val)
+
+            predictor_args = {'source': src_video, 'stream': True}
+            if has_bbox:
+                predictor_args['bboxes'] = boxes
+                predictor_args['labels'] = [1] * len(boxes)
+            if has_text:
+                predictor_args['text'] = find_list
+
+            results = predictor(**predictor_args)
+            frame_count = 0
+            print("正在生成标注视频...")
+
+            for r in results:
+                orig_img = r.orig_img if hasattr(r, 'orig_img') and r.orig_img is not None else None
+                if orig_img is None:
+                    cap_temp = cv2.VideoCapture(src_video)
+                    cap_temp.set(cv2.CAP_PROP_POS_FRAMES, frame_count)
+                    ret_temp, orig_img = cap_temp.read()
+                    cap_temp.release()
+                    if not ret_temp:
+                        orig_img = np.zeros((height, width, 3), dtype=np.uint8)
+                else:
+                    if len(orig_img.shape) == 2:
+                        orig_img = cv2.cvtColor(orig_img, cv2.COLOR_GRAY2BGR)
+                    elif orig_img.shape[2] == 4:
+                        orig_img = cv2.cvtColor(orig_img, cv2.COLOR_BGRA2BGR)
+
+                cv2.imwrite(str(frames_dir / f"frame_{frame_count:06d}.jpg"), orig_img)
+
+                coco_data['images'].append({
+                    'id': frame_count, 'file_name': f"frame_{frame_count:06d}.jpg",
+                    'width': width, 'height': height, 'frame_count': frame_count
+                })
+
+                frame_annotations = []
+                if hasattr(r, 'masks') and r.masks is not None:
+                    masks_tensor = r.masks.data
+                    if masks_tensor is not None and len(masks_tensor) > 0:
+                        confs = None
+                        if hasattr(r, 'boxes') and r.boxes is not None and hasattr(r.boxes, 'conf'):
+                            confs = r.boxes.conf.cpu().numpy()
+
+                        current_masks = []
+                        current_bboxes = []
+                        for mask in masks_tensor:
+                            mask_binary = (mask > 0.5).astype(np.uint8)
+                            contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                            for contour in contours:
+                                if len(contour) >= 3:
+                                    polygon = contour.squeeze().flatten().tolist()
+                                    x_coords = polygon[0::2]
+                                    y_coords = polygon[1::2]
+                                    x_min, x_max = min(x_coords), max(x_coords)
+                                    y_min, y_max = min(y_coords), max(y_coords)
+                                    bbox = [float(x_min), float(y_min), float(x_max - x_min), float(y_max - y_min)]
+                                    area = cv2.contourArea(contour)
+                                    if area > 0:
+                                        current_masks.append(mask_binary)
+                                        current_bboxes.append(bbox)
+
+                        if current_masks:
+                            current_masks, current_bboxes = merge_masks_in_frame(current_masks, current_bboxes, merge_iou_val)
+                            track_ids = track_manager.update(current_masks, current_bboxes, frame_count)
+                            for idx, (mask, bbox) in enumerate(zip(current_masks, current_bboxes)):
+                                mask_binary = (mask > 0.5).astype(np.uint8)
+                                contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                                for contour in contours:
+                                    if len(contour) >= 3:
+                                        polygon = contour.squeeze().flatten().tolist()
+                                        area = cv2.contourArea(contour)
+                                        track_id = track_ids[idx] if idx < len(track_ids) else annotation_id[0]
+                                        confidence = float(confs[idx]) if confs is not None and idx < len(confs) else float(mask.max())
+                                        ann = {
+                                            'id': annotation_id[0], 'track_id': track_id, 'image_id': frame_count,
+                                            'category_id': track_id, 'bbox': bbox, 'area': float(area),
+                                            'segmentation': [polygon], 'iscrowd': 0, 'confidence': confidence
+                                        }
+                                        coco_data['annotations'].append(ann)
+                                        frame_annotations.append(ann)
+                                        annotation_id[0] += 1
+
+                with open(labels_dir / f"frame_{frame_count:06d}.json", 'w') as f:
+                    json.dump(frame_annotations, f)
+
+                annotated_frame = r.plot()
+                annotated_frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_RGB2BGR)
+                if boxes:
+                    from annotate_video import BOX_COLORS as AV_BOX_COLORS
+                    for i, bbox in enumerate(boxes):
+                        label = f"目标 {i + 1}"
+                        annotated_frame_rgb = put_chinese_text(annotated_frame_rgb, label, (bbox[0], max(10, bbox[1] - 10)), font_size=15, color=AV_BOX_COLORS[i % len(AV_BOX_COLORS)])
+                out.write(annotated_frame_rgb)
+                frame_count += 1
+                if frame_count % 30 == 0:
+                    print(f"已处理 {frame_count} 帧")
+                    try:
+                        import torch
+                        if torch.cuda.is_available() and device_type == 'cuda':
+                            torch.cuda.empty_cache()
+                    except:
+                        pass
+
+            with open(temp_data_path / 'annotations.json', 'w') as f:
+                json.dump(coco_data, f)
+
+            out.release()
+            print(f"✓ 标注视频已保存到: {output_path}")
+            print(f"✓ 共处理 {frame_count} 帧")
+            print(f"✓ 临时数据已保存到: {temp_data_path}")
+
             self.statusBar().showMessage(f"标注完成: {DST_DIR}")
             QMessageBox.information(self, "完成", f"标注完成！\n输出目录: {DST_DIR}")
         except Exception as e:
