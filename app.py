@@ -433,12 +433,18 @@ class UnifiedPanel(QMainWindow):
                 })
 
                 frame_annotations = []
+                debug_masks_count = 0
+                debug_contours_count = 0
+                debug_merged_count = 0
+                debug_track_ids = []
                 if hasattr(r, 'masks') and r.masks is not None:
                     masks_tensor = r.masks.data
                     if masks_tensor is not None and len(masks_tensor) > 0:
+                        debug_masks_count = len(masks_tensor)
                         confs = None
                         if hasattr(r, 'boxes') and r.boxes is not None and hasattr(r.boxes, 'conf'):
                             confs = r.boxes.conf.cpu().numpy()
+                            print(f"[DEBUG 帧{frame_count}] boxes.conf={confs.tolist()}")
 
                         current_masks = []
                         current_bboxes = []
@@ -446,6 +452,7 @@ class UnifiedPanel(QMainWindow):
                             mask_np = mask.cpu().numpy() if hasattr(mask, 'numpy') else np.array(mask)
                             mask_binary = (mask_np > 0.5).astype(np.uint8)
                             contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                            debug_contours_count += len(contours)
                             for contour in contours:
                                 if len(contour) >= 3:
                                     polygon = contour.squeeze().flatten().tolist()
@@ -460,8 +467,11 @@ class UnifiedPanel(QMainWindow):
                                         current_bboxes.append(bbox)
 
                         if current_masks:
+                            debug_merged_count = len(current_masks)
                             current_masks, current_bboxes = merge_masks_in_frame(current_masks, current_bboxes, merge_iou_val)
                             track_ids = track_manager.update(current_masks, current_bboxes, frame_count)
+                            debug_track_ids = track_ids
+                            print(f"[DEBUG 帧{frame_count}] 原始contours={debug_contours_count}, 有效polygon={debug_merged_count}, merge后={len(current_masks)}, track_ids={track_ids}")
                             for idx, (mask, bbox) in enumerate(zip(current_masks, current_bboxes)):
                                 mask_binary = (mask > 0.5).astype(np.uint8)
                                 contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -479,7 +489,12 @@ class UnifiedPanel(QMainWindow):
                                         coco_data['annotations'].append(ann)
                                         frame_annotations.append(ann)
                                         annotation_id[0] += 1
+                    else:
+                        print(f"[DEBUG 帧{frame_count}] masks_tensor长度=0")
+                else:
+                    print(f"[DEBUG 帧{frame_count}] 无masks属性或masks为None")
 
+                print(f"[DEBUG 帧{frame_count}] 帧annotations数量={len(frame_annotations)}, track_ids={debug_track_ids}")
                 with open(labels_dir / f"frame_{frame_count:06d}.json", 'w') as f:
                     json.dump(frame_annotations, f)
 
