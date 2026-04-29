@@ -32,8 +32,14 @@ def _patch_sam3_video_semantic():
     def _new_add_prompt(self, frame_idx, text=None, bboxes=None, labels=None, inference_state=None):
         if bboxes is None:
             return _orig(self, frame_idx, text, bboxes, labels, inference_state)
+        inference_state = inference_state or self.inference_state
         text_batch = [text] if isinstance(text, str) else (list(text) if text else [])
         n = len(text_batch)
+        inference_state["text_prompt"] = text if text else None
+        text_ids = torch.arange(n, device=self.device, dtype=torch.long)
+        inference_state["text_ids"] = text_ids
+        if text is not None and self.model.names != text:
+            self.model.set_classes(text=text)
         _raw = torch.as_tensor(bboxes, dtype=self.torch_dtype, device=self.device)
         _raw = _raw[None] if _raw.ndim == 1 else _raw
         _raw = ultralytics_ops.xyxy2xywh(_raw)
@@ -41,16 +47,27 @@ def _patch_sam3_video_semantic():
         _raw[:, 1::2] /= self.batch[1][0].shape[0]
         nb = len(_raw)
         if labels is None:
-            _lbl = torch.ones(nb, device=self.device, dtype=torch.int32)
+            _lbl_arr = np.ones(nb)
         else:
-            _lbl = torch.as_tensor(labels, dtype=torch.int32, device=self.device)
+            _lbl_arr = np.array(labels)
+        _lbl = torch.as_tensor(_lbl_arr, dtype=torch.int32, device=self.device)
         _raw = _raw.view(-1, 1, 4)
         _lbl = _lbl.view(-1, 1)
         if n > 0 and nb < n:
             rep = (n + nb - 1) // nb
             _raw = _raw.repeat(rep, 1, 1)[:n]
             _lbl = _lbl.repeat(rep, 1)[:n]
-        return _orig(self, frame_idx, text, _raw, _lbl, inference_state)
+        else:
+            _raw = _raw[:n]
+            _lbl = _lbl[:n]
+        geometric_prompt = self._get_dummy_prompt(num_prompts=n)
+        for i in range(len(_raw)):
+            box_rep = _raw[[i]].repeat(1, n, 1)
+            lbl_rep = _lbl[[i]].squeeze(-1).repeat(n).unsqueeze(0)
+            geometric_prompt.append_boxes(box_rep, lbl_rep)
+        inference_state["per_frame_geometric_prompt"][frame_idx] = geometric_prompt
+        out = self._run_single_frame_inference(frame_idx, reverse=False, inference_state=inference_state)
+        return frame_idx, out
 
     SAM3VideoSemanticPredictor.add_prompt = _new_add_prompt
 
