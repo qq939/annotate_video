@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QSlider, QLabel, QLineEdit, QFileDialog, QGroupBox, QTextEdit, QMessageBox, QListWidget, QSizePolicy, QDialog)
-from PyQt5.QtCore import Qt, QTimer, QPoint, QRect
+from PyQt5.QtCore import Qt, QTimer, QPoint, QRect, pyqtSignal
 from PyQt5.Qt import QDragEnterEvent, QDropEvent
 from PyQt5.QtGui import QImage, QPainter, QPen, QColor, QFont, QPixmap, QKeySequence
 from PyQt5.QtWidgets import QShortcut
@@ -73,6 +73,7 @@ BOX_COLORS = [
 
 
 class AnnotationImageWidget(QWidget):
+    box_added = pyqtSignal()
     def __init__(self, frame, boxes, color_index, parent=None):
         super().__init__(parent)
         self.frame = frame
@@ -111,6 +112,7 @@ class AnnotationImageWidget(QWidget):
                     'color': color
                 })
                 self.color_index[0] += 1
+                self.box_added.emit()
             self.current_rect = QRect()
             self.update()
 
@@ -171,11 +173,21 @@ class AnnotationDialog(QDialog):
         header_layout.setContentsMargins(8, 0, 8, 0)
         header_layout.setSpacing(4)
 
-        instr_label = QLabel("操作：框选目标 | C:撤销 | Q:退出")
+        instr_label = QLabel("框选目标 | C:撤销 | Q:退出")
         instr_label.setStyleSheet("color: #ccc; font-size: 12px;")
-        instr_label.setFixedWidth(320)
         header_layout.addWidget(instr_label)
         header_layout.addStretch()
+
+        self.undo_btn = QPushButton("撤销")
+        self.undo_btn.setFixedSize(60, 28)
+        self.undo_btn.setStyleSheet(
+            "QPushButton { background: #555; color: white; border: none; border-radius: 4px; font-size: 13px; }"
+            "QPushButton:hover { background: #666; }"
+            "QPushButton:disabled { background: #333; color: #666; }"
+        )
+        self.undo_btn.clicked.connect(self._undo_last)
+        self.undo_btn.setEnabled(False)
+        header_layout.addWidget(self.undo_btn)
 
         self.done_btn = QPushButton("✓ 完成标注")
         self.done_btn.setFixedSize(100, 28)
@@ -190,6 +202,7 @@ class AnnotationDialog(QDialog):
 
         self.img_widget = AnnotationImageWidget(self.frame, self.boxes, self.color_index)
         self.img_widget.setFocus()
+        self.img_widget.box_added.connect(lambda: self.undo_btn.setEnabled(True))
         main_layout.addWidget(self.img_widget)
 
     def _setup_shortcut(self):
@@ -203,6 +216,7 @@ class AnnotationDialog(QDialog):
             self.boxes.pop()
             self.color_index[0] = max(0, self.color_index[0] - 1)
             self.img_widget.update()
+            self.undo_btn.setEnabled(len(self.boxes) > 0)
 
     def keyPressEvent(self, event):
         key = event.key()
