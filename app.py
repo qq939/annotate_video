@@ -1001,7 +1001,7 @@ class UnifiedPanel(QMainWindow):
             forward_annotations = []
             backward_annotations = []
 
-            def process_clip(start_frame, end_frame, forward=True):
+            def process_clip(start_frame, end_frame, forward=True, prompt_bboxes=None):
                 direction = "向前" if forward else "向后"
                 print(f"\n[DEBUG {direction}] === 进入 process_clip ===")
                 print(f"[DEBUG {direction}] start_frame={start_frame}, end_frame={end_frame}, 总帧数={end_frame - start_frame}")
@@ -1039,7 +1039,12 @@ class UnifiedPanel(QMainWindow):
                 print(f"[DEBUG {direction}] ✓ 视频片段生成完成: {frames_written} 帧")
 
                 print(f"[DEBUG {direction}] 正在加载 SAM3VideoPredictor 处理...")
-                results = predictor(source=clip_path, stream=True)
+                print(f"[DEBUG {direction}] prompt_bboxes={prompt_bboxes}")
+                if prompt_bboxes:
+                    results = predictor(source=clip_path, stream=True, bboxes=prompt_bboxes, labels=[1]*len(prompt_bboxes))
+                else:
+                    results = predictor(source=clip_path, stream=True)
+                    print(f"[DEBUG {direction}] ⚠️ prompt_bboxes为空，无法进行SAM3VideoPredictor分割！")
                 manager = TrackManager(iou_threshold=float(self.iou_input.text() or "0.5"))
                 manager.next_track_id = FIRST_ID
                 ann_id = FIRST_ID
@@ -1161,10 +1166,10 @@ class UnifiedPanel(QMainWindow):
 
             print(f"=== 双向标注开始 === 提示帧: {prompt_idx}, 总帧数: {total}, prompt_bboxes数量: {len(prompt_bboxes)}")
             print(f"[1/2] 向前标注: 帧 {prompt_idx} → {total-1} (共 {total - prompt_idx} 帧)")
-            forward_anns = process_clip(prompt_idx, total, forward=True)
+            forward_anns = process_clip(prompt_idx, total, forward=True, prompt_bboxes=prompt_bboxes)
 
             print(f"\n[2/2] 向后标注: 帧 0 → {prompt_idx} (共 {prompt_idx} 帧)")
-            backward_anns = process_clip(0, prompt_idx, forward=False)
+            backward_anns = process_clip(0, prompt_idx, forward=False, prompt_bboxes=prompt_bboxes)
 
             all_new_anns = backward_anns + forward_anns
             print(f"\n[DEBUG 汇总] 向后标注={len(backward_anns)}, 向前标注={len(forward_anns)}, 合计={len(all_new_anns)}")
