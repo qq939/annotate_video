@@ -3,6 +3,7 @@
 
 import sys
 import shutil
+import random
 import cv2
 import numpy as np
 import json
@@ -244,7 +245,7 @@ class ImageAnnotatorApp(QMainWindow):
         layout.addWidget(self.text_input)
 
         self.use_semantic_cb = QCheckBox("使用语义推理模型")
-        self.use_semantic_cb.setChecked(True)
+        self.use_semantic_cb.setChecked(False)
         layout.addWidget(self.use_semantic_cb)
 
         iou_layout = QHBoxLayout()
@@ -264,8 +265,8 @@ class ImageAnnotatorApp(QMainWindow):
         color_layout.setSpacing(6)
         color_layout.addWidget(QLabel("颜色:"))
         self.color_btns = []
-        self.selected_color_idx = [0]
         color_names = ["红", "橙", "黄", "绿", "青", "蓝", "紫"]
+        self.selected_color_idx = [random.randint(0, len(color_names) - 1)]
         color_qcolors = [
             QColor(255, 0, 0),    # 红 RGB (BOX_COLORS: B=255,G=0,R=0)
             QColor(255, 165, 0),  # 橙 RGB
@@ -287,6 +288,7 @@ class ImageAnnotatorApp(QMainWindow):
             btn.clicked.connect(lambda _, idx=i: self._select_color(idx))
             color_layout.addWidget(btn)
             self.color_btns.append(btn)
+        self._select_color(self.selected_color_idx[0])
         color_layout.addStretch()
         layout.addLayout(color_layout)
 
