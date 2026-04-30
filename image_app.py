@@ -72,7 +72,7 @@ BOX_COLORS = [
 
 SRC_IMAGES_DIR = "src/images"
 TEMP_DATA_IMAGE_DIR = "temp_data_image"
-DST_IMAGES_DIR = "dst/images"
+DST_IMAGES_DIR = "1dst/image"
 SAM_MODEL_PATH = "sam3.pt"
 IOU_THRESHOLD = 0.5
 MERGE_IOU_THRESHOLD = 0.5
@@ -357,8 +357,6 @@ class ImageAnnotatorApp(QMainWindow):
 
         try:
             from annotate_video import merge_masks_in_frame
-            from annotate_video import put_chinese_text, calculate_mask_iou
-            from PIL import Image, ImageDraw, ImageFont
 
             predictor_name = "SAM3SemanticPredictor" if has_text else "SAM3Predictor"
             print(f"正在使用 {predictor_name} 进行图片分割...")
@@ -497,17 +495,44 @@ class ImageAnnotatorApp(QMainWindow):
             with open(temp_data_path / 'annotations.json', 'w') as f:
                 json.dump(coco_data, f)
 
-            annotated = r.plot()
-            if annotated is None:
-                annotated = cv2.imread(src_image).copy()
-            annotated_rgb = cv2.cvtColor(annotated, cv2.COLOR_RGB2BGR) if annotated.shape[2] == 3 and annotated.dtype == np.uint8 else annotated
-            if boxes:
-                for i, bbox in enumerate(boxes):
-                    label = f"目标 {i + 1}"
-                    annotated_rgb = put_chinese_text(annotated_rgb, label, (int(bbox[0]), max(10, int(bbox[1]) - 10)), font_size=15, color=BOX_COLORS[i % len(BOX_COLORS)])
+            orig_img = cv2.imread(src_image)
+            annotated_img = orig_img.copy()
+
+            if frame_annotations:
+                areas = [ann['area'] for ann in frame_annotations]
+                area_min, area_max = min(areas), max(areas)
+
+                for ann in frame_annotations:
+                    track_id = ann['track_id']
+                    color = BOX_COLORS[track_id % len(BOX_COLORS)]
+                    b = ann['bbox']
+                    area = ann['area']
+                    conf = ann.get('confidence', 1.0)
+
+                    t = 0.25 if area_max == area_min else 0.25 + 0.4 * (area - area_min) / (area_max - area_min)
+                    text_size = 12 if area_max == area_min else int(12 + 24 * (area - area_min) / (area_max - area_min))
+                    line_w = 1 if area_max == area_min else max(1, int(1 + 3 * (area - area_min) / (area_max - area_min)))
+
+                    overlay = annotated_img.copy()
+                    seg = ann.get('segmentation', [])
+                    if seg:
+                        pts = np.array(seg[0], dtype=np.int32).reshape(-1, 2)
+                        cv2.fillPoly(overlay, [pts], color)
+                        cv2.addWeighted(annotated_img, 1 - t, overlay, t, 0, annotated_img)
+
+                    cv2.rectangle(annotated_img,
+                        (int(b[0]), int(b[1])), (int(b[0] + b[2]), int(b[1] + b[3])),
+                        color, line_w)
+
+                    label = f"id{track_id} {conf:.2f}"
+                    font = cv2.FONT_HERSHEY_SIMPLEX
+                    (tw, th), baseline = cv2.getTextSize(label, font, text_size / 18, max(1, line_w - 1))
+                    tx, ty = int(b[0]), max(text_size + 4, int(b[1]))
+                    cv2.rectangle(annotated_img, (tx, ty - th - baseline), (tx + tw, ty), (0, 0, 0), -1)
+                    cv2.putText(annotated_img, label, (tx, ty - baseline), font, text_size / 18, (255, 255, 255), max(1, line_w - 1))
 
             output_path = dst_dir / image_name
-            cv2.imwrite(str(output_path), annotated_rgb)
+            cv2.imwrite(str(output_path), annotated_img)
             print(f"✓ 标注图片已保存到: {output_path}")
             print(f"✓ 中间结果已保存到: {temp_data_path}")
 
