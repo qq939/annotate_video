@@ -11,14 +11,18 @@ from pathlib import Path
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                                QLabel, QLineEdit, QFileDialog, QGroupBox, QMessageBox, QDialog, QShortcut)
 from PyQt5.QtCore import Qt, pyqtSignal, QPoint, QRect
-from PyQt5.QtGui import QImage, QPainter, QPen, QColor, QFont, QKeySequence
+from PyQt5.QtGui import QImage, QPainter, QPen, QColor, QFont, QKeySequence, QPalette
 
 from video_control import VideoController
 
 BOX_COLORS = [
-    (255, 0, 0), (0, 255, 0), (0, 0, 255),
-    (255, 255, 0), (255, 0, 255), (0, 255, 255),
-    (255, 128, 0), (128, 0, 255),
+    (0, 0, 255),    # 红 BGR
+    (0, 165, 255),  # 橙 BGR
+    (0, 255, 255),  # 黄 BGR
+    (0, 255, 0),    # 绿 BGR
+    (255, 255, 0),  # 青 BGR
+    (255, 0, 0),    # 蓝 BGR
+    (255, 0, 128),  # 紫 BGR
 ]
 
 SRC_IMAGES_DIR = "src/images"
@@ -119,11 +123,11 @@ class ImageAnnotationWidget(QWidget):
 
 
 class ImageAnnotationDialog(QDialog):
-    def __init__(self, image_path, parent=None):
+    def __init__(self, image_path, parent=None, start_color_idx=0):
         super().__init__(parent)
         self.image_path = image_path
         self.boxes = []
-        self.color_index = [0]
+        self.color_index = [start_color_idx]
         self.image = cv2.imread(image_path)
         if self.image is None:
             raise ValueError(f"无法读取图片: {image_path}")
@@ -215,6 +219,19 @@ class ImageAnnotatorApp(QMainWindow):
         self.selected_image_path = ""
         self._setup_ui()
 
+    def _select_color(self, idx):
+        self.selected_color_idx[0] = idx
+        for i, btn in enumerate(self.color_btns):
+            qc = btn.palette().color(QPalette.Button)
+            border = "2px solid white" if i == idx else "2px solid transparent"
+            r, g, b = qc.red(), qc.green(), qc.blue()
+            text_color = "black" if r > 200 or g > 200 else "white"
+            btn.setStyleSheet(
+                f"QPushButton {{ background: rgb({r},{g},{b}); color: {text_color}; "
+                f"border: {border}; border-radius: 4px; }}"
+                f"QPushButton:hover {{ border: 2px solid white; }}"
+            )
+
     def _setup_ui(self):
         central = QWidget()
         self.setCentralWidget(central)
@@ -244,6 +261,36 @@ class ImageAnnotatorApp(QMainWindow):
         iou_layout.addWidget(self.merge_iou_input)
         iou_layout.addStretch()
         layout.addLayout(iou_layout)
+
+        color_layout = QHBoxLayout()
+        color_layout.setSpacing(6)
+        color_layout.addWidget(QLabel("颜色:"))
+        self.color_btns = []
+        self.selected_color_idx = [0]
+        color_names = ["红", "橙", "黄", "绿", "青", "蓝", "紫"]
+        color_qcolors = [
+            QColor(255, 0, 0),    # 红 RGB (BOX_COLORS: B=255,G=0,R=0)
+            QColor(255, 165, 0),  # 橙 RGB
+            QColor(255, 255, 0),  # 黄 RGB
+            QColor(0, 255, 0),    # 绿 RGB
+            QColor(0, 255, 255),  # 青 RGB
+            QColor(0, 0, 255),    # 蓝 RGB
+            QColor(255, 0, 128),  # 紫 RGB
+        ]
+        for i, (name, qc) in enumerate(zip(color_names, color_qcolors)):
+            btn = QPushButton(name)
+            btn.setFixedSize(36, 24)
+            btn.setStyleSheet(
+                f"QPushButton {{ background: rgb({qc.red()},{qc.green()},{qc.blue()}); "
+                f"color: {'black' if qc.red() > 200 or qc.green() > 200 else 'white'}; "
+                f"border: 2px solid {'white' if i == 0 else 'transparent'}; border-radius: 4px; }}"
+                f"QPushButton:hover {{ border: 2px solid white; }}"
+            )
+            btn.clicked.connect(lambda _, idx=i: self._select_color(idx))
+            color_layout.addWidget(btn)
+            self.color_btns.append(btn)
+        color_layout.addStretch()
+        layout.addLayout(color_layout)
 
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(8)
@@ -287,7 +334,7 @@ class ImageAnnotatorApp(QMainWindow):
             print(f"已拷贝到{src_dir}: {dst_image}")
         src_image = str(dst_image)
 
-        dialog = ImageAnnotationDialog(src_image, self)
+        dialog = ImageAnnotationDialog(src_image, self, self.selected_color_idx[0])
         if dialog.exec_() != QDialog.Accepted:
             return
         boxes = dialog.get_boxes()
@@ -352,20 +399,28 @@ class ImageAnnotatorApp(QMainWindow):
                         all_confs.append(r.boxes.conf.cpu().numpy())
 
             elif has_text and has_bbox:
-                from ultralytics.models.sam import SAM3Predictor, SAM3SemanticPredictor
-                p1 = SAM3Predictor(overrides=overrides)
-                r1 = list(p1(source=src_image, bboxes=boxes, labels=[1] * len(boxes)))[0]
-                p2 = SAM3SemanticPredictor(overrides=overrides)
-                r2 = list(p2(source=src_image, text=find_list))[0]
-                r = r1
-                if hasattr(r1, 'masks') and r1.masks is not None:
-                    all_masks.append(r1.masks.data)
-                    if hasattr(r1, 'boxes') and r1.boxes is not None:
-                        all_confs.append(r1.boxes.conf.cpu().numpy())
-                if hasattr(r2, 'masks') and r2.masks is not None:
-                    all_masks.append(r2.masks.data)
-                    if hasattr(r2, 'boxes') and r2.boxes is not None:
-                        all_confs.append(r2.boxes.conf.cpu().numpy())
+                center_points = np.array([[
+                    float((b[0] + b[2]) / 2),
+                    float((b[1] + b[3]) / 2)
+                ] for b in boxes], dtype=np.float32)
+                print(f"  使用bbox中心点作为points: {center_points.tolist()}")
+                from ultralytics.models.sam import SAM3SemanticPredictor
+                p_semantic = SAM3SemanticPredictor(overrides=overrides)
+                r_semantic = list(p_semantic(
+                    source=src_image, text=find_list, points=center_points, labels=[1] * len(center_points)
+                ))[0]
+                from ultralytics.models.sam import SAM3Predictor
+                p_bbox = SAM3Predictor(overrides=overrides)
+                r_bbox = list(p_bbox(source=src_image, bboxes=boxes, labels=[1] * len(boxes)))[0]
+                r = r_semantic
+                if hasattr(r_semantic, 'masks') and r_semantic.masks is not None:
+                    all_masks.append(r_semantic.masks.data)
+                    if hasattr(r_semantic, 'boxes') and r_semantic.boxes is not None:
+                        all_confs.append(r_semantic.boxes.conf.cpu().numpy())
+                if hasattr(r_bbox, 'masks') and r_bbox.masks is not None:
+                    all_masks.append(r_bbox.masks.data)
+                    if hasattr(r_bbox, 'boxes') and r_bbox.boxes is not None:
+                        all_confs.append(r_bbox.boxes.conf.cpu().numpy())
             else:
                 from ultralytics.models.sam import SAM3SemanticPredictor
                 predictor = SAM3SemanticPredictor(overrides=overrides)
@@ -403,8 +458,16 @@ class ImageAnnotatorApp(QMainWindow):
                     'width': img_w, 'height': img_h
                 }],
                 'annotations': [],
-                'categories': [{'id': i, 'name': f'object_{i}'} for i in range(8)]
+                'categories': (
+                    [{'id': i, 'name': name} for i, name in enumerate(find_list)]
+                    if find_list else
+                    [{'id': 0, 'name': 'object'}]
+                )
             }
+
+            num_semantic_masks = 0
+            if all_masks:
+                num_semantic_masks = len(all_masks[0]) if len(all_masks) > 0 else 0
 
             frame_annotations = []
             annotation_id = [0]
@@ -456,10 +519,14 @@ class ImageAnnotatorApp(QMainWindow):
                                 polygon = contour.squeeze().flatten().tolist()
                                 area = cv2.contourArea(contour)
                                 track_id = annotation_id[0]
+                                if find_list:
+                                    cat_idx = idx % len(find_list)
+                                else:
+                                    cat_idx = 0
                                 confidence = float(confs[idx]) if confs is not None and idx < len(confs) else float(mask.max())
                                 ann = {
                                     'id': annotation_id[0], 'track_id': track_id, 'image_id': 0,
-                                    'category_id': track_id, 'bbox': bbox, 'area': float(area),
+                                    'category_id': cat_idx, 'bbox': bbox, 'area': float(area),
                                     'segmentation': [polygon], 'iscrowd': 0, 'confidence': confidence
                                 }
                                 coco_data['annotations'].append(ann)
