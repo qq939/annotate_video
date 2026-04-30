@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-                               QLabel, QLineEdit, QFileDialog, QGroupBox, QMessageBox, QDialog, QShortcut, QScrollArea)
+                               QLabel, QLineEdit, QFileDialog, QGroupBox, QMessageBox, QDialog, QShortcut, QScrollArea, QCheckBox)
 from PyQt5.QtCore import Qt, pyqtSignal, QPoint, QRect
 from PyQt5.QtGui import QImage, QPainter, QPen, QColor, QFont, QKeySequence, QPalette
 
@@ -243,6 +243,10 @@ class ImageAnnotatorApp(QMainWindow):
         self.text_input.setPlaceholderText("如: nozzle, needle")
         layout.addWidget(self.text_input)
 
+        self.use_semantic_cb = QCheckBox("使用语义推理模型")
+        self.use_semantic_cb.setChecked(True)
+        layout.addWidget(self.use_semantic_cb)
+
         iou_layout = QHBoxLayout()
         iou_layout.setSpacing(8)
         iou_layout.addWidget(QLabel("前后IoU:"))
@@ -350,7 +354,9 @@ class ImageAnnotatorApp(QMainWindow):
         try:
             from annotate_video import merge_masks_in_frame
 
-            print(f"正在使用 SAM3Predictor 进行图片分割...")
+            use_semantic = self.use_semantic_cb.isChecked()
+            predictor_name = "SAM3SemanticPredictor" if use_semantic else "SAM3Predictor"
+            print(f"正在使用 {predictor_name} 进行图片分割...")
             if find_list:
                 for i, t in enumerate(find_list):
                     print(f"  [{i}] category: '{t}'")
@@ -374,9 +380,14 @@ class ImageAnnotatorApp(QMainWindow):
                     float((b[1] + b[3]) / 2)
                 ] for b in boxes], dtype=np.float32)
                 print(f"  bbox中心点(points): {center_points.tolist()}")
-                from ultralytics.models.sam import SAM3Predictor
-                predictor = SAM3Predictor(overrides=overrides)
-                results = predictor(source=src_image, bboxes=boxes, points=center_points, labels=[1] * len(boxes))
+                if use_semantic:
+                    from ultralytics.models.sam import SAM3SemanticPredictor
+                    predictor = SAM3SemanticPredictor(overrides=overrides)
+                    results = predictor(source=src_image, bboxes=boxes, points=center_points, labels=[1] * len(boxes), text=find_list)
+                else:
+                    from ultralytics.models.sam import SAM3Predictor
+                    predictor = SAM3Predictor(overrides=overrides)
+                    results = predictor(source=src_image, bboxes=boxes, points=center_points, labels=[1] * len(boxes))
                 r = list(results)[0] if hasattr(results, '__iter__') else results
                 if hasattr(r, 'masks') and r.masks is not None:
                     all_masks.append(r.masks.data)
@@ -385,7 +396,10 @@ class ImageAnnotatorApp(QMainWindow):
             else:
                 from ultralytics.models.sam import SAM3SemanticPredictor
                 predictor = SAM3SemanticPredictor(overrides=overrides)
-                results = predictor(source=src_image)
+                if find_list:
+                    results = predictor(source=src_image, text=find_list)
+                else:
+                    results = predictor(source=src_image)
                 r = list(results)[0] if hasattr(results, '__iter__') else results
                 if hasattr(r, 'masks') and r.masks is not None:
                     all_masks.append(r.masks.data)
