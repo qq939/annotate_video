@@ -126,6 +126,204 @@ def upload_image():
     })
 
 
+@app.route('/api/run_video_annotate_stream', methods=['GET', 'POST'])
+def run_video_annotate_stream():
+    if request.method == 'GET':
+        import json as _json
+        data = {}
+        for k in ['video_name', 'boxes', 'items', 'iou', 'merge_iou']:
+            v = request.args.get(k)
+            if v is not None:
+                try:
+                    data[k] = _json.loads(v)
+                except Exception:
+                    data[k] = v
+    else:
+        data = request.json or {}
+    video_name = data.get('video_name')
+    boxes = data.get('boxes', [])
+    items_text = data.get('items', '')
+    iou_val = float(data.get('iou', '0.5'))
+    merge_iou_val = float(data.get('merge_iou', '0.5'))
+
+    def generate():
+        yield f"data: {json.dumps({'type':'start','msg':'开始处理...'})}\n\n"
+
+        try:
+            import torch
+            src_video = str(SRC_VIDEO_DIR / video_name)
+            temp_data_path = TEMP_DATA_DIR
+            if temp_data_path.exists():
+                shutil.rmtree(temp_data_path)
+            temp_data_path.mkdir(parents=True, exist_ok=True)
+            frames_dir = temp_data_path / "frames"
+            labels_dir = temp_data_path / "labels"
+            frames_dir.mkdir(exist_ok=True)
+            labels_dir.mkdir(exist_ok=True)
+
+            cap = cv2.VideoCapture(src_video)
+            fourcc_int = int(cap.get(cv2.CAP_PROP_FOURCC))
+            fourcc_str = ''.join([chr(fourcc_int & 0xFF), chr((fourcc_int >> 8) & 0xFF), chr((fourcc_int >> 16) & 0xFF), chr((fourcc_int >> 24) & 0xFF)])
+            fourcc = cv2.VideoWriter_fourcc(*fourcc_str)
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            cap.release()
+
+            output_name = f"annotated_{Path(video_name).stem}.mp4"
+            output_path = DST_VIDEO_DIR / output_name
+            out = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
+
+            find_list = [s.strip() for s in items_text.split(',') if s.strip()]
+            has_text = bool(find_list)
+            has_bbox = bool(boxes)
+            predictor_name = "SAM3VideoSemanticPredictor" if has_text else "SAM3VideoPredictor"
+
+            device = 'mps' if torch.backends.mps.is_available() else 'cpu'
+            device_type = 'mps' if device == 'mps' else ('cuda' if torch.cuda.is_available() else 'cpu')
+            half = device_type == 'cuda'
+            overrides = dict(conf=0.25, task="segment", mode="predict", model=SAM_MODEL_PATH, device=device, half=half, save=False, verbose=False)
+            if device_type == 'cuda':
+                overrides['batch'] = 1
+                overrides['stream_buffer'] = False
+            elif device_type == 'mps':
+                overrides['half'] = True
+                overrides['amp'] = True
+                overrides['stream_buffer'] = True
+
+            try:
+                from app import _patch_sam3_video_semantic
+                if predictor_name == "SAM3VideoSemanticPredictor":
+                    _patch_sam3_video_semantic()
+            except Exception:
+                pass
+
+            if predictor_name == "SAM3VideoSemanticPredictor":
+                from ultralytics.models.sam import SAM3VideoSemanticPredictor
+                predictor = SAM3VideoSemanticPredictor(overrides=overrides)
+            else:
+                from ultralytics.models.sam import SAM3VideoPredictor
+                predictor = SAM3VideoPredictor(overrides=overrides)
+
+            predictor_args = {'source': src_video, 'stream': True}
+            if has_bbox:
+                predictor_args['bboxes'] = boxes
+                predictor_args['labels'] = [1] * len(boxes)
+            if has_text:
+                predictor_args['text'] = find_list
+
+            from annotate_video import merge_masks_in_frame, TrackManager
+            track_manager = TrackManager(iou_threshold=iou_val)
+            annotation_id = [0]
+            coco_data = {
+                'info': {'description': 'Video', 'video_path': src_video,
+                         'fps': fps, 'width': width, 'height': height, 'fourcc': fourcc_str, 'FIND': find_list},
+                'images': [], 'annotations': [],
+                'categories': [{'id': i, 'name': f'object_{i}'} for i in range(8)]
+            }
+
+            results = predictor(**predictor_args)
+            cap_cnt = cv2.VideoCapture(src_video)
+            total_frames = int(cap_cnt.get(cv2.CAP_PROP_FRAME_COUNT))
+            cap_cnt.release()
+
+            frame_count = 0
+            for r in results:
+                orig_img = r.orig_img if hasattr(r, 'orig_img') and r.orig_img is not None else None
+                if orig_img is None:
+                    cap_t = cv2.VideoCapture(src_video)
+                    cap_t.set(cv2.CAP_PROP_POS_FRAMES, frame_count)
+                    ret_t, orig_img = cap_t.read()
+                    cap_t.release()
+                    if not ret_t:
+                        orig_img = np.zeros((height, width, 3), dtype=np.uint8)
+                else:
+                    if len(orig_img.shape) == 2:
+                        orig_img = cv2.cvtColor(orig_img, cv2.COLOR_GRAY2BGR)
+                    elif orig_img.shape[2] == 4:
+                        orig_img = cv2.cvtColor(orig_img, cv2.COLOR_BGRA2BGR)
+
+                cv2.imwrite(str(frames_dir / f"frame_{frame_count:06d}.jpg"), orig_img)
+                coco_data['images'].append({'id': frame_count, 'file_name': f"frame_{frame_count:06d}.jpg", 'width': width, 'height': height, 'frame_count': frame_count})
+
+                frame_annotations = []
+                if hasattr(r, 'masks') and r.masks is not None:
+                    masks_tensor = r.masks.data
+                    if masks_tensor is not None and len(masks_tensor) > 0:
+                        confs = None
+                        if hasattr(r, 'boxes') and r.boxes is not None and hasattr(r.boxes, 'conf'):
+                            confs = r.boxes.conf.cpu().numpy()
+                        current_masks = []
+                        current_bboxes = []
+                        for mask in masks_tensor:
+                            mask_np = mask.cpu().numpy() if hasattr(mask, 'numpy') else np.array(mask)
+                            mh, mw = mask_np.shape[-2:]
+                            if mh != height or mw != width:
+                                mask_np = cv2.resize(mask_np.astype(np.float32), (width, height), interpolation=cv2.INTER_LINEAR)
+                            mask_binary = (mask_np > 0.5).astype(np.uint8)
+                            contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                            for contour in contours:
+                                if len(contour) >= 3:
+                                    polygon = contour.squeeze().flatten().tolist()
+                                    x_coords = polygon[0::2]
+                                    y_coords = polygon[1::2]
+                                    x_min, x_max = min(x_coords), max(x_coords)
+                                    y_min, y_max = min(y_coords), max(y_coords)
+                                    bbox = [float(x_min), float(y_min), float(x_max - x_min), float(y_max - y_min)]
+                                    area = cv2.contourArea(contour)
+                                    if area > 0:
+                                        current_masks.append(mask_binary)
+                                        current_bboxes.append(bbox)
+                        if current_masks:
+                            current_masks, current_bboxes = merge_masks_in_frame(current_masks, current_bboxes, merge_iou_val)
+                            track_ids = track_manager.update(current_masks, current_bboxes, frame_count)
+                            for idx, (mask, bbox) in enumerate(zip(current_masks, current_bboxes)):
+                                mask_binary = (mask > 0.5).astype(np.uint8)
+                                contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                                for contour in contours:
+                                    if len(contour) >= 3:
+                                        polygon = contour.squeeze().flatten().tolist()
+                                        area = cv2.contourArea(contour)
+                                        track_id = track_ids[idx] if idx < len(track_ids) else annotation_id[0]
+                                        confidence = float(confs[idx]) if confs is not None and idx < len(confs) else float(mask.max())
+                                        ann = {'id': annotation_id[0], 'track_id': track_id, 'image_id': frame_count,
+                                               'category_id': track_id, 'bbox': bbox, 'area': float(area),
+                                               'segmentation': [polygon], 'iscrowd': 0, 'confidence': confidence}
+                                        coco_data['annotations'].append(ann)
+                                        frame_annotations.append(ann)
+                                        annotation_id[0] += 1
+
+                with open(labels_dir / f"frame_{frame_count:06d}.json", 'w') as f:
+                    json.dump(frame_annotations, f)
+
+                annotated_frame = r.plot()
+                annotated_frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_RGB2BGR)
+                if boxes:
+                    for i, bbox in enumerate(boxes):
+                        label = f"目标 {i + 1}"
+                        color = BOX_COLORS[i % len(BOX_COLORS)]
+                        x, y = int(bbox[0]), max(10, int(bbox[1]) - 10)
+                        annotated_frame_rgb = _put_chinese(annotated_frame_rgb, label, (x, y), font_size=15, color=color)
+                out.write(annotated_frame_rgb)
+                frame_count += 1
+
+                pct = int(frame_count / max(total_frames, 1) * 100)
+                yield f"data: {json.dumps({'type':'progress','frame':frame_count,'total':total_frames,'percent':pct})}\n\n"
+
+            with open(temp_data_path / 'annotations.json', 'w') as f:
+                json.dump(coco_data, f)
+            out.release()
+
+            yield f"data: {json.dumps({'type':'done','output': f'/api/dst_video/{output_name}', 'frames': frame_count})}\n\n"
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            yield f"data: {json.dumps({'type':'error','msg': str(e)})}\n\n"
+
+    return Response(generate(), mimetype='text/event-stream')
+
+
 @app.route('/api/run_video_annotate', methods=['POST'])
 def run_video_annotate():
     data = request.json

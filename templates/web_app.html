@@ -113,7 +113,11 @@ input[type=file] { background: #0f3460; }
   position: absolute;
   top: 0; left: 0;
   cursor: crosshair;
+  border: 1px solid #666;
+  background: rgba(0,0,0,0.15);
+  z-index: 1;
 }
+.canvas-wrap img { position: relative; z-index: 0; }
 #videoCanvasTab, #imageCanvasTab {
   display: none;
   font-size: 12px;
@@ -328,8 +332,6 @@ let videoBoxes = [];
 let imageBoxes = [];
 let videoImgNatural = {w:0, h:0};
 let imageImgNatural = {w:0, h:0};
-let videoScale = 1;
-let imageScale = 1;
 
 // ===================== 标签切换 =====================
 function switchTab(tab) {
@@ -405,7 +407,6 @@ function loadVideoThumb(dataUrl, natW, natH) {
     const displayH = Math.round(natH * (displayW / natW));
     img.style.width = displayW + 'px';
     img.style.height = displayH + 'px';
-    videoScale = natW / displayW;
     const canvas = document.getElementById('videoCanvas');
     canvas.width = displayW;
     canvas.height = displayH;
@@ -449,11 +450,13 @@ function setupVideoCanvas() {
     const x1 = Math.min(sx, mx), y1 = Math.min(sy, my);
     const x2 = Math.max(sx, mx), y2 = Math.max(sy, my);
     if (x2 - x1 > 5 && y2 - y1 > 5) {
+      const dispW = r.width, dispH = r.height;
+      const natW = videoImgNatural.w, natH = videoImgNatural.h;
       videoBoxes.push({
-        x1: Math.round(x1 / videoScale),
-        y1: Math.round(y1 / videoScale),
-        x2: Math.round(x2 / videoScale),
-        y2: Math.round(y2 / videoScale),
+        x1: Math.round(x1 * natW / dispW),
+        y1: Math.round(y1 * natH / dispH),
+        x2: Math.round(x2 * natW / dispW),
+        y2: Math.round(y2 * natH / dispH),
         colorIdx: selectedColorIdx
       });
       renderVideoBoxes();
@@ -476,10 +479,13 @@ function setupVideoCanvas() {
 }
 
 function drawVideoBoxes(ctx) {
+  const canvas = ctx.canvas;
+  const dispW = canvas.width, dispH = canvas.height;
+  const natW = videoImgNatural.w, natH = videoImgNatural.h;
   videoBoxes.forEach(b => {
     ctx.strokeStyle = BOX_COLORS_HEX[b.colorIdx];
     ctx.lineWidth = 2;
-    ctx.strokeRect(b.x1 * videoScale, b.y1 * videoScale, (b.x2 - b.x1) * videoScale, (b.y2 - b.y1) * videoScale);
+    ctx.strokeRect(b.x1 * dispW / natW, b.y1 * dispH / natH, (b.x2 - b.x1) * dispW / natW, (b.y2 - b.y1) * dispH / natH);
   });
 }
 
@@ -502,37 +508,75 @@ function clearVideoBoxes() {
 }
 
 // ===================== 视频执行 =====================
+let _videoAbortCtrl = null;
+
 async function runVideoAnnotate() {
   const videoName = document.getElementById('videoFileName').textContent.trim();
   if (!videoName) { showStatus('video', '请先上传视频', 'error'); return; }
   if (!videoBoxes.length && !document.getElementById('videoItems').value.trim()) {
-    showStatus('video', '请至少框选目标或填写物品名称', 'error'); return;
-  }
+    showStatus('video', '请至少框选目标或填写物品名称', 'error'); return; }
   const btn = document.getElementById('videoRunBtn');
   btn.disabled = true;
   document.getElementById('videoProgressBar').style.display = 'block';
+  document.getElementById('videoProgressFill').style.width = '0%';
   showStatus('video', '正在处理，请稍候...', 'info');
+
+  if (_videoAbortCtrl) { _videoAbortCtrl.abort(); _videoAbortCtrl = null; }
+  _videoAbortCtrl = new AbortController();
+
+  const boxes = videoBoxes.map(b => [b.x1, b.y1, b.x2, b.y2]);
+  const body = JSON.stringify({
+    video_name: videoName,
+    boxes: boxes,
+    items: document.getElementById('videoItems').value,
+    iou: document.getElementById('videoIou').value,
+    merge_iou: document.getElementById('videoMergeIou').value
+  });
+
   try {
-    const boxes = videoBoxes.map(b => [b.x1, b.y1, b.x2, b.y2]);
-    const r = await fetch('/api/run_video_annotate', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        video_name: videoName,
-        boxes: boxes,
-        items: document.getElementById('videoItems').value,
-        iou: document.getElementById('videoIou').value,
-        merge_iou: document.getElementById('videoMergeIou').value
-      })
+    const resp = await fetch('/api/run_video_annotate_stream', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: body,
+      signal: _videoAbortCtrl.signal
     });
-    const d = await r.json();
-    if (d.error) { showStatus('video', d.error, 'error'); return; }
-    showStatus('video', `✓ 完成，共 ${d.frames} 帧`, 'success');
-    document.getElementById('videoResultLink').href = d.output;
-    document.getElementById('videoResultLink').textContent = '下载标注视频: ' + d.output.split('/').pop();
-    document.getElementById('videoResultArea').style.display = 'block';
-  } catch(e) { showStatus('video', '执行失败: '+e, 'error'); }
-  finally { btn.disabled = false; document.getElementById('videoProgressBar').style.display = 'none'; }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const data = JSON.parse(line.slice(6));
+          if (data.type === 'progress') {
+            document.getElementById('videoProgressFill').style.width = data.percent + '%';
+            showStatus('video', `处理中: ${data.frame}/${data.total} 帧 (${data.percent}%)`, 'info');
+          } else if (data.type === 'done') {
+            document.getElementById('videoProgressFill').style.width = '100%';
+            showStatus('video', `✓ 完成，共 ${data.frames} 帧`, 'success');
+            document.getElementById('videoResultLink').href = data.output;
+            document.getElementById('videoResultLink').textContent = '下载: ' + data.output.split('/').pop();
+            document.getElementById('videoResultArea').style.display = 'block';
+          } else if (data.type === 'error') {
+            showStatus('video', '执行失败: ' + data.msg, 'error');
+          }
+        } catch(e) { /* ignore parse error */ }
+      }
+    }
+  } catch(e) {
+    if (e.name !== 'AbortError') {
+      showStatus('video', '执行失败: ' + e.message, 'error');
+    }
+  } finally {
+    btn.disabled = false;
+    _videoAbortCtrl = null;
+  }
 }
 
 // ===================== 图片文件 =====================
@@ -577,7 +621,6 @@ function loadImageThumb(dataUrl, natW, natH) {
     const displayH = Math.round(natH * (displayW / natW));
     img.style.width = displayW + 'px';
     img.style.height = displayH + 'px';
-    imageScale = natW / displayW;
     const canvas = document.getElementById('imageCanvas');
     canvas.width = displayW;
     canvas.height = displayH;
@@ -620,11 +663,13 @@ function setupImageCanvas() {
     const x1 = Math.min(sx, mx), y1 = Math.min(sy, my);
     const x2 = Math.max(sx, mx), y2 = Math.max(sy, my);
     if (x2 - x1 > 5 && y2 - y1 > 5) {
+      const dispW = r.width, dispH = r.height;
+      const natW = imageImgNatural.w, natH = imageImgNatural.h;
       imageBoxes.push({
-        x1: Math.round(x1 / imageScale),
-        y1: Math.round(y1 / imageScale),
-        x2: Math.round(x2 / imageScale),
-        y2: Math.round(y2 / imageScale),
+        x1: Math.round(x1 * natW / dispW),
+        y1: Math.round(y1 * natH / dispH),
+        x2: Math.round(x2 * natW / dispW),
+        y2: Math.round(y2 * natH / dispH),
         colorIdx: selectedColorIdx
       });
       renderImageBoxes();
@@ -647,13 +692,16 @@ function setupImageCanvas() {
 }
 
 function drawImageBoxes(ctx) {
+  const canvas = ctx.canvas;
+  const dispW = canvas.width, dispH = canvas.height;
+  const natW = imageImgNatural.w, natH = imageImgNatural.h;
   imageBoxes.forEach(b => {
     ctx.strokeStyle = BOX_COLORS_HEX[b.colorIdx];
     ctx.lineWidth = 2;
-    ctx.strokeRect(b.x1 * imageScale, b.y1 * imageScale, (b.x2 - b.x1) * imageScale, (b.y2 - b.y1) * imageScale);
+    ctx.strokeRect(b.x1 * dispW / natW, b.y1 * dispH / natH, (b.x2 - b.x1) * dispW / natW, (b.y2 - b.y1) * dispH / natH);
     ctx.fillStyle = BOX_COLORS_HEX[b.colorIdx];
-    ctx.font = `${12 * imageScale}px Arial`;
-    ctx.fillText(`目标${b.colorIdx+1}`, b.x1 * imageScale, b.y1 * imageScale - 3);
+    ctx.font = '12px Arial';
+    ctx.fillText('目标' + (b.colorIdx + 1), b.x1 * dispW / natW, b.y1 * dispH / natH - 3);
   });
 }
 
