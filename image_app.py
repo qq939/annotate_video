@@ -573,6 +573,7 @@ class ImageAnnotatorApp(QMainWindow):
         boxes = [(b[0], b[1], b[2], b[3]) for b in boxes_colors]
 
         category_to_color = {}
+        category_to_color[0] = BOX_COLORS[self.selected_color_idx[0] % len(BOX_COLORS)]
         for i, (x1, y1, x2, y2, color) in enumerate(boxes_colors):
             cat_idx = i % len(find_list) if find_list else 0
             if cat_idx not in category_to_color:
