@@ -53,6 +53,14 @@ def _match_annotation_to_box(ann_bbox, boxes):
     return best_idx, best_iou
 
 
+def _convert_heic_to_jpg(heic_path, jpg_path):
+    from PIL import Image
+    import pillow_heif
+    heif_file = pillow_heif.read_heif(str(heic_path))
+    img = Image.frombytes(heif_file.mode, heif_file.size, heif_file.data)
+    img.save(jpg_path, "JPEG")
+
+
 class ImageAnnotationWidget(QWidget):
     box_added = pyqtSignal()
 
@@ -240,6 +248,7 @@ class ImageAnnotatorApp(QMainWindow):
         self.setGeometry(100, 100, 400, 300)
         self.ctrl = VideoController()
         self.selected_image_path = ""
+        self.setAcceptDrops(True)
         self._setup_ui()
 
     def _select_color(self, idx):
@@ -335,10 +344,28 @@ class ImageAnnotatorApp(QMainWindow):
         self.statusLabel.setStyleSheet("color: #666; font-size: 12px;")
         layout.addWidget(self.statusLabel)
 
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                if url.isLocalFile():
+                    ext = Path(url.toLocalFile()).suffix.lower()
+                    if ext in ('.jpg', '.jpeg', '.png', '.bmp', '.webp', '.heic'):
+                        event.acceptProposedAction()
+                        return
+        event.ignore()
+
+    def dropEvent(self, event):
+        for url in event.mimeData().urls():
+            if url.isLocalFile():
+                path = url.toLocalFile()
+                self.selected_image_path = path
+                self.statusLabel.setText(f"已选: {Path(path).name}")
+                return
+
     def select_image(self):
         path, _ = QFileDialog.getOpenFileName(
             self, "选择图片", ".",
-            "图片文件 (*.jpg *.jpeg *.png *.bmp *.webp);;所有文件 (*)"
+            "图片文件 (*.jpg *.jpeg *.png *.bmp *.webp *.heic);;所有文件 (*)"
         )
         if path:
             self.selected_image_path = path
@@ -355,13 +382,22 @@ class ImageAnnotatorApp(QMainWindow):
 
         src_dir = Path(SRC_IMAGES_DIR)
         src_dir.mkdir(parents=True, exist_ok=True)
-        image_name = Path(image_path).name
-        dst_image = src_dir / image_name
-        if Path(image_path).resolve() != dst_image.resolve():
+        src_path = Path(image_path)
+        if src_path.suffix.lower() == '.heic':
+            image_name = src_path.stem + '.jpg'
+            dst_image = src_dir / image_name
             if dst_image.exists():
                 dst_image.unlink()
-            shutil.copy2(image_path, dst_image)
-            print(f"已拷贝到{src_dir}: {dst_image}")
+            _convert_heic_to_jpg(src_path, dst_image)
+            print(f"HEIC已转换并拷贝到{src_dir}: {dst_image}")
+        else:
+            image_name = src_path.name
+            dst_image = src_dir / image_name
+            if src_path.resolve() != dst_image.resolve():
+                if dst_image.exists():
+                    dst_image.unlink()
+                shutil.copy2(src_path, dst_image)
+                print(f"已拷贝到{src_dir}: {dst_image}")
         src_image = str(dst_image)
 
         find_list = [s.strip() for s in self.text_input.text().split(',') if s.strip()]

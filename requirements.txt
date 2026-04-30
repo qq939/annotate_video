@@ -2,5 +2,6 @@ opencv-python
 numpy
 flask
 Pillow
+pillow-heif
 ultralytics
 PyQt5
