@@ -502,37 +502,29 @@ class ImageAnnotatorApp(QMainWindow):
             annotated_img = orig_img.copy()
 
             if frame_annotations:
-                areas = [ann['area'] for ann in frame_annotations]
-                area_min, area_max = min(areas), max(areas)
-
                 for ann in frame_annotations:
                     track_id = ann['track_id']
                     color = BOX_COLORS[track_id % len(BOX_COLORS)]
                     b = ann['bbox']
-                    area = ann['area']
                     conf = ann.get('confidence', 1.0)
-
-                    t = 0.25 if area_max == area_min else 0.25 + 0.4 * (area - area_min) / (area_max - area_min)
-                    text_size = 12 if area_max == area_min else int(12 + 24 * (area - area_min) / (area_max - area_min))
-                    line_w = 1 if area_max == area_min else max(1, int(1 + 3 * (area - area_min) / (area_max - area_min)))
 
                     overlay = annotated_img.copy()
                     seg = ann.get('segmentation', [])
                     if seg:
                         pts = np.array(seg[0], dtype=np.int32).reshape(-1, 2)
                         cv2.fillPoly(overlay, [pts], color)
-                        cv2.addWeighted(annotated_img, 1 - t, overlay, t, 0, annotated_img)
+                        cv2.addWeighted(annotated_img, 0.75, overlay, 0.25, 0, annotated_img)
 
                     cv2.rectangle(annotated_img,
                         (int(b[0]), int(b[1])), (int(b[0] + b[2]), int(b[1] + b[3])),
-                        color, line_w)
+                        color, 1)
 
                     label = f"id{track_id} {conf:.2f}"
                     font = cv2.FONT_HERSHEY_SIMPLEX
-                    (tw, th), baseline = cv2.getTextSize(label, font, text_size / 18, max(1, line_w - 1))
-                    tx, ty = int(b[0]), max(text_size + 4, int(b[1]))
+                    (tw, th), baseline = cv2.getTextSize(label, font, 0.5, 1)
+                    tx, ty = int(b[0]), max(14, int(b[1]))
                     cv2.rectangle(annotated_img, (tx, ty - th - baseline), (tx + tw, ty), (0, 0, 0), -1)
-                    cv2.putText(annotated_img, label, (tx, ty - baseline), font, text_size / 18, (255, 255, 255), max(1, line_w - 1))
+                    cv2.putText(annotated_img, label, (tx, ty - baseline), font, 0.5, (255, 255, 255), 1)
 
             output_path = dst_dir / image_name
             cv2.imwrite(str(output_path), annotated_img)
