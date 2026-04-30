@@ -320,9 +320,10 @@ a { color: #3498db; }
       <span id="viewFrameInfo" style="min-width:80px;text-align:center;background:#222;color:#0f0;padding:2px 8px;border-radius:3px;font-size:12px">0/0</span>
       <span id="viewAnnCount" style="font-size:12px;color:#888;margin-left:8px"></span>
     </div>
-    <div class="canvas-wrap" id="viewCanvasWrap" style="overflow:auto;max-height:500px;position:relative">
-      <img id="viewImg" crossorigin="anonymous" style="display:block;width:100%">
-      <canvas id="viewCanvas" style="position:absolute;top:0;left:0;border:1px solid #666;background:rgba(0,0,0,0.1);z-index:1;cursor:crosshair;width:100%;height:100%"></canvas>
+    <div class="canvas-wrap" id="viewCanvasWrap" style="overflow:auto;max-height:500px;position:relative;min-height:200px;background:#111;display:flex;align-items:center;justify-content:center">
+      <span id="viewLoading" style="color:#666;font-size:14px">点击"打开"加载视频帧</span>
+      <img id="viewImg" crossorigin="anonymous" style="display:none;width:100%" src="">
+      <canvas id="viewCanvas" style="position:absolute;top:0;left:0;border:1px solid #666;background:rgba(0,0,0,0.1);z-index:1;cursor:crosshair;width:100%;height:100%;display:none"></canvas>
     </div>
   </div>
   <div class="panel">
@@ -444,7 +445,8 @@ function switchTab(tab) {
   document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
   document.querySelector(`.tab-btn[onclick="switchTab('${tab}')"]`).classList.add('active');
   document.getElementById(`tab-${tab}`).classList.add('active');
-  if (tab === 'viewer' && viewTotalFrames === 0) {
+  if (tab === 'viewer') {
+    console.log('[switchTab] viewer clicked, calling openViewer');
     document.getElementById('viewDirInput').value = 'temp_data';
     openViewer('temp_data');
   }
@@ -899,11 +901,12 @@ let promptMode = false;
 let promptBoxes = [];
 
 function openViewer(dir) {
+  console.log('[openViewer] dir=', dir);
   viewDir = dir || viewDir;
   fetch('/api/video_frames?dir=' + encodeURIComponent(viewDir) + '&conf=' + viewConf)
-    .then(r => r.json())
+    .then(r => { console.log('[openViewer] status', r.status); return r.json(); })
     .then(d => {
-      if (d.error) { alert(d.error); return; }
+      if (d.error) { console.error('[openViewer] error:', d.error); alert(d.error); return; }
       viewTotalFrames = d.total;
       viewNextTrackId = d.next_track_id;
       document.getElementById('viewNextTid').value = viewNextTrackId;
@@ -920,17 +923,25 @@ function loadViewFrame(idx) {
   fetch('/api/video_frame?dir=' + encodeURIComponent(viewDir) + '&frame=' + idx + '&conf=' + viewConf + '&zoom=' + viewZoom + '&categories=' + encodeURIComponent(cats))
     .then(r => r.json())
     .then(d => {
-      if (d.error) return;
-      document.getElementById('viewImg').src = 'data:image/jpeg;base64,' + d.thumb;
+      if (d.error) {
+        document.getElementById('viewLoading').textContent = '加载失败: ' + d.error;
+        document.getElementById('viewLoading').style.display = 'flex';
+        return;
+      }
+      document.getElementById('viewLoading').style.display = 'none';
+      const imgEl = document.getElementById('viewImg');
+      const canvas = document.getElementById('viewCanvas');
+      imgEl.style.display = 'block';
+      canvas.style.display = 'block';
+      imgEl.src = 'data:image/jpeg;base64,' + d.thumb;
       document.getElementById('viewFrameInfo').textContent = (d.frame + 1) + '/' + d.total;
       document.getElementById('viewAnnCount').textContent = d.ann_count + '个标注';
-      // resize canvas
-      const canvas = document.getElementById('viewCanvas');
-      const img = document.getElementById('viewImg');
-      if (canvas && img) {
-        canvas.width = img.offsetWidth;
-        canvas.height = img.offsetHeight;
-      }
+      imgEl.onload = function() {
+        canvas.width = imgEl.offsetWidth;
+        canvas.height = imgEl.offsetHeight;
+        canvas.style.width = imgEl.offsetWidth + 'px';
+        canvas.style.height = imgEl.offsetHeight + 'px';
+      };
     });
 }
 
