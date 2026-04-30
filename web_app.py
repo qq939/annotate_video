@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """Web标注工具 - 视频和图片标注，基于 app.py 和 image_app.py 的逻辑"""
 
 import os
@@ -27,6 +28,36 @@ BOX_COLORS = [
     (255, 0, 0),    # 蓝 BGR
     (255, 0, 128),  # 紫 BGR
 ]
+
+
+def _put_chinese(img, text, pos, font_size=20, color=(255, 255, 255)):
+    """在图像上绘制中文文本，UTF-8编码，尝试多个字体"""
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img_pil = Image.fromarray(img_rgb)
+        draw = ImageDraw.Draw(img_pil)
+        font = None
+        for font_path in [
+            "/System/Library/Fonts/PingFang.ttc",
+            "/System/Library/Fonts/STHeiti Light.ttc",
+            "/System/Library/Fonts/Hiragino Sans GB.ttc",
+            "/Library/Fonts/Arial Unicode.ttf",
+        ]:
+            try:
+                font = ImageFont.truetype(font_path, font_size)
+                break
+            except Exception:
+                continue
+        if font is None:
+            font = ImageFont.load_default()
+        draw.text(pos, text, font=font, fill=color)
+        result = cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
+        return result
+    except Exception as e:
+        print(f"[WARN] 中文渲染失败，使用ASCII: {e}")
+        cv2.putText(img, text, pos, cv2.FONT_HERSHEY_SIMPLEX, font_size / 20.0, color, 1)
+        return img
 
 SRC_VIDEO_DIR = Path("1src")
 SRC_IMAGES_DIR = Path("1src/image")
@@ -175,7 +206,7 @@ def run_video_annotate():
     if has_text:
         predictor_args['text'] = find_list
 
-    from annotate_video import merge_masks_in_frame, TrackManager, put_chinese_text
+    from annotate_video import merge_masks_in_frame, TrackManager
     track_manager = TrackManager(iou_threshold=iou_val)
     annotation_id = [0]
     coco_data = {
@@ -273,7 +304,7 @@ def run_video_annotate():
                 label = f"目标 {i + 1}"
                 color = BOX_COLORS[i % len(BOX_COLORS)]
                 x, y = int(bbox[0]), max(10, int(bbox[1]) - 10)
-                annotated_frame_rgb = put_chinese_text(annotated_frame_rgb, label, (x, y), font_size=15, color=color)
+                annotated_frame_rgb = _put_chinese(annotated_frame_rgb, label, (x, y), font_size=15, color=color)
         out.write(annotated_frame_rgb)
         frame_count += 1
 
@@ -396,7 +427,7 @@ def run_image_annotate():
         import torch
         combined = torch.cat(all_masks, dim=0)
         confs = np.concatenate(all_confs) if all_confs else None
-        from annotate_video import merge_masks_in_frame, put_chinese_text
+        from annotate_video import merge_masks_in_frame
 
         current_masks = []
         current_bboxes = []
@@ -474,7 +505,7 @@ def run_image_annotate():
         cv2.rectangle(annotated_img, (int(b[0]), int(b[1])), (int(b[0] + b[2]), int(b[1] + b[3])), color, 1)
         label = f"{cat_name} {conf:.2f}"
         tx, ty = int(b[0]), max(14, int(b[1]))
-        annotated_img = put_chinese_text(annotated_img, label, (tx, ty - 12), font_size=14, color=(255, 255, 255))
+        annotated_img = _put_chinese(annotated_img, label, (tx, ty - 12), font_size=14, color=(255, 255, 255))
 
     cv2.imwrite(str(output_path), annotated_img)
     print(f"[Image] 完成: {output_path}")
