@@ -9,10 +9,9 @@ import json
 from pathlib import Path
 
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-                               QLabel, QLineEdit, QFileDialog, QGroupBox, QMessageBox, QDialog)
-from PyQt5.QtCore import Qt, pyqtSignal
+                               QLabel, QLineEdit, QFileDialog, QGroupBox, QMessageBox, QDialog, QShortcut)
+from PyQt5.QtCore import Qt, pyqtSignal, QPoint, QRect
 from PyQt5.QtGui import QImage, QPainter, QPen, QColor, QFont, QKeySequence
-from PyQt5.QtWidgets import QShortcut
 
 from video_control import VideoController
 
