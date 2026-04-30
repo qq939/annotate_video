@@ -1,12 +1,10 @@
-# global参数
-SAM_MODEL_PATH = "sam3.pt"  # 第4行：SAM3模型路径
-
 import cv2
 import numpy as np
 import json
 import shutil
-import torch
 from pathlib import Path
+
+from annotate_video import SAM_MODEL_PATH, get_device, merge_masks_in_frame, TrackManager
 
 
 def do_bidirectional_annotate(data_path, prompt_frame_idx, boxes, iou_threshold=0.5, merge_iou_threshold=0.5, find_list=None):
@@ -25,8 +23,8 @@ def do_bidirectional_annotate(data_path, prompt_frame_idx, boxes, iou_threshold=
     if not boxes and not find_list:
         raise RuntimeError("请至少提供一个bbox或文本提示词")
 
-    device = 'mps' if torch.backends.mps.is_available() else 'cpu'
-    device_type = 'mps' if device == 'mps' else ('cuda' if torch.cuda.is_available() else 'cpu')
+    device = get_device()
+    device_type = 'mps' if device == 'mps' else ('cuda' if device == 'cuda' else 'cpu')
     half = device_type == 'cuda'
     overrides = dict(
         conf=0.25, task="segment", mode="predict",
@@ -41,22 +39,8 @@ def do_bidirectional_annotate(data_path, prompt_frame_idx, boxes, iou_threshold=
         overrides['amp'] = True
         overrides['stream_buffer'] = True
 
-    predictor_name = "SAM3VideoSemanticPredictor" if find_list else "SAM3VideoPredictor"
-    try:
-        from app import _patch_sam3_video_semantic
-        if predictor_name == "SAM3VideoSemanticPredictor":
-            _patch_sam3_video_semantic()
-    except Exception:
-        pass
-
-    if predictor_name == "SAM3VideoSemanticPredictor":
-        from ultralytics.models.sam import SAM3VideoSemanticPredictor
-        predictor = SAM3VideoSemanticPredictor(overrides=overrides)
-    else:
-        from ultralytics.models.sam import SAM3VideoPredictor
-        predictor = SAM3VideoPredictor(overrides=overrides)
-
-    from annotate_video import merge_masks_in_frame, TrackManager
+    from ultralytics.models.sam import SAM3VideoPredictor
+    predictor = SAM3VideoPredictor(overrides=overrides)
 
     FIRST_ID = 50000
 
@@ -64,12 +48,29 @@ def do_bidirectional_annotate(data_path, prompt_frame_idx, boxes, iou_threshold=
         direction = "向前" if forward else "向后"
         print(f"[{direction}] 处理帧 {start_frame} → {end_frame}")
 
-        temp_dir = Path("temp_inject") / ("forward" if forward else "backward")
-        if temp_dir.exists():
-            shutil.rmtree(temp_dir)
-        temp_dir.mkdir(parents=True, exist_ok=True)
+        if start_frame >= end_frame:
+            return []
 
-        clip_path = str(temp_dir / "clip.mp4")
+        temp_frames = Path("temp_inject") / ("forward" if forward else "backward")
+        if temp_frames.exists():
+            shutil.rmtree(temp_frames)
+        temp_frames.mkdir(parents=True, exist_ok=True)
+
+        frame_count = end_frame - start_frame
+        if forward:
+            for i in range(start_frame, end_frame):
+                src = frames_dir / f"frame_{i:06d}.jpg"
+                dst = temp_frames / f"frame_{i - start_frame:06d}.jpg"
+                if src.exists():
+                    shutil.copy2(src, dst)
+        else:
+            for rev_idx, i in enumerate(range(end_frame - 1, start_frame - 1, -1)):
+                src = frames_dir / f"frame_{i:06d}.jpg"
+                dst = temp_frames / f"frame_{rev_idx:06d}.jpg"
+                if src.exists():
+                    shutil.copy2(src, dst)
+
+        clip_path = str(temp_frames / "clip.mp4")
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(clip_path, fourcc, 30, (width, height))
         if forward:
@@ -78,22 +79,27 @@ def do_bidirectional_annotate(data_path, prompt_frame_idx, boxes, iou_threshold=
                 if frame is not None:
                     out.write(frame)
         else:
-            for i in range(end_frame - 1, start_frame - 1, -1):
+            for rev_idx, i in enumerate(range(end_frame - 1, start_frame - 1, -1)):
                 frame = cv2.imread(str(frames_dir / f"frame_{i:06d}.jpg"))
                 if frame is not None:
                     out.write(frame)
         out.release()
 
-        results = predictor(source=clip_path, stream=True, bboxes=prompt_bboxes, labels=[1]*len(prompt_bboxes))
+        if prompt_bboxes:
+            results = predictor(source=clip_path, stream=True, bboxes=prompt_bboxes, labels=[1]*len(prompt_bboxes))
+        else:
+            results = predictor(source=clip_path, stream=True)
+
         manager = TrackManager(iou_threshold=iou_threshold)
         manager.next_track_id = FIRST_ID
         ann_id = FIRST_ID
-        frame_idx = 0
         result_anns = []
+        frame_idx = 0
 
         for r in results:
-            if frame_idx >= (end_frame - start_frame):
+            if frame_idx >= frame_count:
                 break
+
             orig_img = r.orig_img if hasattr(r, 'orig_img') and r.orig_img is not None else None
             if orig_img is None:
                 cap_t = cv2.VideoCapture(clip_path)
@@ -106,6 +112,7 @@ def do_bidirectional_annotate(data_path, prompt_frame_idx, boxes, iou_threshold=
                 orig_img = cv2.cvtColor(orig_img, cv2.COLOR_GRAY2BGR)
             elif orig_img.shape[2] == 4:
                 orig_img = cv2.cvtColor(orig_img, cv2.COLOR_BGRA2BGR)
+            cv2.imwrite(str(temp_frames / f"frame_{frame_idx:06d}.jpg"), orig_img)
 
             frame_anns = []
             if hasattr(r, 'masks') and r.masks is not None:
@@ -154,7 +161,8 @@ def do_bidirectional_annotate(data_path, prompt_frame_idx, boxes, iou_threshold=
                                     ann = {
                                         'id': ann_id, 'track_id': tid, 'image_id': img_id,
                                         'category_id': tid, 'bbox': bb, 'area': float(area2),
-                                        'segmentation': [poly2], 'iscrowd': 0, 'confidence': conf
+                                        'segmentation': [poly2], 'iscrowd': 0, 'confidence': conf,
+                                        'category': 'Detect'
                                     }
                                     result_anns.append(ann)
                                     frame_anns.append(ann)
@@ -165,26 +173,31 @@ def do_bidirectional_annotate(data_path, prompt_frame_idx, boxes, iou_threshold=
             else:
                 orig_frame_idx = end_frame - 1 - frame_idx
 
-            if 0 <= orig_frame_idx < total and frame_anns:
+            if 0 <= orig_frame_idx < total:
                 label_file = labels_dir / f"frame_{orig_frame_idx:06d}.json"
-                existing = []
+                existing_anns = []
                 if label_file.exists():
                     with open(label_file) as f:
-                        existing = json.load(f)
+                        existing_anns = json.load(f)
+                merged_anns = existing_anns + frame_anns
                 with open(label_file, 'w') as f:
-                    json.dump(existing + frame_anns, f)
+                    json.dump(merged_anns, f)
 
             frame_idx += 1
 
-        shutil.rmtree(temp_dir, ignore_errors=True)
+        shutil.rmtree(temp_frames, ignore_errors=True)
         return result_anns
 
-    print(f"提示帧帧: {prompt_frame_idx}, 总帧数: {total}, bboxes: {boxes}")
+    print(f"提示帧: {prompt_frame_idx}, 总帧数: {total}, bboxes: {boxes}")
     forward_anns = process_clip(prompt_frame_idx + 1, total, forward=True, prompt_bboxes=boxes) if prompt_frame_idx + 1 < total else []
     backward_anns = process_clip(0, prompt_frame_idx, forward=False, prompt_bboxes=boxes) if prompt_frame_idx > 0 else []
 
     all_new_anns = backward_anns + forward_anns
     print(f"双向标注完成: 向后={len(backward_anns)}, 向前={len(forward_anns)}, 合计={len(all_new_anns)}")
+
+    if not all_new_anns:
+        print("未检测到任何分割结果")
+        return
 
     ann_file = data_path / "annotations.json"
     if ann_file.exists():
