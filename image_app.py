@@ -403,8 +403,11 @@ class ImageAnnotatorApp(QMainWindow):
             if temp_data_path.exists():
                 shutil.rmtree(temp_data_path)
             temp_data_path.mkdir(parents=True, exist_ok=True)
-            labels_dir = temp_data_path / "labels"
+            frames_dir = temp_data_path / "frames"
+            frames_dir.mkdir(exist_ok=True)
+            labels_dir = frames_dir / "labels"
             labels_dir.mkdir(exist_ok=True)
+            shutil.copy2(src_image, frames_dir / Path(src_image).name)
 
             dst_dir = Path(DST_IMAGES_DIR)
             dst_dir.mkdir(parents=True, exist_ok=True)
@@ -490,7 +493,8 @@ class ImageAnnotatorApp(QMainWindow):
 
             print(f"[DEBUG] 图片annotations数量={len(frame_annotations)}")
 
-            with open(labels_dir / "image_000.json", 'w') as f:
+            label_name = Path(src_image).stem + ".json"
+            with open(labels_dir / label_name, 'w') as f:
                 json.dump(frame_annotations, f)
             with open(temp_data_path / 'annotations.json', 'w') as f:
                 json.dump(coco_data, f)
