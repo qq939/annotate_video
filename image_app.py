@@ -375,9 +375,14 @@ class ImageAnnotatorApp(QMainWindow):
             all_confs = []
 
             if has_bbox:
+                center_points = np.array([[
+                    float((b[0] + b[2]) / 2),
+                    float((b[1] + b[3]) / 2)
+                ] for b in boxes], dtype=np.float32)
+                print(f"  使用bbox中心点作为points: {center_points.tolist()}")
                 from ultralytics.models.sam import SAM3Predictor
                 predictor = SAM3Predictor(overrides=overrides)
-                results = predictor(source=src_image, bboxes=boxes, labels=[1] * len(boxes))
+                results = predictor(source=src_image, points=center_points, labels=[1] * len(boxes))
                 r = list(results)[0] if hasattr(results, '__iter__') else results
                 if hasattr(r, 'masks') and r.masks is not None:
                     all_masks.append(r.masks.data)
