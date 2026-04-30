@@ -444,6 +444,14 @@ function switchTab(tab) {
   document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
   document.querySelector(`.tab-btn[onclick="switchTab('${tab}')"]`).classList.add('active');
   document.getElementById(`tab-${tab}`).classList.add('active');
+  if (tab === 'viewer' && viewTotalFrames === 0) {
+    document.getElementById('viewDirInput').value = 'temp_data';
+    openViewer('temp_data');
+  }
+  if (tab === 'save') {
+    document.getElementById('saveSrcDir').value = 'temp_data';
+    document.getElementById('saveInputDir').value = 'temp_data_post';
+  }
 }
 
 // ===================== 颜色面板 =====================
