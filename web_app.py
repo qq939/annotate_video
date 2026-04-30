@@ -87,6 +87,8 @@ def upload_video():
         return jsonify({'error': '没有选择文件'}), 400
     fname = Path(f.filename).name
     dst = SRC_VIDEO_DIR / fname
+    if dst.exists():
+        dst.unlink()
     f.save(str(dst))
     cap = cv2.VideoCapture(str(dst))
     ret, frame = cap.read()
@@ -112,6 +114,8 @@ def upload_image():
         return jsonify({'error': '没有选择文件'}), 400
     fname = Path(f.filename).name
     dst = SRC_IMAGES_DIR / fname
+    if dst.exists():
+        dst.unlink()
     f.save(str(dst))
     img = cv2.imread(str(dst))
     if img is None:
