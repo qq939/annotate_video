@@ -15,55 +15,6 @@ from PyQt5.QtGui import QImage, QPainter, QPen, QColor, QFont, QKeySequence
 
 from video_control import VideoController
 
-SAM3_SEMANTIC_PATCHED = False
-
-def _make_bbox_patch(orig_method):
-    def _patched(self, frame_idx, text=None, bboxes=None, labels=None, inference_state=None):
-        if bboxes is None:
-            return orig_method(self, frame_idx, text, bboxes, labels, inference_state)
-        inference_state = inference_state or self.inference_state
-        text_batch = [text] if isinstance(text, str) else (list(text) if text else [])
-        n = len(text_batch)
-        inference_state["text_prompt"] = text if text else None
-        text_ids = torch.arange(n, device=self.device, dtype=torch.long)
-        inference_state["text_ids"] = text_ids
-        if text is not None and self.model.names != text:
-            self.model.set_classes(text=text)
-        _raw = torch.as_tensor(bboxes, dtype=self.torch_dtype, device=self.device)
-        _raw = _raw[None] if _raw.ndim == 1 else _raw
-        _raw = ultralytics_ops.xyxy2xywh(_raw)
-        _raw[:, 0::2] /= self.batch[1][0].shape[1]
-        _raw[:, 1::2] /= self.batch[1][0].shape[0]
-        nb = len(_raw)
-        if labels is None:
-            _lbl_arr = np.ones(nb)
-        else:
-            _lbl_arr = np.array(labels)
-        _lbl = torch.as_tensor(_lbl_arr, dtype=torch.int32, device=self.device)
-        _raw = _raw.view(-1, 1, 4)
-        _lbl = _lbl.view(-1, 1)
-        if n > 1:
-            _raw = _raw.repeat(1, n, 1)
-            _lbl = _lbl.repeat(1, n)
-        geometric_prompt = self._get_dummy_prompt(num_prompts=n)
-        for i in range(len(_raw)):
-            geometric_prompt.append_boxes(_raw[[i]], _lbl[[i]])
-        inference_state["per_frame_geometric_prompt"][frame_idx] = geometric_prompt
-        out = self._run_single_frame_inference(frame_idx, reverse=False, inference_state=inference_state)
-        return frame_idx, out
-    return _patched
-
-def _patch_sam3_semantic():
-    global SAM3_SEMANTIC_PATCHED
-    if SAM3_SEMANTIC_PATCHED:
-        return
-    SAM3_SEMANTIC_PATCHED = True
-    import torch
-    from ultralytics.utils import ops as ultralytics_ops
-    from ultralytics.models.sam import SAM3SemanticPredictor
-    _orig = SAM3SemanticPredictor.add_prompt
-    SAM3SemanticPredictor.add_prompt = _make_bbox_patch(_orig)
-
 BOX_COLORS = [
     (255, 0, 0), (0, 255, 0), (0, 0, 255),
     (255, 255, 0), (255, 0, 255), (0, 255, 255),
@@ -377,23 +328,51 @@ class ImageAnnotatorApp(QMainWindow):
                 half=False, save=False, verbose=False
             )
 
+            all_masks = []
+            all_confs = []
+
             if has_bbox and not has_text:
                 from ultralytics.models.sam import SAM3Predictor
                 predictor = SAM3Predictor(overrides=overrides)
                 results = predictor(source=src_image, bboxes=boxes, labels=[1] * len(boxes))
-            else:
-                _patch_sam3_semantic()
+                r = list(results)[0] if hasattr(results, '__iter__') else results
+                if hasattr(r, 'masks') and r.masks is not None:
+                    all_masks.append(r.masks.data)
+                    if hasattr(r, 'boxes') and r.boxes is not None:
+                        all_confs.append(r.boxes.conf.cpu().numpy())
+
+            elif has_text and not has_bbox:
                 from ultralytics.models.sam import SAM3SemanticPredictor
                 predictor = SAM3SemanticPredictor(overrides=overrides)
-                kwargs = {'source': src_image}
-                if has_bbox:
-                    kwargs['bboxes'] = boxes
-                    kwargs['labels'] = [1] * len(boxes)
-                if has_text:
-                    kwargs['text'] = find_list
-                results = predictor(**kwargs)
+                results = predictor(source=src_image, text=find_list)
+                r = list(results)[0] if hasattr(results, '__iter__') else results
+                if hasattr(r, 'masks') and r.masks is not None:
+                    all_masks.append(r.masks.data)
+                    if hasattr(r, 'boxes') and r.boxes is not None:
+                        all_confs.append(r.boxes.conf.cpu().numpy())
 
-            r = list(results)[0] if hasattr(results, '__iter__') else results
+            elif has_text and has_bbox:
+                from ultralytics.models.sam import SAM3Predictor, SAM3SemanticPredictor
+                p1 = SAM3Predictor(overrides=overrides)
+                r1 = list(p1(source=src_image, bboxes=boxes, labels=[1] * len(boxes)))[0]
+                p2 = SAM3SemanticPredictor(overrides=overrides)
+                r2 = list(p2(source=src_image, text=find_list))[0]
+                r = r1
+                if hasattr(r1, 'masks') and r1.masks is not None:
+                    all_masks.append(r1.masks.data)
+                    if hasattr(r1, 'boxes') and r1.boxes is not None:
+                        all_confs.append(r1.boxes.conf.cpu().numpy())
+                if hasattr(r2, 'masks') and r2.masks is not None:
+                    all_masks.append(r2.masks.data)
+                    if hasattr(r2, 'boxes') and r2.boxes is not None:
+                        all_confs.append(r2.boxes.conf.cpu().numpy())
+            else:
+                from ultralytics.models.sam import SAM3SemanticPredictor
+                predictor = SAM3SemanticPredictor(overrides=overrides)
+                results = predictor(source=src_image)
+                r = list(results)[0] if hasattr(results, '__iter__') else results
+                if hasattr(r, 'masks') and r.masks is not None:
+                    all_masks.append(r.masks.data)
 
             img_h, img_w = r.orig_img.shape[:2] if hasattr(r, 'orig_img') and r.orig_img is not None else cv2.imread(src_image).shape[:2]
             if img_h == 0 or img_w == 0:
@@ -430,66 +409,64 @@ class ImageAnnotatorApp(QMainWindow):
             frame_annotations = []
             annotation_id = [0]
 
-            if hasattr(r, 'masks') and r.masks is not None:
-                masks_tensor = r.masks.data
-                if masks_tensor is not None and len(masks_tensor) > 0:
-                    confs = None
-                    if hasattr(r, 'boxes') and r.boxes is not None and hasattr(r.boxes, 'conf'):
-                        confs = r.boxes.conf.cpu().numpy()
-                        print(f"[DEBUG] boxes.conf={confs.tolist()}")
+            if all_masks:
+                import torch
+                combined = torch.cat(all_masks, dim=0)
+                confs = np.concatenate(all_confs) if all_confs else None
+                print(f"[DEBUG] 总masks={len(combined)}, confs={confs.tolist() if confs is not None else None}")
 
-                    current_masks = []
-                    current_bboxes = []
-                    contours_total = 0
-                    for mask in masks_tensor:
-                        mask_np = mask.cpu().numpy() if hasattr(mask, 'numpy') else np.array(mask)
-                        mask_binary = (mask_np > 0.5).astype(np.uint8)
-                        contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                        contours_total += len(contours)
-                        for contour in contours:
+                current_masks = []
+                current_bboxes = []
+                contours_total = 0
+                for mask in combined:
+                    mask_np = mask.cpu().numpy() if hasattr(mask, 'numpy') else np.array(mask)
+                    mask_binary = (mask_np > 0.5).astype(np.uint8)
+                    contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                    contours_total += len(contours)
+                    for contour in contours:
+                        if len(contour) >= 3:
+                            polygon = contour.squeeze().flatten().tolist()
+                            x_coords = polygon[0::2]
+                            y_coords = polygon[1::2]
+                            x_min, x_max = min(x_coords), max(x_coords)
+                            y_min, y_max = min(y_coords), max(y_coords)
+                            bbox = [float(x_min), float(y_min), float(x_max - x_min), float(y_max - y_min)]
+                            area = cv2.contourArea(contour)
+                            if area > 0:
+                                current_masks.append(mask_binary)
+                                current_bboxes.append(bbox)
+
+                if current_masks:
+                    print(f"[DEBUG] 原始contours={contours_total}, 有效polygon={len(current_masks)}")
+                    current_masks, current_bboxes = merge_masks_in_frame(current_masks, current_bboxes, merge_iou_val)
+                    print(f"[DEBUG] merge后={len(current_masks)}")
+
+                    merge_contours = 0
+                    for mask in current_masks:
+                        mb = (mask > 0.5).astype(np.uint8)
+                        cs, _ = cv2.findContours(mb, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                        merge_contours += len(cs)
+                    print(f"[DEBUG] merge后contours={merge_contours}")
+
+                    for idx, (mask, bbox) in enumerate(zip(current_masks, current_bboxes)):
+                        mb = (mask > 0.5).astype(np.uint8)
+                        cs, _ = cv2.findContours(mb, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                        for contour in cs:
                             if len(contour) >= 3:
                                 polygon = contour.squeeze().flatten().tolist()
-                                x_coords = polygon[0::2]
-                                y_coords = polygon[1::2]
-                                x_min, x_max = min(x_coords), max(x_coords)
-                                y_min, y_max = min(y_coords), max(y_coords)
-                                bbox = [float(x_min), float(y_min), float(x_max - x_min), float(y_max - y_min)]
                                 area = cv2.contourArea(contour)
-                                if area > 0:
-                                    current_masks.append(mask_binary)
-                                    current_bboxes.append(bbox)
-
-                    if current_masks:
-                        print(f"[DEBUG] 原始contours={contours_total}, 有效polygon={len(current_masks)}")
-                        current_masks, current_bboxes = merge_masks_in_frame(current_masks, current_bboxes, merge_iou_val)
-                        print(f"[DEBUG] merge后={len(current_masks)}")
-
-                        merge_contours = 0
-                        for mask in current_masks:
-                            mb = (mask > 0.5).astype(np.uint8)
-                            cs, _ = cv2.findContours(mb, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                            merge_contours += len(cs)
-                        print(f"[DEBUG] merge后contours={merge_contours}")
-
-                        for idx, (mask, bbox) in enumerate(zip(current_masks, current_bboxes)):
-                            mb = (mask > 0.5).astype(np.uint8)
-                            cs, _ = cv2.findContours(mb, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                            for contour in cs:
-                                if len(contour) >= 3:
-                                    polygon = contour.squeeze().flatten().tolist()
-                                    area = cv2.contourArea(contour)
-                                    track_id = annotation_id[0]
-                                    confidence = float(confs[idx]) if confs is not None and idx < len(confs) else float(mask.max())
-                                    ann = {
-                                        'id': annotation_id[0], 'track_id': track_id, 'image_id': 0,
-                                        'category_id': track_id, 'bbox': bbox, 'area': float(area),
-                                        'segmentation': [polygon], 'iscrowd': 0, 'confidence': confidence
-                                    }
-                                    coco_data['annotations'].append(ann)
-                                    frame_annotations.append(ann)
-                                    annotation_id[0] += 1
-                    else:
-                        print("[DEBUG] 无有效polygon")
+                                track_id = annotation_id[0]
+                                confidence = float(confs[idx]) if confs is not None and idx < len(confs) else float(mask.max())
+                                ann = {
+                                    'id': annotation_id[0], 'track_id': track_id, 'image_id': 0,
+                                    'category_id': track_id, 'bbox': bbox, 'area': float(area),
+                                    'segmentation': [polygon], 'iscrowd': 0, 'confidence': confidence
+                                }
+                                coco_data['annotations'].append(ann)
+                                frame_annotations.append(ann)
+                                annotation_id[0] += 1
+                else:
+                    print("[DEBUG] 无有效polygon")
 
             print(f"[DEBUG] 图片annotations数量={len(frame_annotations)}")
 
