@@ -17,19 +17,10 @@ from video_control import VideoController
 
 SAM3_SEMANTIC_PATCHED = False
 
-def _patch_sam3_video_semantic():
-    global SAM3_SEMANTIC_PATCHED
-    if SAM3_SEMANTIC_PATCHED:
-        return
-    SAM3_SEMANTIC_PATCHED = True
-    import torch
-    from ultralytics.utils import ops as ultralytics_ops
-    from ultralytics.models.sam import SAM3VideoSemanticPredictor
-    _orig = SAM3VideoSemanticPredictor.add_prompt
-
-    def _new_add_prompt(self, frame_idx, text=None, bboxes=None, labels=None, inference_state=None):
+def _make_bbox_patch(orig_method):
+    def _patched(self, frame_idx, text=None, bboxes=None, labels=None, inference_state=None):
         if bboxes is None:
-            return _orig(self, frame_idx, text, bboxes, labels, inference_state)
+            return orig_method(self, frame_idx, text, bboxes, labels, inference_state)
         inference_state = inference_state or self.inference_state
         text_batch = [text] if isinstance(text, str) else (list(text) if text else [])
         n = len(text_batch)
@@ -60,8 +51,18 @@ def _patch_sam3_video_semantic():
         inference_state["per_frame_geometric_prompt"][frame_idx] = geometric_prompt
         out = self._run_single_frame_inference(frame_idx, reverse=False, inference_state=inference_state)
         return frame_idx, out
+    return _patched
 
-    SAM3VideoSemanticPredictor.add_prompt = _new_add_prompt
+def _patch_sam3_semantic():
+    global SAM3_SEMANTIC_PATCHED
+    if SAM3_SEMANTIC_PATCHED:
+        return
+    SAM3_SEMANTIC_PATCHED = True
+    import torch
+    from ultralytics.utils import ops as ultralytics_ops
+    from ultralytics.models.sam import SAM3SemanticPredictor
+    _orig = SAM3SemanticPredictor.add_prompt
+    SAM3SemanticPredictor.add_prompt = _make_bbox_patch(_orig)
 
 BOX_COLORS = [
     (255, 0, 0), (0, 255, 0), (0, 0, 255),
@@ -359,7 +360,7 @@ class ImageAnnotatorApp(QMainWindow):
             from annotate_video import put_chinese_text, calculate_mask_iou
             from PIL import Image, ImageDraw, ImageFont
 
-            predictor_name = "SAM3VideoSemanticPredictor" if has_text else "SAM3VideoPredictor"
+            predictor_name = "SAM3SemanticPredictor" if has_text else "SAM3Predictor"
             print(f"正在使用 {predictor_name} 进行图片分割...")
             if has_text and has_bbox:
                 for i, t in enumerate(find_list):
@@ -379,13 +380,13 @@ class ImageAnnotatorApp(QMainWindow):
             )
 
             if has_bbox and not has_text:
-                from ultralytics.models.sam import SAM3VideoPredictor
-                predictor = SAM3VideoPredictor(overrides=overrides)
+                from ultralytics.models.sam import SAM3Predictor
+                predictor = SAM3Predictor(overrides=overrides)
                 results = predictor(source=src_image, bboxes=boxes, labels=[1] * len(boxes))
             else:
-                _patch_sam3_video_semantic()
-                from ultralytics.models.sam import SAM3VideoSemanticPredictor
-                predictor = SAM3VideoSemanticPredictor(overrides=overrides)
+                _patch_sam3_semantic()
+                from ultralytics.models.sam import SAM3SemanticPredictor
+                predictor = SAM3SemanticPredictor(overrides=overrides)
                 kwargs = {'source': src_image}
                 if has_bbox:
                     kwargs['bboxes'] = boxes
