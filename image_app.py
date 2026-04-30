@@ -36,12 +36,13 @@ MERGE_IOU_THRESHOLD = 0.5
 class ImageAnnotationWidget(QWidget):
     box_added = pyqtSignal()
 
-    def __init__(self, image, boxes, color_index, parent=None):
+    def __init__(self, image, boxes, color_index, category_names=None, parent=None):
         super().__init__(parent)
         self.image = image
         self.orig_h, self.orig_w = image.shape[:2]
         self.boxes = boxes
         self.color_index = color_index
+        self.category_names = category_names or []
         self.drawing = False
         self.start_point = QPoint()
         self.current_rect = QRect()
@@ -53,30 +54,8 @@ class ImageAnnotationWidget(QWidget):
         rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         self.qimage = QImage(rgb.data, self.orig_w, self.orig_h, self.orig_w * 3, QImage.Format_RGB888)
 
-    def keyPressEvent(self, event):
-        scroll = self.window().scroll_area
-        if scroll is None:
-            return
-        dx, dy = 0, 0
-        step = 50
-        if event.key() in (Qt.Key_W, Qt.Key_Up):
-            dy = -step
-        elif event.key() in (Qt.Key_S, Qt.Key_Down):
-            dy = step
-        elif event.key() in (Qt.Key_A, Qt.Key_Left):
-            dx = -step
-        elif event.key() in (Qt.Key_D, Qt.Key_Right):
-            dx = step
-        else:
-            super().keyPressEvent(event)
-            return
-        hbar = scroll.horizontalScrollBar()
-        vbar = scroll.verticalScrollBar()
-        hbar.setValue(max(hbar.minimum(), min(hbar.maximum(), hbar.value() + dx)))
-        vbar.setValue(max(vbar.minimum(), min(vbar.maximum(), vbar.value() + dy)))
-        event.accept()
-
     def mousePressEvent(self, event):
+        self.setFocus()
         if event.button() == Qt.LeftButton:
             self.drawing = True
             self.start_point = event.pos()
@@ -111,7 +90,8 @@ class ImageAnnotationWidget(QWidget):
             painter.setPen(pen)
             painter.drawRect(box['x1'], box['y1'], box['x2'] - box['x1'], box['y2'] - box['y1'])
             painter.setFont(QFont("Arial", 12))
-            painter.drawText(box['x1'], box['y1'] - 3, f"{i + 1}")
+            label = self.category_names[i] if i < len(self.category_names) else f"目标{i+1}"
+            painter.drawText(box['x1'], box['y1'] - 3, label)
         if self.drawing and not self.current_rect.isNull():
             color = QColor(*BOX_COLORS[self.color_index[0] % len(BOX_COLORS)][::-1])
             pen = QPen(color, 2)
@@ -120,11 +100,12 @@ class ImageAnnotationWidget(QWidget):
 
 
 class ImageAnnotationDialog(QDialog):
-    def __init__(self, image_path, parent=None, start_color_idx=0):
+    def __init__(self, image_path, parent=None, start_color_idx=0, category_names=None):
         super().__init__(parent)
         self.image_path = image_path
         self.boxes = []
         self.color_index = [start_color_idx]
+        self.category_names = category_names or []
         self.image = cv2.imread(image_path)
         if self.image is None:
             raise ValueError(f"无法读取图片: {image_path}")
@@ -132,7 +113,7 @@ class ImageAnnotationDialog(QDialog):
         self._setup_shortcut()
 
     def _setup_ui(self):
-        self.img_widget = ImageAnnotationWidget(self.image, self.boxes, self.color_index)
+        self.img_widget = ImageAnnotationWidget(self.image, self.boxes, self.color_index, self.category_names)
         iw = self.img_widget.orig_w
         ih = self.img_widget.orig_h
         screen = QApplication.primaryScreen().geometry()
@@ -157,7 +138,7 @@ class ImageAnnotationDialog(QDialog):
         header_layout.setContentsMargins(8, 0, 8, 0)
         header_layout.setSpacing(4)
 
-        instr_label = QLabel("WASD/方向键平移 | 框选目标 | C:撤销 | Q:退出")
+        instr_label = QLabel("框选目标 | C:撤销 | Q:退出")
         instr_label.setStyleSheet("color: #ccc; font-size: 12px;")
         header_layout.addWidget(instr_label)
         header_layout.addStretch()
@@ -347,14 +328,14 @@ class ImageAnnotatorApp(QMainWindow):
             print(f"已拷贝到{src_dir}: {dst_image}")
         src_image = str(dst_image)
 
-        dialog = ImageAnnotationDialog(src_image, self, self.selected_color_idx[0])
+        find_list = [s.strip() for s in self.text_input.text().split(',') if s.strip()]
+        dialog = ImageAnnotationDialog(src_image, self, self.selected_color_idx[0], find_list)
         if dialog.exec_() != QDialog.Accepted:
             return
         boxes = dialog.get_boxes()
 
         iou_val = float(self.iou_input.text() or "0.5")
         merge_iou_val = float(self.merge_iou_input.text() or "0.5")
-        find_list = [s.strip() for s in self.text_input.text().split(',') if s.strip()]
 
         has_text = bool(find_list)
         has_bbox = bool(boxes)
@@ -523,10 +504,11 @@ class ImageAnnotatorApp(QMainWindow):
 
             if frame_annotations:
                 for ann in frame_annotations:
-                    track_id = ann['track_id']
-                    color = BOX_COLORS[track_id % len(BOX_COLORS)]
+                    cat_idx = ann['category_id']
+                    color = BOX_COLORS[cat_idx % len(BOX_COLORS)]
                     b = ann['bbox']
                     conf = ann.get('confidence', 1.0)
+                    cat_name = find_list[cat_idx] if cat_idx < len(find_list) else f"obj{cat_idx}"
 
                     overlay = annotated_img.copy()
                     seg = ann.get('segmentation', [])
@@ -539,7 +521,7 @@ class ImageAnnotatorApp(QMainWindow):
                         (int(b[0]), int(b[1])), (int(b[0] + b[2]), int(b[1] + b[3])),
                         color, 1)
 
-                    label = f"id{track_id} {conf:.2f}"
+                    label = f"{cat_name} {conf:.2f}"
                     font = cv2.FONT_HERSHEY_SIMPLEX
                     (tw, th), baseline = cv2.getTextSize(label, font, 0.5, 1)
                     tx, ty = int(b[0]), max(14, int(b[1]))
