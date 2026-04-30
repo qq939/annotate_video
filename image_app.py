@@ -327,6 +327,7 @@ class ConfidenceFilterDialog(QDialog):
         self.coco_data, self.labels_data, self.orig_img = _load_temp_annotations(temp_dir)
         if self.orig_img is None:
             raise ValueError("无法加载临时目录中的图片")
+        self.orig_h, self.orig_w = self.orig_img.shape[:2]
         self.annotations = self.labels_data if self.labels_data else self.coco_data.get('annotations', [])
         self.find_list = self.coco_data.get('info', {}).get('FIND', [])
         self._setup_ui()
