@@ -33,26 +33,6 @@ SAM_MODEL_PATH = "sam3.pt"
 IOU_THRESHOLD = 0.5
 MERGE_IOU_THRESHOLD = 0.5
 
-def _bbox_iou(a, b):
-    ax1, ay1, ax2, ay2 = a
-    bx1, by1, bx2, by2 = b
-    inter_x1, inter_y1 = max(ax1, bx1), max(ay1, by1)
-    inter_x2, inter_y2 = min(ax2, bx2), min(ay2, by2)
-    inter = max(0, inter_x2 - inter_x1) * max(0, inter_y2 - inter_y1)
-    area_a = (ax2 - ax1) * (ay2 - ay1)
-    area_b = (bx2 - bx1) * (by2 - by1)
-    union = area_a + area_b - inter
-    return inter / union if union > 0 else 0
-
-def _match_annotation_to_box(ann_bbox, boxes):
-    best_iou, best_idx = 0, 0
-    for i, box in enumerate(boxes):
-        iou = _bbox_iou(ann_bbox, box)
-        if iou > best_iou:
-            best_iou, best_idx = iou, i
-    return best_idx, best_iou
-
-
 def _convert_heic_to_jpg(heic_path, jpg_path):
     from PIL import Image
     import pillow_heif
@@ -591,7 +571,12 @@ class ImageAnnotatorApp(QMainWindow):
             return
         boxes_colors = dialog.get_boxes_and_colors()
         boxes = [(b[0], b[1], b[2], b[3]) for b in boxes_colors]
-        box_colors = {i: b[4] for i, b in enumerate(boxes_colors)}
+
+        category_to_color = {}
+        for i, (x1, y1, x2, y2, color) in enumerate(boxes_colors):
+            cat_idx = i % len(find_list) if find_list else 0
+            if cat_idx not in category_to_color:
+                category_to_color[cat_idx] = color
 
         iou_val = float(self.iou_input.text() or "0.5")
         merge_iou_val = float(self.merge_iou_input.text() or "0.5")
@@ -753,9 +738,7 @@ class ImageAnnotatorApp(QMainWindow):
                                 else:
                                     cat_idx = 0
                                 confidence = float(confs[idx]) if confs is not None and idx < len(confs) else float(mask.max())
-                                ann_bbox_xyxy = [bbox[0], bbox[1], bbox[0] + bbox[2], bbox[1] + bbox[3]]
-                                matched_box_idx, match_iou = _match_annotation_to_box(ann_bbox_xyxy, boxes)
-                                ann_color = box_colors.get(matched_box_idx, BOX_COLORS[0])
+                                ann_color = category_to_color.get(cat_idx, BOX_COLORS[0])
                                 ann = {
                                     'id': annotation_id[0], 'track_id': track_id, 'image_id': 0,
                                     'category_id': cat_idx, 'bbox': bbox, 'area': float(area),
