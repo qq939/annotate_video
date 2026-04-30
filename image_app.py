@@ -709,6 +709,9 @@ class ImageAnnotatorApp(QMainWindow):
                 contours_total = 0
                 for mask in combined:
                     mask_np = mask.cpu().numpy() if hasattr(mask, 'numpy') else np.array(mask)
+                    mh, mw = mask_np.shape[-2:]
+                    if mh != img_h or mw != img_w:
+                        mask_np = cv2.resize(mask_np.astype(np.float32), (img_w, img_h), interpolation=cv2.INTER_LINEAR)
                     mask_binary = (mask_np > 0.5).astype(np.uint8)
                     contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                     contours_total += len(contours)
