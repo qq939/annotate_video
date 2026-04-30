@@ -742,6 +742,238 @@ def temp_image_frame():
     return jsonify({'thumb': thumb})
 
 
+@app.route('/api/video_frames')
+def video_frames():
+    data_dir = request.args.get('dir', 'temp_data')
+    data_path = Path(data_dir)
+    if not data_path.exists():
+        return jsonify({'error': '目录不存在'}), 400
+    frames_dir = data_path / 'frames'
+    labels_dir = data_path / 'labels'
+    if not frames_dir.exists():
+        return jsonify({'error': 'frames目录不存在'}), 400
+    frame_files = sorted(frames_dir.glob('*.jpg'))
+    total = len(frame_files)
+    if total == 0:
+        frame_files = sorted(frames_dir.glob('*.png'))
+        total = len(frame_files)
+    ann_file = data_path / 'annotations.json'
+    conf_threshold = float(request.args.get('conf', 0.0))
+    category_map = {}
+    if ann_file.exists():
+        with open(ann_file) as f:
+            coco = json.load(f)
+            for ann in coco.get('annotations', []):
+                tid = ann.get('track_id', 0)
+                cat = ann.get('category_id', 0)
+                if tid not in category_map:
+                    category_map[tid] = cat
+            next_tid = max([0] + [a.get('track_id', 0) for a in coco.get('annotations', [])]) + 1
+    else:
+        coco = None
+        next_tid = 1000000
+    return jsonify({
+        'total': total,
+        'fps': coco.get('info', {}).get('fps', 30) if coco else 30,
+        'width': coco.get('info', {}).get('width', 0) if coco else 0,
+        'height': coco.get('info', {}).get('height', 0) if coco else 0,
+        'next_track_id': next_tid,
+        'conf_threshold': conf_threshold,
+        'category_map': category_map
+    })
+
+
+@app.route('/api/video_frame')
+def video_frame():
+    data_dir = request.args.get('dir', 'temp_data')
+    frame_idx = int(request.args.get('frame', 0))
+    conf_th = float(request.args.get('conf', 0.0))
+    zoom = float(request.args.get('zoom', 1.0))
+    alpha = float(request.args.get('alpha', 0.3))
+    category_names_raw = request.args.get('categories', '')
+    category_names = [s.strip() for s in category_names_raw.split(',') if s.strip()]
+    data_path = Path(data_dir)
+    frame_path = data_path / 'frames'
+    label_path = data_path / 'labels'
+    frame_files = sorted(frame_path.glob('*.jpg'))
+    if not frame_files:
+        frame_files = sorted(frame_path.glob('*.png'))
+    if not frame_files:
+        return jsonify({'error': '无帧'}), 400
+    if frame_idx >= len(frame_files):
+        frame_idx = len(frame_files) - 1
+    img = cv2.imread(str(frame_files[frame_idx]))
+    if img is None:
+        return jsonify({'error': '无法读取帧'}), 400
+    h, w = img.shape[:2]
+    label_file = label_path / f"frame_{frame_idx:06d}.json"
+    anns = []
+    if label_file.exists():
+        with open(label_file) as f:
+            anns = [a for a in json.load(f) if a.get('confidence', 1.0) >= conf_th]
+    rendered = img.copy()
+    for ann in anns:
+        cat_idx = ann.get('category_id', 0)
+        color = BOX_COLORS[cat_idx % len(BOX_COLORS)]
+        seg = ann.get('segmentation', [])
+        if seg:
+            pts = np.array(seg[0], dtype=np.int32).reshape(-1, 2)
+            overlay = img.copy()
+            cv2.fillPoly(overlay, [pts], color)
+            cv2.addWeighted(img, 1 - alpha, overlay, alpha, 0, rendered)
+        b = ann.get('bbox', [0, 0, 0, 0])
+        bx, by, bw, bh = int(b[0]), int(b[1]), int(b[2]), int(b[3])
+        cv2.rectangle(rendered, (bx, by), (bx + bw, by + bh), color, 1)
+        cat_name = category_names[cat_idx] if cat_idx < len(category_names) else f"t{ann.get('track_id',0)}"
+        conf = ann.get('confidence', 1.0)
+        label = f"{cat_name} {conf:.2f}"
+        rendered = _put_chinese(rendered, label, (bx, max(14, by)), font_size=14, color=(255, 255, 255))
+    disp_w = int(w * zoom)
+    disp_h = int(h * zoom)
+    if zoom != 1.0:
+        rendered = cv2.resize(rendered, (disp_w, disp_h))
+    _, buf = cv2.imencode('.jpg', rendered)
+    return jsonify({
+        'thumb': base64.b64encode(buf).decode(),
+        'frame': frame_idx,
+        'total': len(frame_files),
+        'w': disp_w, 'h': disp_h,
+        'ann_count': len(anns)
+    })
+
+
+@app.route('/api/video_delete_trace', methods=['POST'])
+def video_delete_trace():
+    data = request.json or {}
+    data_dir = data.get('dir', 'temp_data')
+    trace_id = int(data.get('trace_id', 0))
+    data_path = Path(data_dir)
+    labels_dir = data_path / 'labels'
+    ann_file = data_path / 'annotations.json'
+    for lf in labels_dir.glob('*.json'):
+        with open(lf) as f:
+            anns = json.load(f)
+        changed = False
+        new_anns = []
+        for a in anns:
+            if a.get('track_id') == trace_id:
+                changed = True
+            else:
+                new_anns.append(a)
+        if changed:
+            with open(lf, 'w') as f:
+                json.dump(new_anns, f)
+    if ann_file.exists():
+        with open(ann_file) as f:
+            coco = json.load(f)
+        new_anns_coco = [a for a in coco.get('annotations', []) if a.get('track_id') != trace_id]
+        if len(new_anns_coco) != len(coco.get('annotations', [])):
+            coco['annotations'] = new_anns_coco
+            with open(ann_file, 'w') as f:
+                json.dump(coco, f)
+    return jsonify({'success': True, 'trace_id': trace_id})
+
+
+@app.route('/api/video_set_track_id', methods=['POST'])
+def video_set_track_id():
+    data = request.json or {}
+    next_id = int(data.get('next_track_id', 1000000))
+    return jsonify({'next_track_id': next_id})
+
+
+@app.route('/api/video_categories', methods=['POST'])
+def video_categories():
+    data = request.json or {}
+    categories = data.get('categories', {})
+    return jsonify({'categories': categories})
+
+
+@app.route('/api/video_export_post', methods=['POST'])
+def video_export_post():
+    data = request.json or {}
+    src_dir = data.get('src_dir', 'temp_data')
+    dst_dir = data.get('dst_dir', 'temp_data_post')
+    shutil.copytree(src_dir, dst_dir, dirs_exist_ok=True)
+    return jsonify({'success': True, 'dst': dst_dir})
+
+
+@app.route('/api/video_save', methods=['POST'])
+def video_save():
+    data = request.json or {}
+    input_dir = data.get('input_dir', 'temp_data_post')
+    output_name = data.get('output_name', 'output.mp4')
+    alpha = float(data.get('alpha', 0.3))
+    conf_th = float(data.get('conf', 0.0))
+    categories_raw = data.get('categories', '')
+    category_names = [s.strip() for s in categories_raw.split(',') if s.strip()]
+    from save import render_frames_to_video
+    try:
+        out_path = render_frames_to_video(input_dir, DST_VIDEO_DIR / output_name, alpha, conf_th, category_names)
+        return jsonify({'success': True, 'output': f'/api/dst_video/{output_name}'})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/video_prompt_frame', methods=['POST'])
+def video_prompt_frame():
+    data = request.json or {}
+    frame_idx = int(data.get('frame_idx', 0))
+    boxes = data.get('boxes', [])
+    data_dir = data.get('dir', 'temp_data')
+    iou_val = float(data.get('iou', 0.5))
+    merge_iou_val = float(data.get('merge_iou', 0.5))
+    items_text = data.get('items', '')
+    find_list = [s.strip() for s in items_text.split(',') if s.strip()]
+    data_path = Path(data_dir)
+    frames_dir = data_path / 'frames'
+    ann_file = data_path / 'annotations.json'
+    cap = cv2.VideoCapture(str(list(frames_dir.glob('*.jpg'))[0]))
+    fps = 30
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    cap.release()
+    if ann_file.exists():
+        with open(ann_file) as f:
+            coco = json.load(f)
+        fps = coco.get('info', {}).get('fps', 30)
+    try:
+        from post_annotate import do_bidirectional_annotate
+        do_bidirectional_annotate(str(data_path), frame_idx, boxes, iou_val, merge_iou_val, find_list)
+        return jsonify({'success': True})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/video_postprocess', methods=['POST'])
+def video_postprocess():
+    data = request.json or {}
+    src_dir = data.get('src_dir', 'temp_data')
+    conf_th = float(data.get('conf', 0.0))
+    data_path = Path(src_dir)
+    labels_dir = data_path / 'labels'
+    ann_file = data_path / 'annotations.json'
+    total_removed = 0
+    for lf in labels_dir.glob('*.json'):
+        with open(lf) as f:
+            anns = json.load(f)
+        before = len(anns)
+        anns = [a for a in anns if a.get('confidence', 1.0) >= conf_th]
+        total_removed += before - len(anns)
+        with open(lf, 'w') as f:
+            json.dump(anns, f)
+    if ann_file.exists():
+        with open(ann_file) as f:
+            coco = json.load(f)
+        coco['annotations'] = [a for a in coco.get('annotations', []) if a.get('confidence', 1.0) >= conf_th]
+        with open(ann_file, 'w') as f:
+            json.dump(coco, f)
+    return jsonify({'success': True, 'removed': total_removed})
+
+
 if __name__ == '__main__':
     print("=" * 60)
     print("Web标注工具启动中: http://0.0.0.0:8081")

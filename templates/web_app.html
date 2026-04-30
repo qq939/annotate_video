@@ -213,7 +213,11 @@ a { color: #3498db; }
 <div class="tab-bar">
   <button class="tab-btn active" onclick="switchTab('video')">视频标注</button>
   <button class="tab-btn" onclick="switchTab('image')">图片标注</button>
+  <button class="tab-btn" onclick="switchTab('viewer')">视频预览</button>
+  <button class="tab-btn" onclick="switchTab('save')">视频保存</button>
 </div>
+
+
 
 <!-- ==================== 视频标注 ==================== -->
 <div id="tab-video" class="tab-content active">
@@ -279,6 +283,107 @@ a { color: #3498db; }
     <input type="file" id="imageFileInput" accept="image/*" style="display:none" onchange="handleImageFile(this)">
     <div id="imageFileName" style="margin-top:6px;font-size:12px;color:#888;"></div>
   </div>
+
+<!-- ==================== 视频预览 ==================== -->
+<div id="tab-viewer" class="tab-content">
+  <div class="panel">
+    <div class="panel-title">预览设置</div>
+    <div class="row">
+      <label>数据目录:</label>
+      <input type="text" id="viewDirInput" value="temp_data" style="width:150px">
+      <button class="btn btn-secondary btn-sm" onclick="openViewer(document.getElementById('viewDirInput').value)">打开</button>
+    </div>
+    <div class="row">
+      <label>置信度:</label>
+      <input type="range" id="viewConf" min="0" max="100" value="0" style="width:120px" oninput="viewConf=this.value/100;document.getElementById('viewConfVal').textContent=this.value;loadViewFrame(viewFrameIdx)">
+      <span id="viewConfVal" style="min-width:30px">0</span>
+      <label style="margin-left:12px">缩放:</label>
+      <input type="range" id="viewZoom" min="50" max="200" value="100" style="width:100px" oninput="viewZoom=this.value/100;document.getElementById('viewZoomVal').textContent=this.value+'%';loadViewFrame(viewFrameIdx)">
+      <span id="viewZoomVal" style="min-width:40px">100%</span>
+    </div>
+    <div class="row">
+      <label>前后IoU:</label>
+      <input type="text" id="viewIou" value="0.5" style="width:50px">
+      <label style="margin-left:8px">帧IoU:</label>
+      <input type="text" id="viewMergeIou" value="0.5" style="width:50px">
+      <label style="margin-left:8px">物品:</label>
+      <input type="text" id="viewItems" placeholder="逗号分隔" style="width:150px">
+      <button class="btn btn-secondary btn-sm" id="viewPromptBtn" onclick="viewTogglePrompt()">提示帧</button>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">帧导航 &amp; 标注</div>
+    <div class="row">
+      <button class="btn btn-secondary btn-sm" onclick="viewPrev()">◀上一帧</button>
+      <button class="btn btn-secondary btn-sm" id="viewPlayBtn" onclick="toggleViewPlay()">▶播放</button>
+      <button class="btn btn-secondary btn-sm" onclick="viewNext()">下一帧▶</button>
+      <span id="viewFrameInfo" style="min-width:80px;text-align:center;background:#222;color:#0f0;padding:2px 8px;border-radius:3px;font-size:12px">0/0</span>
+      <span id="viewAnnCount" style="font-size:12px;color:#888;margin-left:8px"></span>
+    </div>
+    <div class="canvas-wrap" id="viewCanvasWrap" style="overflow:auto;max-height:500px;position:relative">
+      <img id="viewImg" crossorigin="anonymous" style="display:block;width:100%">
+      <canvas id="viewCanvas" style="position:absolute;top:0;left:0;border:1px solid #666;background:rgba(0,0,0,0.1);z-index:1;cursor:crosshair;width:100%;height:100%"></canvas>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">trace_id 管理</div>
+    <div class="row">
+      <label>下一trace_id:</label>
+      <input type="number" id="viewNextTid" value="1000000" style="width:90px">
+      <button class="btn btn-secondary btn-sm" onclick="viewSetNextTid()">设置</button>
+    </div>
+    <div class="row">
+      <label>删除trace:</label>
+      <input type="number" id="viewDeleteInput" placeholder="trace_id" style="width:90px">
+      <button class="btn btn-danger btn-sm" onclick="viewDeleteTrace()">删除</button>
+    </div>
+    <div class="row">
+      <label>类别(逗号分隔):</label>
+      <input type="text" id="viewCategories" placeholder="逗号分隔" style="width:300px">
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button class="btn btn-primary btn-sm" onclick="viewPostprocess()">按置信度过滤</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 视频保存 ==================== -->
+<div id="tab-save" class="tab-content">
+  <div class="panel">
+    <div class="panel-title">1. 导出到 temp_data_post</div>
+    <div class="row">
+      <label>源目录:</label>
+      <input type="text" id="saveSrcDir" value="temp_data" style="width:150px">
+      <button class="btn btn-primary btn-sm" onclick="doVideoExport()">导出到 temp_data_post</button>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">2. 保存视频</div>
+    <div class="row">
+      <label>输入:</label>
+      <input type="text" id="saveInputDir" value="temp_data_post" style="width:150px">
+      <label style="margin-left:8px">输出名称:</label>
+      <input type="text" id="saveOutputName" value="output.mp4" style="width:150px">
+    </div>
+    <div class="row">
+      <label>透明度:</label>
+      <input type="range" id="saveAlpha" min="10" max="100" value="30" style="width:120px">
+      <span id="saveAlphaVal">30</span><span>%</span>
+      <label style="margin-left:12px">置信度:</label>
+      <input type="range" id="saveConf" min="0" max="100" value="0" style="width:100px">
+      <span id="saveConfVal">0</span><span>%</span>
+    </div>
+    <div class="row">
+      <label>类别:</label>
+      <input type="text" id="saveCategories" placeholder="逗号分隔" style="width:300px">
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button class="btn btn-primary" onclick="doVideoSave()">💾 保存视频</button>
+      <a id="saveResult" href="#" style="display:none;margin-left:16px">下载视频</a>
+    </div>
+  </div>
+</div>
+
 
   <div class="panel" id="imageDrawPanel" style="display:none">
     <div class="panel-title">2. 框选目标 & 颜色</div>
@@ -770,6 +875,194 @@ function showStatus(tab, msg, type) {
 
 // ===================== 初始化 =====================
 initColorPalette();
+
+
+
+// ==================== 视频预览 JS ====================
+let viewDir = 'temp_data';
+let viewFrameIdx = 0;
+let viewTotalFrames = 0;
+let viewPlaying = false;
+let viewPlayTimer = null;
+let viewNextTrackId = 1000000;
+let viewConf = 0.0;
+let viewZoom = 1.0;
+let promptMode = false;
+let promptBoxes = [];
+
+function openViewer(dir) {
+  viewDir = dir || viewDir;
+  fetch('/api/video_frames?dir=' + encodeURIComponent(viewDir) + '&conf=' + viewConf)
+    .then(r => r.json())
+    .then(d => {
+      if (d.error) { alert(d.error); return; }
+      viewTotalFrames = d.total;
+      viewNextTrackId = d.next_track_id;
+      document.getElementById('viewNextTid').value = viewNextTrackId;
+      loadViewFrame(0);
+    });
+}
+
+function loadViewFrame(idx) {
+  if (viewTotalFrames === 0) return;
+  if (idx < 0) idx = 0;
+  if (idx >= viewTotalFrames) idx = viewTotalFrames - 1;
+  viewFrameIdx = idx;
+  const cats = (document.getElementById('viewCategories').value || '').trim();
+  fetch('/api/video_frame?dir=' + encodeURIComponent(viewDir) + '&frame=' + idx + '&conf=' + viewConf + '&zoom=' + viewZoom + '&categories=' + encodeURIComponent(cats))
+    .then(r => r.json())
+    .then(d => {
+      if (d.error) return;
+      document.getElementById('viewImg').src = 'data:image/jpeg;base64,' + d.thumb;
+      document.getElementById('viewFrameInfo').textContent = (d.frame + 1) + '/' + d.total;
+      document.getElementById('viewAnnCount').textContent = d.ann_count + '个标注';
+      // resize canvas
+      const canvas = document.getElementById('viewCanvas');
+      const img = document.getElementById('viewImg');
+      if (canvas && img) {
+        canvas.width = img.offsetWidth;
+        canvas.height = img.offsetHeight;
+      }
+    });
+}
+
+function viewPrev() { loadViewFrame(viewFrameIdx - 1); }
+function viewNext() { loadViewFrame(viewFrameIdx + 1); }
+
+function toggleViewPlay() {
+  if (viewPlaying) {
+    clearInterval(viewPlayTimer);
+    viewPlayTimer = null;
+    viewPlaying = false;
+    document.getElementById('viewPlayBtn').textContent = '▶播放';
+  } else {
+    viewPlaying = true;
+    document.getElementById('viewPlayBtn').textContent = '■暂停';
+    viewPlayTimer = setInterval(() => { loadViewFrame(viewFrameIdx + 1); }, 500);
+  }
+}
+
+function viewTogglePrompt() {
+  if (!promptMode) {
+    promptMode = true;
+    promptBoxes = [];
+    document.getElementById('viewPromptBtn').textContent = '执行提示帧';
+    document.getElementById('viewPromptBtn').style.background = '#00CC00';
+    alert('提示帧模式：在图片上拖动画框，完成后点"执行提示帧"');
+  } else {
+    const iou = parseFloat(document.getElementById('viewIou').value || '0.5');
+    const mergeIou = parseFloat(document.getElementById('viewMergeIou').value || '0.5');
+    const items = document.getElementById('viewItems').value || '';
+    fetch('/api/video_prompt_frame', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({dir: viewDir, frame_idx: viewFrameIdx, boxes: promptBoxes, iou: iou, merge_iou: mergeIou, items: items})
+    }).then(r => r.json()).then(d => {
+      if (d.error) { alert(d.error); }
+      else { alert('提示帧双向标注完成'); loadViewFrame(viewFrameIdx); }
+      promptMode = false;
+      promptBoxes = [];
+      document.getElementById('viewPromptBtn').textContent = '提示帧';
+      document.getElementById('viewPromptBtn').style.background = '';
+    });
+  }
+}
+
+function viewDeleteTrace() {
+  const tid = parseInt(document.getElementById('viewDeleteInput').value);
+  if (!tid) { alert('请输入trace_id'); return; }
+  fetch('/api/video_delete_trace', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({dir: viewDir, trace_id: tid})
+  }).then(r => r.json()).then(d => {
+    alert('已删除 trace_id=' + tid);
+    loadViewFrame(viewFrameIdx);
+  });
+}
+
+function viewSetNextTid() {
+  viewNextTrackId = parseInt(document.getElementById('viewNextTid').value) || 1000000;
+}
+
+function viewPostprocess() {
+  fetch('/api/video_postprocess', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({src_dir: viewDir, conf: viewConf})
+  }).then(r => r.json()).then(d => {
+    alert('后处理完成，删除了 ' + d.removed + ' 个低置信度标注');
+    loadViewFrame(viewFrameIdx);
+  });
+}
+
+// canvas 画框（提示帧模式）
+const _viewCanvas = document.getElementById('viewCanvas');
+if (_viewCanvas) {
+  const _ctx = _viewCanvas.getContext('2d');
+  let _drw = false, _sx = 0, _sy = 0;
+  _viewCanvas.addEventListener('mousedown', e => {
+    if (!promptMode) return;
+    const r = _viewCanvas.getBoundingClientRect();
+    _sx = e.clientX - r.left; _sy = e.clientY - r.top; _drw = true;
+  });
+  _viewCanvas.addEventListener('mousemove', e => {
+    if (!_drw) return;
+    const r = _viewCanvas.getBoundingClientRect();
+    const mx = e.clientX - r.left, my = e.clientY - r.top;
+    _ctx.clearRect(0, 0, _viewCanvas.width, _viewCanvas.height);
+    _ctx.strokeStyle = '#FFFF00'; _ctx.lineWidth = 2;
+    _ctx.strokeRect(_sx, _sy, mx - _sx, my - _sy);
+  });
+  _viewCanvas.addEventListener('mouseup', e => {
+    if (!_drw) return; _drw = false;
+    const r = _viewCanvas.getBoundingClientRect();
+    const mx = e.clientX - r.left, my = e.clientY - r.top;
+    const nw = _viewCanvas.width, nh = _viewCanvas.height;
+    const imgW = document.getElementById('viewImg').naturalWidth || nw;
+    const imgH = document.getElementById('viewImg').naturalHeight || nh;
+    const x1 = Math.round(Math.min(_sx, mx) * imgW / nw);
+    const y1 = Math.round(Math.min(_sy, my) * imgH / nh);
+    const x2 = Math.round(Math.max(_sx, mx) * imgW / nw);
+    const y2 = Math.round(Math.max(_sy, my) * imgH / nh);
+    if (x2 - x1 > 5 && y2 - y1 > 5) {
+      promptBoxes.push([x1, y1, x2, y2]);
+      alert('已添加框: [' + x1 + ',' + y1 + ',' + x2 + ',' + y2 + '] 共' + promptBoxes.length + '个');
+    }
+    _ctx.clearRect(0, 0, _viewCanvas.width, _viewCanvas.height);
+  });
+  _viewCanvas.addEventListener('mouseleave', () => { if (_drw) { _drw = false; _ctx.clearRect(0,0,_viewCanvas.width,_viewCanvas.height); } });
+}
+
+// ==================== 视频保存 JS ====================
+function doVideoExport() {
+  const src = document.getElementById('saveSrcDir').value || 'temp_data';
+  fetch('/api/video_export_post', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({src_dir: src, dst_dir: 'temp_data_post'})
+  }).then(r => r.json()).then(d => {
+    alert('已导出到 temp_data_post');
+    document.getElementById('saveInputDir').value = 'temp_data_post';
+  });
+}
+
+function doVideoSave() {
+  const inputDir = document.getElementById('saveInputDir').value || 'temp_data_post';
+  const outputName = document.getElementById('saveOutputName').value || 'output.mp4';
+  const alpha = parseInt(document.getElementById('saveAlpha').value) / 100;
+  const conf = parseInt(document.getElementById('saveConf').value) / 100;
+  const cats = document.getElementById('saveCategories').value || '';
+  fetch('/api/video_save', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({input_dir: inputDir, output_name: outputName, alpha: alpha, conf: conf, categories: cats})
+  }).then(r => r.json()).then(d => {
+    if (d.error) { alert('保存失败: ' + d.error); }
+    else { alert('保存完成: ' + d.output); document.getElementById('saveResult').href = d.output; document.getElementById('saveResult').style.display = 'inline'; }
+  });
+}
+
 </script>
 </body>
 </html>
