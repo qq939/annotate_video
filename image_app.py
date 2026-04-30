@@ -127,6 +127,7 @@ class ImageAnnotationDialog(QDialog):
         self.setMaximumSize(dw, dh + 36)
         self.move(screen.x() + (screen.width() - dw) // 2, screen.y() + (screen.height() - dh - 36) // 2)
         self.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint)
+        self.setModal(True)
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -191,6 +192,11 @@ class ImageAnnotationDialog(QDialog):
             self.color_index[0] = max(0, self.color_index[0] - 1)
             self.img_widget.update()
             self.undo_btn.setEnabled(len(self.boxes) > 0)
+
+    def _select_color(self, idx):
+        self.color_index[0] = idx
+        self.img_widget.color_index[0] = idx
+        self.img_widget.update()
 
     def keyPressEvent(self, event):
         key = event.key()
