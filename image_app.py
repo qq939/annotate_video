@@ -545,6 +545,8 @@ class ImageAnnotatorApp(QMainWindow):
                     cv2.putText(annotated_img, label, (tx, ty - baseline), font, 0.5, (255, 255, 255), 1)
 
             output_path = dst_dir / image_name
+            if output_path.exists():
+                output_path.unlink()
             cv2.imwrite(str(output_path), annotated_img)
             print(f"✓ 标注图片已保存到: {output_path}")
             print(f"✓ 中间结果已保存到: {temp_data_path}")
