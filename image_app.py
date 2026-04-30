@@ -83,33 +83,50 @@ class ImageAnnotationWidget(QWidget):
     def __init__(self, image, boxes, color_index, parent=None):
         super().__init__(parent)
         self.image = image
+        self.orig_h, self.orig_w = image.shape[:2]
         self.boxes = boxes
         self.color_index = color_index
         self.drawing = False
         self.start_point = QPoint()
         self.current_rect = QRect()
-        h, w = image.shape[:2]
-        self.setFixedSize(w, h)
-        self.setMinimumSize(w, h)
-        self.setMaximumSize(w, h)
+
+        screen = QApplication.primaryScreen().geometry()
+        max_w = screen.width() - 40
+        max_h = screen.height() - 100
+        scale_w = max_w / self.orig_w if self.orig_w > max_w else 1.0
+        scale_h = max_h / self.orig_h if self.orig_h > max_h else 1.0
+        self.scale = min(scale_w, scale_h)
+        self.display_w = int(self.orig_w * self.scale)
+        self.display_h = int(self.orig_h * self.scale)
+
+        self.setFixedSize(self.display_w, self.display_h)
+        self.setMinimumSize(self.display_w, self.display_h)
+        self.setMaximumSize(self.display_w, self.display_h)
+
         rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        self.qimage = QImage(rgb.data, w, h, w * 3, QImage.Format_RGB888)
+        self.qimage = QImage(rgb.data, self.orig_w, self.orig_h, self.orig_w * 3, QImage.Format_RGB888)
+
+    def _to_orig(self, pt):
+        return QPoint(int(pt.x() / self.scale), int(pt.y() / self.scale))
+
+    def _rect_to_orig(self, r):
+        return QRect(self._to_orig(r.topLeft()), self._to_orig(r.bottomRight()))
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self.drawing = True
-            self.start_point = event.pos()
+            self.start_point = self._to_orig(event.pos())
             self.current_rect = QRect(self.start_point, self.start_point)
 
     def mouseMoveEvent(self, event):
         if self.drawing:
-            self.current_rect = QRect(self.start_point, event.pos()).normalized()
+            self.current_rect = QRect(self.start_point, self._to_orig(event.pos())).normalized()
             self.update()
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton and self.drawing:
             self.drawing = False
-            rect = QRect(self.start_point, event.pos()).normalized()
+            rect = QRect(self.start_point, self._to_orig(event.pos())).normalized()
             if rect.width() > 5 and rect.height() > 5:
                 color = BOX_COLORS[self.color_index[0] % len(BOX_COLORS)]
                 self.boxes.append({
@@ -124,19 +141,29 @@ class ImageAnnotationWidget(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.drawImage(0, 0, self.qimage)
+        scaled = self.qimage.scaled(self.display_w, self.display_h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        painter.drawImage(0, 0, scaled)
         for i, box in enumerate(self.boxes):
             color = QColor(*box['color'][::-1])
             pen = QPen(color, 2)
             painter.setPen(pen)
-            painter.drawRect(box['x1'], box['y1'], box['x2'] - box['x1'], box['y2'] - box['y1'])
-            painter.setFont(QFont("Arial", 14))
-            painter.drawText(box['x1'], box['y1'] - 5, f"目标 {i + 1}")
+            x1 = int(box['x1'] * self.scale)
+            y1 = int(box['y1'] * self.scale)
+            w = int((box['x2'] - box['x1']) * self.scale)
+            h = int((box['y2'] - box['y1']) * self.scale)
+            painter.drawRect(x1, y1, w, h)
+            font_size = max(10, int(14 * self.scale))
+            painter.setFont(QFont("Arial", font_size))
+            painter.drawText(x1, y1 - 5, f"目标 {i + 1}")
         if self.drawing and not self.current_rect.isNull():
             color = QColor(*BOX_COLORS[self.color_index[0] % len(BOX_COLORS)][::-1])
             pen = QPen(color, 2)
             painter.setPen(pen)
-            painter.drawRect(self.current_rect)
+            rx = int(self.current_rect.left() * self.scale)
+            ry = int(self.current_rect.top() * self.scale)
+            rw = int(self.current_rect.width() * self.scale)
+            rh = int(self.current_rect.height() * self.scale)
+            painter.drawRect(rx, ry, rw, rh)
 
 
 class ImageAnnotationDialog(QDialog):
@@ -152,11 +179,13 @@ class ImageAnnotationDialog(QDialog):
         self._setup_shortcut()
 
     def _setup_ui(self):
-        h, w = self.image.shape[:2]
+        self.img_widget = ImageAnnotationWidget(self.image, self.boxes, self.color_index)
+        dw = self.img_widget.display_w
+        dh = self.img_widget.display_h
         self.setWindowTitle(f"图片标注 - {Path(self.image_path).name}")
-        self.setFixedSize(w, h + 36)
-        self.setMinimumSize(w, h + 36)
-        self.setMaximumSize(w, h + 36)
+        self.setFixedSize(dw, dh + 36)
+        self.setMinimumSize(dw, dh + 36)
+        self.setMaximumSize(dw, dh + 36)
         self.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint)
 
         main_layout = QVBoxLayout(self)
@@ -164,7 +193,7 @@ class ImageAnnotationDialog(QDialog):
         main_layout.setSpacing(0)
 
         header = QWidget()
-        header.setFixedSize(w, 36)
+        header.setFixedSize(dw, 36)
         header.setStyleSheet("background: rgba(0,0,0,180);")
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(8, 0, 8, 0)
@@ -195,11 +224,9 @@ class ImageAnnotationDialog(QDialog):
         self.done_btn.clicked.connect(self.accept)
         header_layout.addWidget(self.done_btn)
         main_layout.addWidget(header)
-
-        self.img_widget = ImageAnnotationWidget(self.image, self.boxes, self.color_index)
+        main_layout.addWidget(self.img_widget)
         self.img_widget.setFocus()
         self.img_widget.box_added.connect(lambda: self.undo_btn.setEnabled(True))
-        main_layout.addWidget(self.img_widget)
 
     def _setup_shortcut(self):
         QShortcut(QKeySequence("c"), self).activated.connect(self._undo_last)
