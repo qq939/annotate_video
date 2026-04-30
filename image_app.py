@@ -405,7 +405,7 @@ class ImageAnnotatorApp(QMainWindow):
             temp_data_path.mkdir(parents=True, exist_ok=True)
             frames_dir = temp_data_path / "frames"
             frames_dir.mkdir(exist_ok=True)
-            labels_dir = frames_dir / "labels"
+            labels_dir = temp_data_path / "labels"
             labels_dir.mkdir(exist_ok=True)
             shutil.copy2(src_image, frames_dir / "frame_000000.jpg")
 
