@@ -401,6 +401,7 @@ class ConfidenceFilterDialog(QDialog):
         main_layout.addWidget(scroll_area)
 
         self._update_count()
+        self.show()
 
     def _on_threshold_changed(self, val):
         th = val / 100.0
