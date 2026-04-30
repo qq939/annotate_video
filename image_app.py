@@ -356,16 +356,12 @@ class ImageAnnotatorApp(QMainWindow):
         try:
             from annotate_video import merge_masks_in_frame
 
-            predictor_name = "SAM3SemanticPredictor" if has_text else "SAM3Predictor"
-            print(f"正在使用 {predictor_name} 进行图片分割...")
-            if has_text and has_bbox:
+            print(f"正在使用 SAM3Predictor 进行图片分割...")
+            if find_list:
                 for i, t in enumerate(find_list):
-                    bbox_str = " | ".join(f"({int(b[0])},{int(b[1])},{int(b[2])},{int(b[3])})" for b in boxes)
-                    print(f"  [{i}] 文本: '{t}' | bboxes: {bbox_str}")
-            elif has_text:
-                print(f"  文本提示词: {find_list}")
-            elif has_bbox:
-                print(f"  bbox提示框: {[tuple(int(x) for x in b) for b in boxes]}")
+                    print(f"  [{i}] category: '{t}'")
+            if boxes:
+                print(f"  bboxes: {[tuple(int(x) for x in b) for b in boxes]}")
 
             import torch
             device = 'mps' if torch.backends.mps.is_available() else 'cpu'
@@ -378,7 +374,7 @@ class ImageAnnotatorApp(QMainWindow):
             all_masks = []
             all_confs = []
 
-            if has_bbox and not has_text:
+            if has_bbox:
                 from ultralytics.models.sam import SAM3Predictor
                 predictor = SAM3Predictor(overrides=overrides)
                 results = predictor(source=src_image, bboxes=boxes, labels=[1] * len(boxes))
@@ -387,40 +383,6 @@ class ImageAnnotatorApp(QMainWindow):
                     all_masks.append(r.masks.data)
                     if hasattr(r, 'boxes') and r.boxes is not None:
                         all_confs.append(r.boxes.conf.cpu().numpy())
-
-            elif has_text and not has_bbox:
-                from ultralytics.models.sam import SAM3SemanticPredictor
-                predictor = SAM3SemanticPredictor(overrides=overrides)
-                results = predictor(source=src_image, text=find_list)
-                r = list(results)[0] if hasattr(results, '__iter__') else results
-                if hasattr(r, 'masks') and r.masks is not None:
-                    all_masks.append(r.masks.data)
-                    if hasattr(r, 'boxes') and r.boxes is not None:
-                        all_confs.append(r.boxes.conf.cpu().numpy())
-
-            elif has_text and has_bbox:
-                center_points = np.array([[
-                    float((b[0] + b[2]) / 2),
-                    float((b[1] + b[3]) / 2)
-                ] for b in boxes], dtype=np.float32)
-                print(f"  使用bbox中心点作为points: {center_points.tolist()}")
-                from ultralytics.models.sam import SAM3SemanticPredictor
-                p_semantic = SAM3SemanticPredictor(overrides=overrides)
-                r_semantic = list(p_semantic(
-                    source=src_image, text=find_list, points=center_points, labels=[1] * len(center_points)
-                ))[0]
-                from ultralytics.models.sam import SAM3Predictor
-                p_bbox = SAM3Predictor(overrides=overrides)
-                r_bbox = list(p_bbox(source=src_image, bboxes=boxes, labels=[1] * len(boxes)))[0]
-                r = r_semantic
-                if hasattr(r_semantic, 'masks') and r_semantic.masks is not None:
-                    all_masks.append(r_semantic.masks.data)
-                    if hasattr(r_semantic, 'boxes') and r_semantic.boxes is not None:
-                        all_confs.append(r_semantic.boxes.conf.cpu().numpy())
-                if hasattr(r_bbox, 'masks') and r_bbox.masks is not None:
-                    all_masks.append(r_bbox.masks.data)
-                    if hasattr(r_bbox, 'boxes') and r_bbox.boxes is not None:
-                        all_confs.append(r_bbox.boxes.conf.cpu().numpy())
             else:
                 from ultralytics.models.sam import SAM3SemanticPredictor
                 predictor = SAM3SemanticPredictor(overrides=overrides)
@@ -464,10 +426,6 @@ class ImageAnnotatorApp(QMainWindow):
                     [{'id': 0, 'name': 'object'}]
                 )
             }
-
-            num_semantic_masks = 0
-            if all_masks:
-                num_semantic_masks = len(all_masks[0]) if len(all_masks) > 0 else 0
 
             frame_annotations = []
             annotation_id = [0]
