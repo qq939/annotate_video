@@ -10,7 +10,7 @@ from pathlib import Path
 
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                                QLabel, QLineEdit, QFileDialog, QGroupBox, QMessageBox, QDialog, QShortcut, QScrollArea)
-from PyQt5.QtCore import Qt, pyqtSignal, QPoint, QRect, QScroller
+from PyQt5.QtCore import Qt, pyqtSignal, QPoint, QRect
 from PyQt5.QtGui import QImage, QPainter, QPen, QColor, QFont, QKeySequence, QPalette
 
 from video_control import VideoController
@@ -191,7 +191,6 @@ class ImageAnnotationDialog(QDialog):
         scroll_area.setFrameShape(QScrollArea.NoFrame)
         scroll_area.horizontalScrollBar().setHidden(True)
         scroll_area.verticalScrollBar().setHidden(True)
-        QScroller.grabGesture(scroll_area.viewport(), QScroller.TouchGesture)
         scroll_area.installEventFilter(self)
         self.scroll_area = scroll_area
         self.img_widget.setFocus()
