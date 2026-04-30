@@ -329,10 +329,9 @@ class ImageAnnotatorApp(QMainWindow):
         dst_image = src_dir / image_name
         if Path(image_path).resolve() != dst_image.resolve():
             if dst_image.exists():
-                print(f"已存在，跳过拷贝: {dst_image}")
-            else:
-                shutil.copy2(image_path, dst_image)
-                print(f"已拷贝到{src_dir}: {dst_image}")
+                dst_image.unlink()
+            shutil.copy2(image_path, dst_image)
+            print(f"已拷贝到{src_dir}: {dst_image}")
         src_image = str(dst_image)
 
         find_list = [s.strip() for s in self.text_input.text().split(',') if s.strip()]
