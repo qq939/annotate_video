@@ -70,7 +70,7 @@ def _render_filtered_image(img, annotations, find_list, threshold):
     result = img.copy()
     for ann in filtered:
         cat_idx = ann['category_id']
-        color = BOX_COLORS[cat_idx % len(BOX_COLORS)]
+        color = ann.get('color', BOX_COLORS[cat_idx % len(BOX_COLORS)])
         b = ann['bbox']
         conf = ann.get('confidence', 1.0)
         cat_name = find_list[cat_idx] if cat_idx < len(find_list) else f"obj{cat_idx}"
@@ -791,8 +791,6 @@ class ImageAnnotatorApp(QMainWindow):
 
             orig_img = cv2.imread(src_image)
             annotated_img = _render_filtered_image(orig_img, final_annotations, find_list, 0.0)
-            for ann in final_annotations:
-                ann['color'] = BOX_COLORS[ann['category_id'] % len(BOX_COLORS)]
 
             output_path = dst_dir / image_name
             if output_path.exists():
