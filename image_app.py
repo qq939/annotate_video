@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-                               QLabel, QLineEdit, QFileDialog, QGroupBox, QMessageBox, QDialog, QShortcut, QScrollArea, QCheckBox)
+                               QLabel, QLineEdit, QFileDialog, QGroupBox, QMessageBox, QDialog, QShortcut, QScrollArea, QCheckBox, QSlider)
 from PyQt5.QtCore import Qt, pyqtSignal, QPoint, QRect
 from PyQt5.QtGui import QImage, QPainter, QPen, QColor, QFont, QKeySequence, QPalette
 
