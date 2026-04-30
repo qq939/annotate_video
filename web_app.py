@@ -175,7 +175,7 @@ def run_video_annotate():
     if has_text:
         predictor_args['text'] = find_list
 
-    from annotate_video import merge_masks_in_frame, TrackManager
+    from annotate_video import merge_masks_in_frame, TrackManager, put_chinese_text
     track_manager = TrackManager(iou_threshold=iou_val)
     annotation_id = [0]
     coco_data = {
@@ -273,7 +273,7 @@ def run_video_annotate():
                 label = f"目标 {i + 1}"
                 color = BOX_COLORS[i % len(BOX_COLORS)]
                 x, y = int(bbox[0]), max(10, int(bbox[1]) - 10)
-                cv2.putText(annotated_frame_rgb, label, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 1)
+                annotated_frame_rgb = put_chinese_text(annotated_frame_rgb, label, (x, y), font_size=15, color=color)
         out.write(annotated_frame_rgb)
         frame_count += 1
 
@@ -396,7 +396,7 @@ def run_image_annotate():
         import torch
         combined = torch.cat(all_masks, dim=0)
         confs = np.concatenate(all_confs) if all_confs else None
-        from annotate_video import merge_masks_in_frame
+        from annotate_video import merge_masks_in_frame, put_chinese_text
 
         current_masks = []
         current_bboxes = []
@@ -473,11 +473,8 @@ def run_image_annotate():
 
         cv2.rectangle(annotated_img, (int(b[0]), int(b[1])), (int(b[0] + b[2]), int(b[1] + b[3])), color, 1)
         label = f"{cat_name} {conf:.2f}"
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        (tw, th), baseline = cv2.getTextSize(label, font, 0.5, 1)
         tx, ty = int(b[0]), max(14, int(b[1]))
-        cv2.rectangle(annotated_img, (tx, ty - th - baseline), (tx + tw, ty), (0, 0, 0), -1)
-        cv2.putText(annotated_img, label, (tx, ty - baseline), font, 0.5, (255, 255, 255), 1)
+        annotated_img = put_chinese_text(annotated_img, label, (tx, ty - 12), font_size=14, color=(255, 255, 255))
 
     cv2.imwrite(str(output_path), annotated_img)
     print(f"[Image] 完成: {output_path}")
