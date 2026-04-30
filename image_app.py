@@ -61,6 +61,56 @@ def _convert_heic_to_jpg(heic_path, jpg_path):
     img.save(jpg_path, "JPEG")
 
 
+def _filter_by_confidence(annotations, threshold):
+    return [a for a in annotations if a.get('confidence', 1.0) >= threshold]
+
+
+def _render_filtered_image(img, annotations, find_list, threshold):
+    filtered = _filter_by_confidence(annotations, threshold)
+    result = img.copy()
+    for ann in filtered:
+        cat_idx = ann['category_id']
+        color = ann.get('color', BOX_COLORS[cat_idx % len(BOX_COLORS)])
+        b = ann['bbox']
+        conf = ann.get('confidence', 1.0)
+        cat_name = find_list[cat_idx] if cat_idx < len(find_list) else f"obj{cat_idx}"
+
+        overlay = result.copy()
+        seg = ann.get('segmentation', [])
+        if seg:
+            pts = np.array(seg[0], dtype=np.int32).reshape(-1, 2)
+            cv2.fillPoly(overlay, [pts], color)
+            cv2.addWeighted(result, 0.75, overlay, 0.25, 0, result)
+
+        cv2.rectangle(result, (int(b[0]), int(b[1])), (int(b[0] + b[2]), int(b[1] + b[3])), color, 1)
+
+        label = f"{cat_name} {conf:.2f}"
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        (tw, th), baseline = cv2.getTextSize(label, font, 0.5, 1)
+        tx, ty = int(b[0]), max(14, int(b[1]))
+        cv2.rectangle(result, (tx, ty - th - baseline), (tx + tw, ty), (0, 0, 0), -1)
+        cv2.putText(result, label, (tx, ty - baseline), font, 0.5, (255, 255, 255), 1)
+    return result
+
+
+def _load_temp_annotations(temp_dir):
+    temp_path = Path(temp_dir)
+    with open(temp_path / 'annotations.json', 'r') as f:
+        coco_data = json.load(f)
+    labels_path = list((temp_path / 'labels').glob('*.json'))
+    labels_data = []
+    if labels_path:
+        with open(labels_path[0], 'r') as f:
+            labels_data = json.load(f)
+    frame_path = list((temp_path / 'frames').glob('*.jpg'))
+    if not frame_path:
+        frame_path = list((temp_path / 'frames').glob('*.png'))
+    orig_img = None
+    if frame_path:
+        orig_img = cv2.imread(str(frame_path[0]))
+    return coco_data, labels_data, orig_img
+
+
 class ImageAnnotationWidget(QWidget):
     box_added = pyqtSignal()
 
@@ -239,6 +289,139 @@ class ImageAnnotationDialog(QDialog):
 
     def get_boxes_and_colors(self):
         return [(b['x1'], b['y1'], b['x2'], b['y2'], b['color']) for b in self.boxes]
+
+
+class ConfidenceFilterWidget(QWidget):
+    def __init__(self, image, annotations, find_list, threshold, parent=None):
+        super().__init__(parent)
+        self.orig_img = image
+        self.annotations = annotations
+        self.find_list = find_list
+        self.threshold = threshold
+        self.orig_h, self.orig_w = image.shape[:2]
+
+        self.setFixedSize(self.orig_w, self.orig_h)
+        rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        self.qimage = QImage(rgb.data, self.orig_w, self.orig_h, self.orig_w * 3, QImage.Format_RGB888)
+        self._update_render()
+
+    def _update_render(self):
+        rendered = _render_filtered_image(self.orig_img, self.annotations, self.find_list, self.threshold)
+        rgb = cv2.cvtColor(rendered, cv2.COLOR_BGR2RGB)
+        self.qimage = QImage(rgb.data, self.orig_w, self.orig_h, self.orig_w * 3, QImage.Format_RGB888)
+        self.update()
+
+    def set_threshold(self, th):
+        self.threshold = th
+        self._update_render()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.drawImage(0, 0, self.qimage)
+
+
+class ConfidenceFilterDialog(QDialog):
+    def __init__(self, temp_dir, parent=None):
+        super().__init__(parent)
+        self.temp_dir = temp_dir
+        self.coco_data, self.labels_data, self.orig_img = _load_temp_annotations(temp_dir)
+        if self.orig_img is None:
+            raise ValueError("无法加载临时目录中的图片")
+        self.annotations = self.labels_data if self.labels_data else self.coco_data.get('annotations', [])
+        self.find_list = self.coco_data.get('info', {}).get('FIND', [])
+        self._setup_ui()
+        self._setup_shortcut()
+        self.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint | Qt.WindowMaximizeButtonHint)
+        self.setModal(True)
+
+    def _setup_ui(self):
+        screen = QApplication.primaryScreen().geometry()
+        sw, sh = screen.width() - 80, screen.height() - 160
+        dw = min(self.orig_w, sw)
+        dh = min(self.orig_h, sh)
+        self.setWindowTitle(f"后处理 - 置信度筛选")
+        self.setFixedSize(dw, dh + 80)
+        self.move(screen.x() + (screen.width() - dw) // 2, screen.y() + (screen.height() - dh - 80) // 2)
+
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        header = QWidget()
+        header.setFixedSize(dw, 40)
+        header.setStyleSheet("background: rgba(0,0,0,180);")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(12, 0, 12, 0)
+        header_layout.setSpacing(8)
+
+        header_layout.addWidget(QLabel("置信度阈值:"))
+        self.slider = QSlider(Qt.Horizontal)
+        confs = [a.get('confidence', 1.0) for a in self.annotations]
+        self.min_conf = min(confs) if confs else 0.0
+        self.max_conf = max(confs) if confs else 1.0
+        self.slider.setRange(0, 100)
+        self.slider.setValue(int(self.min_conf * 100))
+        self.slider.setFixedWidth(300)
+        self.slider.valueChanged.connect(self._on_threshold_changed)
+        header_layout.addWidget(self.slider)
+
+        self.threshold_label = QLabel(f"{self.min_conf:.2f}")
+        self.threshold_label.setStyleSheet("color: #ccc; font-size: 12px; min-width: 40px;")
+        header_layout.addWidget(self.threshold_label)
+
+        header_layout.addWidget(QLabel("数量:"))
+        self.count_label = QLabel()
+        self.count_label.setStyleSheet("color: #0f0; font-size: 12px; font-weight: bold;")
+        header_layout.addWidget(self.count_label)
+        header_layout.addStretch()
+
+        self.save_btn = QPushButton("✓ 确认保存")
+        self.save_btn.setFixedSize(100, 28)
+        self.save_btn.setStyleSheet(
+            "QPushButton { background: #00CC00; color: white; border: none; border-radius: 4px; font-weight: bold; font-size: 13px; }"
+            "QPushButton:hover { background: #009900; }"
+        )
+        self.save_btn.clicked.connect(self.accept)
+        header_layout.addWidget(self.save_btn)
+
+        main_layout.addWidget(header)
+
+        self.img_widget = ConfidenceFilterWidget(self.orig_img, self.annotations, self.find_list, self.min_conf)
+        scroll_area = QScrollArea()
+        scroll_area.setFixedSize(dw, dh)
+        scroll_area.setWidget(self.img_widget)
+        scroll_area.setWidgetResizable(False)
+        scroll_area.setAlignment(Qt.AlignCenter)
+        scroll_area.setFrameShape(QScrollArea.NoFrame)
+        scroll_area.horizontalScrollBar().setHidden(True)
+        scroll_area.verticalScrollBar().setHidden(True)
+        scroll_area.installEventFilter(self)
+        self.scroll_area = scroll_area
+        main_layout.addWidget(scroll_area)
+
+        self._update_count()
+
+    def _on_threshold_changed(self, val):
+        th = val / 100.0
+        self.threshold_label.setText(f"{th:.2f}")
+        self.img_widget.set_threshold(th)
+        self._update_count()
+
+    def _update_count(self):
+        filtered = _filter_by_confidence(self.annotations, self.img_widget.threshold)
+        self.count_label.setText(f"{len(filtered)} / {len(self.annotations)}")
+
+    def _setup_shortcut(self):
+        QShortcut(QKeySequence("q"), self).activated.connect(self.reject)
+        QShortcut(QKeySequence("Q"), self).activated.connect(self.reject)
+        QShortcut(QKeySequence("Return"), self).activated.connect(self.accept)
+
+    def keyPressEvent(self, event):
+        key = event.key()
+        if key in (Qt.Key_Q, Qt.Key_q):
+            self.reject()
+        else:
+            super().keyPressEvent(event)
 
 
 class ImageAnnotatorApp(QMainWindow):
@@ -587,34 +770,22 @@ class ImageAnnotatorApp(QMainWindow):
             with open(temp_data_path / 'annotations.json', 'w') as f:
                 json.dump(coco_data, f)
 
+            filter_dialog = ConfidenceFilterDialog(str(temp_data_path), self)
+            if filter_dialog.exec_() != QDialog.Accepted:
+                self.statusLabel.setText("已取消")
+                return
+
+            threshold = filter_dialog.img_widget.threshold
+            final_annotations = _filter_by_confidence(frame_annotations, threshold)
+
+            with open(labels_dir / "frame_000000.json", 'w') as f:
+                json.dump(final_annotations, f)
+            coco_data['annotations'] = final_annotations
+            with open(temp_data_path / 'annotations.json', 'w') as f:
+                json.dump(coco_data, f)
+
             orig_img = cv2.imread(src_image)
-            annotated_img = orig_img.copy()
-
-            if frame_annotations:
-                for ann in frame_annotations:
-                    cat_idx = ann['category_id']
-                    color = ann.get('color', BOX_COLORS[cat_idx % len(BOX_COLORS)])
-                    b = ann['bbox']
-                    conf = ann.get('confidence', 1.0)
-                    cat_name = find_list[cat_idx] if cat_idx < len(find_list) else f"obj{cat_idx}"
-
-                    overlay = annotated_img.copy()
-                    seg = ann.get('segmentation', [])
-                    if seg:
-                        pts = np.array(seg[0], dtype=np.int32).reshape(-1, 2)
-                        cv2.fillPoly(overlay, [pts], color)
-                        cv2.addWeighted(annotated_img, 0.75, overlay, 0.25, 0, annotated_img)
-
-                    cv2.rectangle(annotated_img,
-                        (int(b[0]), int(b[1])), (int(b[0] + b[2]), int(b[1] + b[3])),
-                        color, 1)
-
-                    label = f"{cat_name} {conf:.2f}"
-                    font = cv2.FONT_HERSHEY_SIMPLEX
-                    (tw, th), baseline = cv2.getTextSize(label, font, 0.5, 1)
-                    tx, ty = int(b[0]), max(14, int(b[1]))
-                    cv2.rectangle(annotated_img, (tx, ty - th - baseline), (tx + tw, ty), (0, 0, 0), -1)
-                    cv2.putText(annotated_img, label, (tx, ty - baseline), font, 0.5, (255, 255, 255), 1)
+            annotated_img = _render_filtered_image(orig_img, final_annotations, find_list, 0.0)
 
             output_path = dst_dir / image_name
             if output_path.exists():
