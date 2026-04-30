@@ -9,8 +9,8 @@ import json
 from pathlib import Path
 
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-                               QLabel, QLineEdit, QFileDialog, QGroupBox, QMessageBox, QDialog, QShortcut)
-from PyQt5.QtCore import Qt, pyqtSignal, QPoint, QRect
+                               QLabel, QLineEdit, QFileDialog, QGroupBox, QMessageBox, QDialog, QShortcut, QScrollArea)
+from PyQt5.QtCore import Qt, pyqtSignal, QPoint, QRect, QScroller
 from PyQt5.QtGui import QImage, QPainter, QPen, QColor, QFont, QKeySequence, QPalette
 
 from video_control import VideoController
@@ -46,48 +46,55 @@ class ImageAnnotationWidget(QWidget):
         self.start_point = QPoint()
         self.current_rect = QRect()
 
-        screen = QApplication.primaryScreen().geometry()
-        max_w = screen.width() - 40
-        max_h = screen.height() - 100
-        scale_w = max_w / self.orig_w if self.orig_w > max_w else 1.0
-        scale_h = max_h / self.orig_h if self.orig_h > max_h else 1.0
-        self.scale = min(scale_w, scale_h)
-        self.display_w = int(self.orig_w * self.scale)
-        self.display_h = int(self.orig_h * self.scale)
-
-        self.setFixedSize(self.display_w, self.display_h)
-        self.setMinimumSize(self.display_w, self.display_h)
-        self.setMaximumSize(self.display_w, self.display_h)
+        self.setFixedSize(self.orig_w, self.orig_h)
+        self.setMinimumSize(self.orig_w, self.orig_h)
+        self.setFocusPolicy(Qt.StrongFocus)
 
         rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         self.qimage = QImage(rgb.data, self.orig_w, self.orig_h, self.orig_w * 3, QImage.Format_RGB888)
 
-    def _to_orig(self, pt):
-        return QPoint(int(pt.x() / self.scale), int(pt.y() / self.scale))
-
-    def _rect_to_orig(self, r):
-        return QRect(self._to_orig(r.topLeft()), self._to_orig(r.bottomRight()))
+    def keyPressEvent(self, event):
+        scroll = self.window().scroll_area
+        if scroll is None:
+            return
+        dx, dy = 0, 0
+        step = 50
+        if event.key() in (Qt.Key_W, Qt.Key_Up):
+            dy = -step
+        elif event.key() in (Qt.Key_S, Qt.Key_Down):
+            dy = step
+        elif event.key() in (Qt.Key_A, Qt.Key_Left):
+            dx = -step
+        elif event.key() in (Qt.Key_D, Qt.Key_Right):
+            dx = step
+        else:
+            super().keyPressEvent(event)
+            return
+        hbar = scroll.horizontalScrollBar()
+        vbar = scroll.verticalScrollBar()
+        hbar.setValue(max(hbar.minimum(), min(hbar.maximum(), hbar.value() + dx)))
+        vbar.setValue(max(vbar.minimum(), min(vbar.maximum(), vbar.value() + dy)))
+        event.accept()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self.drawing = True
-            self.start_point = self._to_orig(event.pos())
+            self.start_point = event.pos()
             self.current_rect = QRect(self.start_point, self.start_point)
 
     def mouseMoveEvent(self, event):
         if self.drawing:
-            self.current_rect = QRect(self.start_point, self._to_orig(event.pos())).normalized()
+            self.current_rect = QRect(self.start_point, event.pos()).normalized()
             self.update()
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton and self.drawing:
             self.drawing = False
-            rect = QRect(self.start_point, self._to_orig(event.pos())).normalized()
-            if rect.width() > 5 and rect.height() > 5:
+            if self.current_rect.width() > 5 and self.current_rect.height() > 5:
                 color = BOX_COLORS[self.color_index[0] % len(BOX_COLORS)]
                 self.boxes.append({
-                    'x1': rect.left(), 'y1': rect.top(),
-                    'x2': rect.right(), 'y2': rect.bottom(),
+                    'x1': self.current_rect.left(), 'y1': self.current_rect.top(),
+                    'x2': self.current_rect.right(), 'y2': self.current_rect.bottom(),
                     'color': color
                 })
                 self.color_index[0] += 1
@@ -97,29 +104,19 @@ class ImageAnnotationWidget(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        scaled = self.qimage.scaled(self.display_w, self.display_h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        painter.drawImage(0, 0, scaled)
+        painter.drawImage(0, 0, self.qimage)
         for i, box in enumerate(self.boxes):
             color = QColor(*box['color'][::-1])
             pen = QPen(color, 2)
             painter.setPen(pen)
-            x1 = int(box['x1'] * self.scale)
-            y1 = int(box['y1'] * self.scale)
-            w = int((box['x2'] - box['x1']) * self.scale)
-            h = int((box['y2'] - box['y1']) * self.scale)
-            painter.drawRect(x1, y1, w, h)
-            font_size = max(10, int(14 * self.scale))
-            painter.setFont(QFont("Arial", font_size))
-            painter.drawText(x1, y1 - 5, f"目标 {i + 1}")
+            painter.drawRect(box['x1'], box['y1'], box['x2'] - box['x1'], box['y2'] - box['y1'])
+            painter.setFont(QFont("Arial", 12))
+            painter.drawText(box['x1'], box['y1'] - 3, f"{i + 1}")
         if self.drawing and not self.current_rect.isNull():
             color = QColor(*BOX_COLORS[self.color_index[0] % len(BOX_COLORS)][::-1])
             pen = QPen(color, 2)
             painter.setPen(pen)
-            rx = int(self.current_rect.left() * self.scale)
-            ry = int(self.current_rect.top() * self.scale)
-            rw = int(self.current_rect.width() * self.scale)
-            rh = int(self.current_rect.height() * self.scale)
-            painter.drawRect(rx, ry, rw, rh)
+            painter.drawRect(self.current_rect)
 
 
 class ImageAnnotationDialog(QDialog):
@@ -136,12 +133,17 @@ class ImageAnnotationDialog(QDialog):
 
     def _setup_ui(self):
         self.img_widget = ImageAnnotationWidget(self.image, self.boxes, self.color_index)
-        dw = self.img_widget.display_w
-        dh = self.img_widget.display_h
+        iw = self.img_widget.orig_w
+        ih = self.img_widget.orig_h
+        screen = QApplication.primaryScreen().geometry()
+        sw, sh = screen.width() - 80, screen.height() - 120
+        dw = min(iw, sw)
+        dh = min(ih, sh)
         self.setWindowTitle(f"图片标注 - {Path(self.image_path).name}")
         self.setFixedSize(dw, dh + 36)
         self.setMinimumSize(dw, dh + 36)
         self.setMaximumSize(dw, dh + 36)
+        self.move(screen.x() + (screen.width() - dw) // 2, screen.y() + (screen.height() - dh - 36) // 2)
         self.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint)
 
         main_layout = QVBoxLayout(self)
@@ -155,7 +157,7 @@ class ImageAnnotationDialog(QDialog):
         header_layout.setContentsMargins(8, 0, 8, 0)
         header_layout.setSpacing(4)
 
-        instr_label = QLabel("框选目标 | C:撤销 | Q:退出")
+        instr_label = QLabel("WASD/方向键平移 | 框选目标 | C:撤销 | Q:退出")
         instr_label.setStyleSheet("color: #ccc; font-size: 12px;")
         header_layout.addWidget(instr_label)
         header_layout.addStretch()
@@ -180,9 +182,21 @@ class ImageAnnotationDialog(QDialog):
         self.done_btn.clicked.connect(self.accept)
         header_layout.addWidget(self.done_btn)
         main_layout.addWidget(header)
-        main_layout.addWidget(self.img_widget)
+
+        scroll_area = QScrollArea()
+        scroll_area.setFixedSize(dw, dh)
+        scroll_area.setWidget(self.img_widget)
+        scroll_area.setWidgetResizable(False)
+        scroll_area.setAlignment(Qt.AlignCenter)
+        scroll_area.setFrameShape(QScrollArea.NoFrame)
+        scroll_area.horizontalScrollBar().setHidden(True)
+        scroll_area.verticalScrollBar().setHidden(True)
+        QScroller.grabGesture(scroll_area.viewport(), QScroller.TouchGesture)
+        scroll_area.installEventFilter(self)
+        self.scroll_area = scroll_area
         self.img_widget.setFocus()
         self.img_widget.box_added.connect(lambda: self.undo_btn.setEnabled(True))
+        main_layout.addWidget(scroll_area)
 
     def _setup_shortcut(self):
         QShortcut(QKeySequence("c"), self).activated.connect(self._undo_last)
@@ -379,10 +393,10 @@ class ImageAnnotatorApp(QMainWindow):
                     float((b[0] + b[2]) / 2),
                     float((b[1] + b[3]) / 2)
                 ] for b in boxes], dtype=np.float32)
-                print(f"  使用bbox中心点作为points: {center_points.tolist()}")
+                print(f"  bbox中心点(points): {center_points.tolist()}")
                 from ultralytics.models.sam import SAM3Predictor
                 predictor = SAM3Predictor(overrides=overrides)
-                results = predictor(source=src_image, points=center_points, labels=[1] * len(boxes))
+                results = predictor(source=src_image, bboxes=boxes, points=center_points, labels=[1] * len(boxes))
                 r = list(results)[0] if hasattr(results, '__iter__') else results
                 if hasattr(r, 'masks') and r.masks is not None:
                     all_masks.append(r.masks.data)
