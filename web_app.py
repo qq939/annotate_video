@@ -939,7 +939,7 @@ def video_prompt_frame():
             coco = json.load(f)
         fps = coco.get('info', {}).get('fps', 30)
     try:
-        from post_annotate import do_bidirectional_annotate
+        from bidirectional_annotate import do_bidirectional_annotate
         do_bidirectional_annotate(str(data_path), frame_idx, boxes, iou_val, merge_iou_val, find_list)
         return jsonify({'success': True})
     except Exception as e:
