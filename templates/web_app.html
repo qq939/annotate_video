@@ -283,6 +283,47 @@ a { color: #3498db; }
     <input type="file" id="imageFileInput" accept="image/*" style="display:none" onchange="handleImageFile(this)">
     <div id="imageFileName" style="margin-top:6px;font-size:12px;color:#888;"></div>
   </div>
+  <div class="panel" id="imageDrawPanel" style="display:none">
+    <div class="panel-title">2. 框选目标 & 颜色</div>
+    <div class="row">
+      <label>颜色:</label>
+      <div class="color-palette" id="colorPalette"></div>
+    </div>
+    <div id="imageCanvasTab">提示: 在图片上拖动画框 | C:撤销</div>
+    <div class="canvas-wrap" id="imageCanvasWrap">
+      <img id="imageThumbImg" crossorigin="anonymous">
+      <canvas id="imageCanvas"></canvas>
+    </div>
+    <div class="box-list" id="imageBoxList"></div>
+  </div>
+  <div class="panel" id="imageParamsPanel" style="display:none">
+    <div class="panel-title">3. 参数设置</div>
+    <div class="row">
+      <label>文本提示词(逗号分隔):</label>
+      <input type="text" id="imageItems" placeholder="如: nozzle, needle" style="width:220px">
+    </div>
+    <div class="row">
+      <label>前后IoU:</label>
+      <input type="text" id="imageIou" value="0.5" style="width:60px">
+      <label style="margin-left:12px">帧IoU:</label>
+      <input type="text" id="imageMergeIou" value="0.5" style="width:60px">
+      <label style="margin-left:12px"></label>
+      <label><input type="checkbox" id="imageSemantic" style="margin-right:4px">使用语义推理模型</label>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button class="btn btn-primary" id="imageRunBtn" onclick="runImageAnnotate()">▶ 执行标注</button>
+      <button class="btn btn-danger btn-sm" onclick="clearImageBoxes()">清空框</button>
+    </div>
+    <div class="progress-bar" id="imageProgressBar">
+      <div class="progress-fill" id="imageProgressFill"></div>
+    </div>
+    <div id="imageStatus"></div>
+    <div id="imageResultArea" style="display:none;margin-top:12px">
+      <div style="font-size:13px;color:#00CC00;margin-bottom:6px">✓ 标注完成</div>
+      <img id="imageResultImg" class="result-img">
+    </div>
+  </div>
+</div>
 
 <!-- ==================== 视频预览 ==================== -->
 <div id="tab-viewer" class="tab-content">
@@ -321,7 +362,7 @@ a { color: #3498db; }
       <span id="viewAnnCount" style="font-size:12px;color:#888;margin-left:8px"></span>
     </div>
     <div class="canvas-wrap" id="viewCanvasWrap" style="overflow:auto;max-height:500px;position:relative;min-height:200px;background:#111;display:flex;align-items:center;justify-content:center">
-      <span id="viewLoading" style="color:#666;font-size:14px">点击"打开"加载视频帧</span>
+      <span id="viewLoading" style="color:#666;font-size:14px">正在加载视频帧...</span>
       <img id="viewImg" crossorigin="anonymous" style="display:none;width:100%" src="">
       <canvas id="viewCanvas" style="position:absolute;top:0;left:0;border:1px solid #666;background:rgba(0,0,0,0.1);z-index:1;cursor:crosshair;width:100%;height:100%;display:none"></canvas>
     </div>
@@ -381,50 +422,6 @@ a { color: #3498db; }
     <div class="row" style="margin-top:8px">
       <button class="btn btn-primary" onclick="doVideoSave()">💾 保存视频</button>
       <a id="saveResult" href="#" style="display:none;margin-left:16px">下载视频</a>
-    </div>
-  </div>
-</div>
-
-
-  <div class="panel" id="imageDrawPanel" style="display:none">
-    <div class="panel-title">2. 框选目标 & 颜色</div>
-    <div class="row">
-      <label>颜色:</label>
-      <div class="color-palette" id="colorPalette"></div>
-    </div>
-    <div id="imageCanvasTab">提示: 在图片上拖动画框 | C:撤销</div>
-    <div class="canvas-wrap" id="imageCanvasWrap">
-      <img id="imageThumbImg" crossorigin="anonymous">
-      <canvas id="imageCanvas"></canvas>
-    </div>
-    <div class="box-list" id="imageBoxList"></div>
-  </div>
-
-  <div class="panel" id="imageParamsPanel" style="display:none">
-    <div class="panel-title">3. 参数设置</div>
-    <div class="row">
-      <label>文本提示词(逗号分隔):</label>
-      <input type="text" id="imageItems" placeholder="如: nozzle, needle" style="width:220px">
-    </div>
-    <div class="row">
-      <label>前后IoU:</label>
-      <input type="text" id="imageIou" value="0.5" style="width:60px">
-      <label style="margin-left:12px">帧IoU:</label>
-      <input type="text" id="imageMergeIou" value="0.5" style="width:60px">
-      <label style="margin-left:12px"></label>
-      <label><input type="checkbox" id="imageSemantic" style="margin-right:4px">使用语义推理模型</label>
-    </div>
-    <div class="row" style="margin-top:10px">
-      <button class="btn btn-primary" id="imageRunBtn" onclick="runImageAnnotate()">▶ 执行标注</button>
-      <button class="btn btn-danger btn-sm" onclick="clearImageBoxes()">清空框</button>
-    </div>
-    <div class="progress-bar" id="imageProgressBar">
-      <div class="progress-fill" id="imageProgressFill"></div>
-    </div>
-    <div id="imageStatus"></div>
-    <div id="imageResultArea" style="display:none;margin-top:12px">
-      <div style="font-size:13px;color:#00CC00;margin-bottom:6px">✓ 标注完成</div>
-      <img id="imageResultImg" class="result-img">
     </div>
   </div>
 </div>
@@ -903,14 +900,29 @@ let promptBoxes = [];
 function openViewer(dir) {
   console.log('[openViewer] dir=', dir);
   viewDir = dir || viewDir;
+  const loading = document.getElementById('viewLoading');
+  loading.textContent = '正在加载视频帧...';
+  loading.style.display = 'flex';
+  document.getElementById('viewImg').style.display = 'none';
+  document.getElementById('viewCanvas').style.display = 'none';
   fetch('/api/video_frames?dir=' + encodeURIComponent(viewDir) + '&conf=' + viewConf)
     .then(r => { console.log('[openViewer] status', r.status); return r.json(); })
     .then(d => {
-      if (d.error) { console.error('[openViewer] error:', d.error); alert(d.error); return; }
+      if (d.error) { console.error('[openViewer] error:', d.error); loading.textContent = '加载失败: ' + d.error; return; }
       viewTotalFrames = d.total;
       viewNextTrackId = d.next_track_id;
       document.getElementById('viewNextTid').value = viewNextTrackId;
+      if (viewTotalFrames === 0) {
+        loading.textContent = '没有视频帧数据，请先进行视频标注';
+        document.getElementById('viewFrameInfo').textContent = '0/0';
+        document.getElementById('viewAnnCount').textContent = '';
+        return;
+      }
       loadViewFrame(0);
+    })
+    .catch(err => {
+      console.error('[openViewer] fetch error:', err);
+      loading.textContent = '网络错误: ' + err.message;
     });
 }
 
