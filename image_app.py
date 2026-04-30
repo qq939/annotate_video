@@ -33,6 +33,25 @@ SAM_MODEL_PATH = "sam3.pt"
 IOU_THRESHOLD = 0.5
 MERGE_IOU_THRESHOLD = 0.5
 
+def _bbox_iou(a, b):
+    ax1, ay1, ax2, ay2 = a
+    bx1, by1, bx2, by2 = b
+    inter_x1, inter_y1 = max(ax1, bx1), max(ay1, by1)
+    inter_x2, inter_y2 = min(ax2, bx2), min(ay2, by2)
+    inter = max(0, inter_x2 - inter_x1) * max(0, inter_y2 - inter_y1)
+    area_a = (ax2 - ax1) * (ay2 - ay1)
+    area_b = (bx2 - bx1) * (by2 - by1)
+    union = area_a + area_b - inter
+    return inter / union if union > 0 else 0
+
+def _match_annotation_to_box(ann_bbox, boxes):
+    best_iou, best_idx = 0, 0
+    for i, box in enumerate(boxes):
+        iou = _bbox_iou(ann_bbox, box)
+        if iou > best_iou:
+            best_iou, best_idx = iou, i
+    return best_idx, best_iou
+
 
 class ImageAnnotationWidget(QWidget):
     box_added = pyqtSignal()
@@ -210,6 +229,9 @@ class ImageAnnotationDialog(QDialog):
     def get_boxes(self):
         return [(b['x1'], b['y1'], b['x2'], b['y2']) for b in self.boxes]
 
+    def get_boxes_and_colors(self):
+        return [(b['x1'], b['y1'], b['x2'], b['y2'], b['color']) for b in self.boxes]
+
 
 class ImageAnnotatorApp(QMainWindow):
     def __init__(self):
@@ -346,7 +368,9 @@ class ImageAnnotatorApp(QMainWindow):
         dialog = ImageAnnotationDialog(src_image, self, self.selected_color_idx[0], find_list)
         if dialog.exec_() != QDialog.Accepted:
             return
-        boxes = dialog.get_boxes()
+        boxes_colors = dialog.get_boxes_and_colors()
+        boxes = [(b[0], b[1], b[2], b[3]) for b in boxes_colors]
+        box_colors = {i: b[4] for i, b in enumerate(boxes_colors)}
 
         iou_val = float(self.iou_input.text() or "0.5")
         merge_iou_val = float(self.merge_iou_input.text() or "0.5")
@@ -505,10 +529,14 @@ class ImageAnnotatorApp(QMainWindow):
                                 else:
                                     cat_idx = 0
                                 confidence = float(confs[idx]) if confs is not None and idx < len(confs) else float(mask.max())
+                                ann_bbox_xyxy = [bbox[0], bbox[1], bbox[0] + bbox[2], bbox[1] + bbox[3]]
+                                matched_box_idx, match_iou = _match_annotation_to_box(ann_bbox_xyxy, boxes)
+                                ann_color = box_colors.get(matched_box_idx, BOX_COLORS[0])
                                 ann = {
                                     'id': annotation_id[0], 'track_id': track_id, 'image_id': 0,
                                     'category_id': cat_idx, 'bbox': bbox, 'area': float(area),
-                                    'segmentation': [polygon], 'iscrowd': 0, 'confidence': confidence
+                                    'segmentation': [polygon], 'iscrowd': 0, 'confidence': confidence,
+                                    'color': ann_color
                                 }
                                 coco_data['annotations'].append(ann)
                                 frame_annotations.append(ann)
@@ -529,7 +557,7 @@ class ImageAnnotatorApp(QMainWindow):
             if frame_annotations:
                 for ann in frame_annotations:
                     cat_idx = ann['category_id']
-                    color = BOX_COLORS[cat_idx % len(BOX_COLORS)]
+                    color = ann.get('color', BOX_COLORS[cat_idx % len(BOX_COLORS)])
                     b = ann['bbox']
                     conf = ann.get('confidence', 1.0)
                     cat_name = find_list[cat_idx] if cat_idx < len(find_list) else f"obj{cat_idx}"
