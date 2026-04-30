@@ -25,7 +25,7 @@ BOX_COLORS = [
     (255, 0, 128),  # 紫 BGR
 ]
 
-SRC_IMAGES_DIR = "src/images"
+SRC_IMAGES_DIR = "1src/image"
 TEMP_DATA_IMAGE_DIR = "temp_data_image"
 DST_IMAGES_DIR = "1dst/image"
 SAM_MODEL_PATH = "sam3.pt"
