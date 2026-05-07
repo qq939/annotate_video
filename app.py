@@ -718,14 +718,15 @@ class UnifiedPanel(QMainWindow):
 
         self.prompt_btn = QPushButton("提示帧")
         self.prompt_btn.setFixedHeight(24)
-        self.prompt_btn.setStyleSheet("QPushButton { font-size: 11px; }")
+        self.prompt_btn.setStyleSheet("QPushButton { background-color: #FFA500; color: white; border: none; border-radius: 3px; font-size: 11px; } QPushButton:hover { background-color: #FF8C00; }")
         self.prompt_btn.clicked.connect(self.toggle_prompt_mode)
         frame_nav_play_layout.addWidget(self.prompt_btn)
 
         self.frame_label = QLabel("1/1")
         self.frame_label.setAlignment(Qt.AlignCenter)
-        self.frame_label.setFixedSize(50, 24)
-        self.frame_label.setStyleSheet("QLabel { background-color: #333; color: #fff; border-radius: 3px; font-weight: bold; font-size: 11px; }")
+        self.frame_label.setFixedHeight(24)
+        self.frame_label.setFixedWidth(52)
+        self.frame_label.setStyleSheet("QLabel { background-color: #333; color: #fff; border-radius: 3px; font-weight: bold; font-size: 11px; padding: 0 4px; }")
         frame_nav_play_layout.addWidget(self.frame_label)
 
         self.next_btn = QPushButton("正帧")
