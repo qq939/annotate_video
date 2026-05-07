@@ -717,17 +717,17 @@ class UnifiedPanel(QMainWindow):
         self.backward_btn.clicked.connect(self.toggle_backward)
         frame_nav_play_layout.addWidget(self.backward_btn)
 
-        self.prompt_btn = QPushButton("提示帧")
-        self.prompt_btn.setFixedHeight(24)
-        self.prompt_btn.setStyleSheet("QPushButton { background-color: #FFA500; color: white; border: none; border-radius: 3px; font-size: 11px; } QPushButton:hover { background-color: #FF8C00; }")
-        self.prompt_btn.clicked.connect(self.toggle_prompt_mode)
-        frame_nav_play_layout.addWidget(self.prompt_btn)
-
         self.backward_cb = QCheckBox("后向")
         self.backward_cb.setFixedHeight(24)
         self.backward_cb.setChecked(True)
         self.backward_cb.setStyleSheet("QCheckBox { font-size: 11px; }")
         frame_nav_play_layout.addWidget(self.backward_cb)
+
+        self.prompt_btn = QPushButton("提示帧")
+        self.prompt_btn.setFixedHeight(24)
+        self.prompt_btn.setStyleSheet("QPushButton { background-color: #FFA500; color: white; border: none; border-radius: 3px; font-size: 11px; } QPushButton:hover { background-color: #FF8C00; }")
+        self.prompt_btn.clicked.connect(self.toggle_prompt_mode)
+        frame_nav_play_layout.addWidget(self.prompt_btn)
 
         self.frame_label = QLabel("1/1")
         self.frame_label.setAlignment(Qt.AlignCenter)
