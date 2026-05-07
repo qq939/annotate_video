@@ -718,7 +718,7 @@ class UnifiedPanel(QMainWindow):
 
         self.prompt_btn = QPushButton("提示帧")
         self.prompt_btn.setFixedHeight(24)
-        self.prompt_btn.setStyleSheet("QPushButton { background-color: #FFA500; color: white; border: none; border-radius: 3px; font-size: 11px; } QPushButton:hover { background-color: #FF8C00; }")
+        self.prompt_btn.setStyleSheet("QPushButton { font-size: 11px; }")
         self.prompt_btn.clicked.connect(self.toggle_prompt_mode)
         frame_nav_play_layout.addWidget(self.prompt_btn)
 
