@@ -58,8 +58,9 @@ def _render_filtered_image(img, annotations, find_list, threshold):
         overlay = result.copy()
         seg = ann.get('segmentation', [])
         if seg:
-            pts = np.array(seg[0], dtype=np.int32).reshape(-1, 2)
-            cv2.fillPoly(overlay, [pts], color)
+            for poly in seg:
+                pts = np.array(poly, dtype=np.int32).reshape(-1, 2)
+                cv2.fillPoly(overlay, [pts], color)
             cv2.addWeighted(result, 0.75, overlay, 0.25, 0, result)
 
         cv2.rectangle(result, (int(b[0]), int(b[1])), (int(b[0] + b[2]), int(b[1] + b[3])), color, 1)
@@ -816,7 +817,7 @@ class ImageAnnotatorApp(QMainWindow):
                         coco_data['annotations'].append(ann)
                         frame_annotations.append(ann)
                         annotation_id[0] += 1
-                        print(f"[DEBUG] annotation[{idx}] contours={len(polygon_list)}, bbox={[float(x1), float(y1), float(x2 - x1), float(y2 - y1)]}")
+                        print(f"[DEBUG] annotation[{idx}] polygon_count={len(polygon_list)}, polygon_points={len(polygon_list[0]) if polygon_list else 0}, bbox={[float(x1), float(y1), float(x2 - x1), float(y2 - y1)]}")
                 else:
                     print("[DEBUG] 无有效mask")
 
