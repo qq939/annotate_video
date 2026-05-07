@@ -1470,6 +1470,35 @@ class UnifiedPanel(QMainWindow):
                 self.trace_id_list.addItem(m)
             print(f"已加载 trace_id_mappings: {len(mappings)} 条")
 
+    def _apply_single_mapping_to_mid(self, from_id, to_id):
+        temp_mid = Path(TEMP_DATA_MID_DIR)
+        labels_dir = temp_mid / "labels"
+        annotations_file = temp_mid / "annotations.json"
+        if not labels_dir.exists():
+            return
+        count = 0
+        for label_file in sorted(labels_dir.glob("frame_*.json")):
+            with open(label_file) as f:
+                frame_anns = json.load(f)
+            changed = False
+            for ann in frame_anns:
+                if ann.get('track_id') == from_id:
+                    ann['track_id'] = to_id
+                    changed = True
+            if changed:
+                with open(label_file, 'w') as f:
+                    json.dump(frame_anns, f)
+                count += 1
+        if annotations_file.exists():
+            with open(annotations_file) as f:
+                coco = json.load(f)
+            for ann in coco.get('annotations', []):
+                if ann.get('track_id') == from_id:
+                    ann['track_id'] = to_id
+            with open(annotations_file, 'w') as f:
+                json.dump(coco, f)
+        print(f"恢复映射: {from_id} → {to_id}, 影响 {count} 帧")
+
     def _apply_trace_id_mappings_to_mid(self):
         temp_mid = Path(TEMP_DATA_MID_DIR)
         frames_dir = temp_mid / "frames"
@@ -1529,11 +1558,25 @@ class UnifiedPanel(QMainWindow):
 
     def remove_selected_trace_id(self):
         row = self.trace_id_list.currentRow()
-        if row >= 0:
-            self.trace_id_list.takeItem(row)
-            self._save_trace_id_mappings()
-            if self.viewer:
-                self.viewer.update_display()
+        if row < 0:
+            return
+        item = self.trace_id_list.item(row)
+        mapping_text = item.text()
+        parts = mapping_text.replace("ID:", "").split("→")
+        if len(parts) == 2:
+            try:
+                old_id = int(parts[0].strip())
+                new_id = int(parts[1].strip())
+                self._apply_single_mapping_to_mid(new_id, old_id)
+                if self.ctrl.next_track_id > old_id:
+                    self.ctrl.next_track_id = old_id
+                    self.trace_id_label.setText(str(self.ctrl.next_track_id))
+            except ValueError:
+                pass
+        self.trace_id_list.takeItem(row)
+        self._save_trace_id_mappings()
+        if self.viewer:
+            self.viewer.update_display()
 
     def clear_trace_id_mappings(self):
         self.trace_id_list.clear()
@@ -1625,8 +1668,6 @@ class UnifiedPanel(QMainWindow):
                 json.dump(frame_anns, f)
 
         self.trace_id_list.addItem(f"ID: {old_id} → {new_id}")
-        self.ctrl.next_track_id += 1
-        self.trace_id_label.setText(str(self.ctrl.next_track_id))
         self._save_trace_id_mappings()
         if self.viewer:
             self.viewer.update_display()
