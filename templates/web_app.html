@@ -73,6 +73,21 @@ body { font-family: 'Segoe UI', sans-serif; background: #1e1e2e; color: #cdd6f4;
 .bind-row label { font-size: 11px; color: #a6adc8; min-width: 36px; }
 .bind-row input { padding: 2px 6px; background: #313244; border: 1px solid #45475a; border-radius: 4px; color: #cdd6f4; font-size: 11px; width: 70px; }
 .bind-row .btn { padding: 2px 8px; font-size: 11px; }
+.debug-panel { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #1e1e2e; border: 2px solid #89b4fa; border-radius: 8px; padding: 16px; width: 600px; max-height: 80vh; z-index: 2000; box-shadow: 0 0 30px rgba(137, 180, 250, 0.3); display: none; }
+.debug-panel.show { display: block; }
+.debug-panel h2 { color: #89b4fa; margin: 0 0 12px 0; font-size: 16px; display: flex; justify-content: space-between; align-items: center; }
+.debug-panel h2 .close-btn { background: #f38ba8; color: #1e1e2e; border: none; border-radius: 4px; padding: 4px 12px; cursor: pointer; font-size: 12px; }
+.debug-content { background: #11111b; border: 1px solid #313244; border-radius: 4px; padding: 12px; max-height: 400px; overflow-y: auto; font-family: 'Consolas', 'Monaco', monospace; font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; }
+.debug-line { color: #cdd6f4; }
+.debug-line.time { color: #6c7086; }
+.debug-line.info { color: #89b4fa; }
+.debug-line.success { color: #a6e3a1; }
+.debug-line.warning { color: #fab387; }
+.debug-line.error { color: #f38ba8; }
+.debug-line.progress { color: #89dceb; }
+.debug-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1999; display: none; }
+.debug-overlay.show { display: block; }
+#debugToggleBtn { position: fixed; bottom: 80px; right: 20px; z-index: 1001; }
 </style>
 </head>
 <body>
@@ -252,6 +267,20 @@ body { font-family: 'Segoe UI', sans-serif; background: #1e1e2e; color: #cdd6f4;
       <span class="frame-label" id="navFrameLabel">0/0</span>
     </div>
   </div>
+
+<!-- Debug Panel -->
+<div class="debug-overlay" id="debugOverlay"></div>
+<div class="debug-panel" id="debugPanel">
+  <h2>
+    <span>🔍 Debug 日志</span>
+    <button class="close-btn" onclick="toggleDebug()">关闭</button>
+  </h2>
+  <div class="debug-content" id="debugContent"></div>
+</div>
+
+<!-- Debug Toggle Button -->
+<button class="btn btn-secondary" id="debugToggleBtn" onclick="toggleDebug()">🔍 Debug</button>
+
 </div>
 
 <script>
@@ -283,6 +312,38 @@ const canvas = document.getElementById('viewerCanvas');
 const ctx = canvas.getContext('2d');
 
 function $(id) { return document.getElementById(id); }
+
+let debugLogs = [];
+function addDebugLog(msg, type) {
+  const time = new Date().toLocaleTimeString();
+  debugLogs.push({ time, msg, type });
+  const content = $('debugContent');
+  if (content) {
+    const line = document.createElement('div');
+    line.className = 'debug-line ' + (type || '');
+    line.textContent = '[' + time + '] ' + msg;
+    content.appendChild(line);
+    content.scrollTop = content.scrollHeight;
+  }
+}
+
+function toggleDebug() {
+  const panel = $('debugPanel');
+  const overlay = $('debugOverlay');
+  if (panel.classList.contains('show')) {
+    panel.classList.remove('show');
+    overlay.classList.remove('show');
+  } else {
+    panel.classList.add('show');
+    overlay.classList.add('show');
+  }
+}
+
+function clearDebug() {
+  debugLogs = [];
+  const content = $('debugContent');
+  if (content) content.innerHTML = '';
+}
 
 function setStatus(msg, isError) {
   const el = $('statusMsg');
@@ -385,6 +446,13 @@ async function runAnnotation(items) {
   $('progressText').style.display = 'block';
   $('progressFill').style.width = '0%';
   $('progressText').textContent = '正在初始化...';
+  clearDebug();
+  toggleDebug();
+  addDebugLog('开始标注任务...', 'info');
+  addDebugLog('视频: ' + state.videoName, 'info');
+  addDebugLog('IoU: ' + $('iouInput').value + ', 合并IoU: ' + $('mergeIouInput').value, 'info');
+  addDebugLog('查找: ' + (items || '全部'), 'info');
+  addDebugLog('边界框数量: ' + state.promptBboxes.length, 'info');
 
   const params = {
     video_name: state.videoName,
@@ -422,16 +490,24 @@ async function runAnnotation(items) {
             if (d.progress !== undefined) {
               $('progressFill').style.width = d.progress + '%';
               $('progressText').textContent = d.msg || '';
+              addDebugLog(d.msg || '处理中... ' + d.progress + '%', 'progress');
+            }
+            if (d.error) {
+              addDebugLog('错误: ' + d.error, 'error');
             }
           } catch (e) { /* ignore parse errors */ }
         }
       }
     }
 
+    addDebugLog('标注完成！', 'success');
     setStatus('标注完成');
     state.promptBboxes = [];
+    cachedFirstFrameImg = null;
+    cachedFirstFrameData = null;
     await showViewer(true);
   } catch (e) {
+    addDebugLog('标注失败: ' + e.message, 'error');
     setStatus('标注失败: ' + e.message, true);
   } finally {
     state.annotationRunning = false;
@@ -488,6 +564,46 @@ function updateFrameInfo() {
 }
 
 // ==================== Canvas Drawing (Annotate on Right Panel) ====================
+let cachedFirstFrameImg = null;
+let cachedFirstFrameData = null;
+
+function cacheFirstFrame() {
+  if (cachedFirstFrameData) return Promise.resolve();
+  return apiGet('/api/get_video_first_frame').then(data => {
+    cachedFirstFrameData = data;
+    cachedFirstFrameImg = null;
+  });
+}
+
+function getFirstFrameImg() {
+  if (cachedFirstFrameImg) return Promise.resolve(cachedFirstFrameImg);
+  if (!cachedFirstFrameData) return Promise.reject('no cache');
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      cachedFirstFrameImg = img;
+      resolve(img);
+    };
+    img.src = 'data:image/jpeg;base64,' + cachedFirstFrameData.image;
+  });
+}
+
+function redrawCanvas() {
+  if (!canvas.width) return;
+  getFirstFrameImg().then(img => {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = '#a6e3a1';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(state.drawStartX, state.drawStartY, 
+      state.drawCurrentX - state.drawStartX, state.drawCurrentY - state.drawStartY);
+    for (const bx of state.promptBboxes) {
+      ctx.strokeStyle = '#f9e2af';
+      ctx.strokeRect(bx[0], bx[1], bx[2] - bx[0], bx[3] - bx[1]);
+    }
+  }).catch(() => {});
+}
+
 canvas.addEventListener('mousedown', (e) => {
   if (state.annotationRunning || !state.videoName) return;
   const r = canvas.getBoundingClientRect();
@@ -495,7 +611,10 @@ canvas.addEventListener('mousedown', (e) => {
   const scaleY = canvas.height / r.height;
   state.drawStartX = (e.clientX - r.left) * scaleX;
   state.drawStartY = (e.clientY - r.top) * scaleY;
+  state.drawCurrentX = state.drawStartX;
+  state.drawCurrentY = state.drawStartY;
   state.isDrawing = true;
+  cacheFirstFrame();
 });
 
 canvas.addEventListener('mousemove', (e) => {
@@ -503,24 +622,9 @@ canvas.addEventListener('mousemove', (e) => {
   const r = canvas.getBoundingClientRect();
   const scaleX = canvas.width / r.width;
   const scaleY = canvas.height / r.height;
-  const curX = (e.clientX - r.left) * scaleX;
-  const curY = (e.clientY - r.top) * scaleY;
-  
-  apiGet('/api/get_video_first_frame').then(data => {
-    const img = new Image();
-    img.onload = () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      ctx.strokeStyle = '#a6e3a1';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(state.drawStartX, state.drawStartY, curX - state.drawStartX, curY - state.drawStartY);
-      for (const bx of state.promptBboxes) {
-        ctx.strokeStyle = '#f9e2af';
-        ctx.strokeRect(bx[0], bx[1], bx[2] - bx[0], bx[3] - bx[1]);
-      }
-    };
-    img.src = 'data:image/jpeg;base64,' + data.image;
-  });
+  state.drawCurrentX = (e.clientX - r.left) * scaleX;
+  state.drawCurrentY = (e.clientY - r.top) * scaleY;
+  redrawCanvas();
 });
 
 canvas.addEventListener('mouseup', (e) => {
@@ -537,19 +641,7 @@ canvas.addEventListener('mouseup', (e) => {
   const y2 = Math.max(state.drawStartY, endY);
   if (x2 - x1 > 5 && y2 - y1 > 5) {
     state.promptBboxes.push([x1, y1, x2, y2]);
-    apiGet('/api/get_video_first_frame').then(data => {
-      const img = new Image();
-      img.onload = () => {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        for (const bx of state.promptBboxes) {
-          ctx.strokeStyle = '#f9e2af';
-          ctx.lineWidth = 2;
-          ctx.strokeRect(bx[0], bx[1], bx[2] - bx[0], bx[3] - bx[1]);
-        }
-      };
-      img.src = 'data:image/jpeg;base64,' + data.image;
-    });
+    redrawCanvas();
     setStatus('已添加边界框 (' + state.promptBboxes.length + ')', false);
   }
 });
@@ -558,21 +650,9 @@ canvas.addEventListener('contextmenu', (e) => {
   e.preventDefault();
   if (state.promptBboxes.length > 0) {
     state.promptBboxes.pop();
-    if (state.videoName) {
-      apiGet('/api/get_video_first_frame').then(data => {
-        const img = new Image();
-        img.onload = () => {
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          for (const bx of state.promptBboxes) {
-            ctx.strokeStyle = '#f9e2af';
-            ctx.lineWidth = 2;
-            ctx.strokeRect(bx[0], bx[1], bx[2] - bx[0], bx[3] - bx[1]);
-          }
-        };
-        img.src = 'data:image/jpeg;base64,' + data.image;
-      });
-    }
+    cachedFirstFrameImg = null;
+    cachedFirstFrameData = null;
+    if (state.videoName) cacheFirstFrame().then(redrawCanvas);
     setStatus('已删除最后一个边界框', false);
   }
 });
@@ -686,6 +766,11 @@ $('bidirectionalBtn').onclick = async () => {
   const idx = parseInt($('promptFrameIdx').value) || 0;
   const forwardEn = $('forwardCheck') && $('forwardCheck').checked;
   const backwardEn = $('backwardCheck') && $('backwardCheck').checked;
+  clearDebug();
+  toggleDebug();
+  addDebugLog('开始双向标注...', 'info');
+  addDebugLog('提示帧: ' + idx, 'info');
+  addDebugLog('前向: ' + forwardEn + ', 后向: ' + backwardEn, 'info');
   try {
     const data = await apiPost('/api/bidirectional', {
       prompt_frame_idx: idx,
@@ -700,9 +785,13 @@ $('bidirectionalBtn').onclick = async () => {
       db.style.display = 'block';
       db.textContent = data.msg || '';
     }
+    addDebugLog(data.msg || '双向标注完成', 'success');
     setStatus(data.msg || '双向标注完成');
     await showViewer(true);
-  } catch (e) { setStatus('双向标注失败: ' + e.message, true); }
+  } catch (e) { 
+    addDebugLog('双向标注失败: ' + e.message, 'error');
+    setStatus('双向标注失败: ' + e.message, true); 
+  }
 };
 
 // ==================== Canvas Click / Trace ID ====================
