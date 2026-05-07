@@ -158,29 +158,32 @@ class ImageAnnotationWidget(QWidget):
 
 
 class ImageAnnotationDialog(QDialog):
-    def __init__(self, image_path, parent=None, start_color_idx=0, category_names=None):
+    def __init__(self, image_path, parent=None, start_color_idx=0, category_names=None, zoom_scale=1.0):
         super().__init__(parent)
         self.image_path = image_path
         self.boxes = []
         self.color_index = [start_color_idx]
         self.category_names = category_names or []
+        self.zoom_scale = zoom_scale
         self.image = cv2.imread(image_path)
         if self.image is None:
             raise ValueError(f"无法读取图片: {image_path}")
-        self.orig_h, self.orig_w = self.image.shape[:2]
         self._setup_ui()
         self._setup_shortcut()
 
     def _setup_ui(self):
+        self.img_widget = ImageAnnotationWidget(self.image, self.boxes, self.color_index, self.category_names)
+        iw = self.img_widget.orig_w
+        ih = self.img_widget.orig_h
         screen = QApplication.primaryScreen().geometry()
-        sw, sh = screen.width() - 80, screen.height() - 160
-        dw = min(self.orig_w, sw)
-        dh = min(self.orig_h, sh)
+        sw, sh = screen.width() - 80, screen.height() - 120
+        dw = int(min(iw * self.zoom_scale, sw))
+        dh = int(min(ih * self.zoom_scale, sh))
         self.setWindowTitle(f"图片标注 - {Path(self.image_path).name}")
-        self.setFixedSize(dw, dh + 60)
-        self.setMinimumSize(dw, dh + 60)
-        self.setMaximumSize(dw, dh + 60)
-        self.move(screen.x() + (screen.width() - dw) // 2, screen.y() + (screen.height() - dh - 60) // 2)
+        self.setFixedSize(dw, dh + 36)
+        self.setMinimumSize(dw, dh + 36)
+        self.setMaximumSize(dw, dh + 36)
+        self.move(screen.x() + (screen.width() - dw) // 2, screen.y() + (screen.height() - dh - 36) // 2)
         self.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint)
         self.setModal(True)
 
@@ -189,60 +192,37 @@ class ImageAnnotationDialog(QDialog):
         main_layout.setSpacing(0)
 
         header = QWidget()
-        header.setFixedSize(dw, 60)
+        header.setFixedSize(dw, 36)
         header.setStyleSheet("background: rgba(0,0,0,180);")
-        header_layout = QVBoxLayout(header)
-        header_layout.setContentsMargins(8, 4, 8, 4)
-        header_layout.setSpacing(2)
-
-        top_row = QHBoxLayout()
-        top_row.setSpacing(4)
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(8, 0, 8, 0)
+        header_layout.setSpacing(4)
 
         instr_label = QLabel("框选目标 | C:撤销 | Q:退出")
         instr_label.setStyleSheet("color: #ccc; font-size: 12px;")
-        top_row.addWidget(instr_label)
-        top_row.addStretch()
+        header_layout.addWidget(instr_label)
+        header_layout.addStretch()
 
         self.undo_btn = QPushButton("撤销")
-        self.undo_btn.setFixedSize(60, 24)
+        self.undo_btn.setFixedSize(60, 28)
         self.undo_btn.setStyleSheet(
-            "QPushButton { background: #555; color: white; border: none; border-radius: 4px; font-size: 12px; }"
+            "QPushButton { background: #555; color: white; border: none; border-radius: 4px; font-size: 13px; }"
             "QPushButton:hover { background: #666; }"
             "QPushButton:disabled { background: #333; color: #666; }"
         )
         self.undo_btn.clicked.connect(self._undo_last)
         self.undo_btn.setEnabled(False)
-        top_row.addWidget(self.undo_btn)
+        header_layout.addWidget(self.undo_btn)
 
         self.done_btn = QPushButton("✓ 完成标注")
-        self.done_btn.setFixedSize(80, 24)
+        self.done_btn.setFixedSize(100, 28)
         self.done_btn.setStyleSheet(
-            "QPushButton { background: #00CC00; color: white; border: none; border-radius: 4px; font-weight: bold; font-size: 12px; }"
+            "QPushButton { background: #00CC00; color: white; border: none; border-radius: 4px; font-weight: bold; font-size: 13px; }"
             "QPushButton:hover { background: #009900; }"
         )
         self.done_btn.clicked.connect(self.accept)
-        top_row.addWidget(self.done_btn)
-        header_layout.addLayout(top_row)
-
-        zoom_row = QHBoxLayout()
-        zoom_row.setSpacing(6)
-        zoom_row.addWidget(QLabel("缩放:"))
-        self.zoom_slider = QSlider(Qt.Horizontal)
-        self.zoom_slider.setRange(20, 200)
-        self.zoom_slider.setValue(100)
-        self.zoom_slider.setFixedWidth(200)
-        self.zoom_slider.setTickPosition(QSlider.NoTicks)
-        self.zoom_slider.valueChanged.connect(self._on_zoom_changed)
-        zoom_row.addWidget(self.zoom_slider)
-        self.zoom_label = QLabel("100%")
-        self.zoom_label.setStyleSheet("color: #ccc; font-size: 12px; min-width: 40px;")
-        zoom_row.addWidget(self.zoom_label)
-        zoom_row.addStretch()
-        header_layout.addLayout(zoom_row)
+        header_layout.addWidget(self.done_btn)
         main_layout.addWidget(header)
-
-        self.img_widget = ImageAnnotationWidget(self.image, self.boxes, self.color_index, self.category_names)
-        self._apply_zoom()
 
         scroll_area = QScrollArea()
         scroll_area.setFixedSize(dw, dh)
@@ -257,17 +237,6 @@ class ImageAnnotationDialog(QDialog):
         self.img_widget.setFocus()
         self.img_widget.box_added.connect(lambda: self.undo_btn.setEnabled(True))
         main_layout.addWidget(scroll_area)
-
-    def _on_zoom_changed(self, val):
-        self.zoom_label.setText(f"{val}%")
-        self._apply_zoom()
-
-    def _apply_zoom(self):
-        zoom = self.zoom_slider.value() / 100.0
-        w = int(self.orig_w * zoom)
-        h = int(self.orig_h * zoom)
-        self.img_widget.setFixedSize(w, h)
-        self.img_widget.setMinimumSize(w, h)
 
     def _setup_shortcut(self):
         QShortcut(QKeySequence("c"), self).activated.connect(self._undo_last)
@@ -526,6 +495,22 @@ class ImageAnnotatorApp(QMainWindow):
         color_layout.addStretch()
         layout.addLayout(color_layout)
 
+        zoom_layout = QHBoxLayout()
+        zoom_layout.setSpacing(8)
+        zoom_layout.addWidget(QLabel("缩放:"))
+        self.zoom_slider = QSlider(Qt.Horizontal)
+        self.zoom_slider.setMinimum(25)
+        self.zoom_slider.setMaximum(400)
+        self.zoom_slider.setValue(100)
+        self.zoom_slider.setFixedWidth(200)
+        zoom_layout.addWidget(self.zoom_slider)
+        self.zoom_label = QLabel("100%")
+        self.zoom_label.setFixedWidth(40)
+        zoom_layout.addWidget(self.zoom_label)
+        self.zoom_slider.valueChanged.connect(lambda v: self.zoom_label.setText(f"{v}%"))
+        zoom_layout.addStretch()
+        layout.addLayout(zoom_layout)
+
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(8)
         select_btn = QPushButton("选择图片")
@@ -597,8 +582,9 @@ class ImageAnnotatorApp(QMainWindow):
                 print(f"已拷贝到{src_dir}: {dst_image}")
         src_image = str(dst_image)
 
+        zoom_scale = self.zoom_slider.value() / 100.0
         find_list = [s.strip() for s in self.text_input.text().split(',') if s.strip()]
-        dialog = ImageAnnotationDialog(src_image, self, self.selected_color_idx[0], find_list)
+        dialog = ImageAnnotationDialog(src_image, self, self.selected_color_idx[0], find_list, zoom_scale=zoom_scale)
         if dialog.exec_() != QDialog.Accepted:
             return
         boxes_colors = dialog.get_boxes_and_colors()
