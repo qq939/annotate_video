@@ -718,7 +718,7 @@ class UnifiedPanel(QMainWindow):
 
         self.prompt_btn = QPushButton("提示帧")
         self.prompt_btn.setFixedHeight(24)
-        self.prompt_btn.setStyleSheet("QPushButton { background-color: #FFA500; color: white; border: none; border-radius: 3px; font-size: 11px; margin-top: 2px; } QPushButton:hover { background-color: #FF8C00; }")
+        self.prompt_btn.setStyleSheet("QPushButton { background-color: #FFA500; color: white; border: none; border-radius: 3px; font-size: 11px; } QPushButton:hover { background-color: #FF8C00; }")
         self.prompt_btn.clicked.connect(self.toggle_prompt_mode)
         frame_nav_play_layout.addWidget(self.prompt_btn)
 
@@ -726,7 +726,7 @@ class UnifiedPanel(QMainWindow):
         self.frame_label.setAlignment(Qt.AlignCenter)
         self.frame_label.setFixedHeight(24)
         self.frame_label.setFixedWidth(52)
-        self.frame_label.setStyleSheet("QLabel { background-color: #333; color: #fff; border-radius: 3px; font-weight: bold; font-size: 11px; padding: 2px 4px 0 4px; }")
+        self.frame_label.setStyleSheet("QLabel { background-color: #333; color: #fff; border-radius: 3px; font-weight: bold; font-size: 11px; padding: 0 4px; }")
         frame_nav_play_layout.addWidget(self.frame_label)
 
         self.next_btn = QPushButton("正帧")
@@ -1296,10 +1296,11 @@ class UnifiedPanel(QMainWindow):
                         with open(label_file) as f:
                             existing_anns = json.load(f)
                         print(f"[DEBUG {direction}] [帧{total_results}] 已存在标注{len(existing_anns)}条，追加新标注")
+                    existing_anns = [ann for ann in existing_anns if ann.get('track_id', 0) < 1000000]
                     merged_anns = existing_anns + frame_anns
                     with open(label_file, 'w') as f:
                         json.dump(merged_anns, f)
-                    print(f"[DEBUG {direction}] [帧{total_results}] 保存label文件: frame_{orig_frame_idx:06d}.json, 原有{len(existing_anns)}+新增{len(frame_anns)}=合计{len(merged_anns)}")
+                    print(f"[DEBUG {direction}] [帧{total_results}] 保存label文件: frame_{orig_frame_idx:06d}.json, 过滤后{len(existing_anns)}+新增{len(frame_anns)}=合计{len(merged_anns)}")
                     frame_idx += 1
 
                 print(f"[DEBUG {direction}] === process_clip 完成 ===")
