@@ -17,6 +17,7 @@ from PyQt5.QtGui import QImage, QPainter, QPen, QColor, QFont, QPixmap, QKeySequ
 from PyQt5.QtWidgets import QShortcut
 
 from video_control import VideoController
+from annotate_video import TEMP_DATA_MID_DIR
 
 _SAM3_SEMANTIC_PATCHED = False
 def _patch_sam3_video_semantic():
