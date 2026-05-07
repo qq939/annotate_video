@@ -1131,12 +1131,23 @@ class UnifiedPanel(QMainWindow):
                 overrides['stream_buffer'] = True
 
             predictor = SAM3VideoPredictor(overrides=overrides)
-            print(f"使用 SAM3VideoPredictor 进行双向标注，track_id 起始: 50000")
 
             sample_frame = cv2.imread(str(mid_frames_dir / f"frame_{0:06d}.jpg"))
             height, width = sample_frame.shape[:2]
 
-            FIRST_ID = random.choice(self.prompt_trace_id_options)
+            existing_track_ids = set()
+            if src_annotations_file.exists():
+                with open(src_annotations_file) as f:
+                    coco = json.load(f)
+                for ann in coco.get('annotations', []):
+                    existing_track_ids.add(ann.get('track_id', 0))
+            available_options = [opt for opt in self.prompt_trace_id_options if opt not in existing_track_ids]
+            if not available_options:
+                QMessageBox.warning(self, "错误", "所有 track_id 选项都已被占用")
+                self.reset_prompt_btn()
+                return
+            FIRST_ID = available_options[0]
+            print(f"=== 双向标注开始 === 提示帧: {prompt_idx}, 总帧数: {total}, 前向={self.forward_cb.isChecked()}, 后向={self.backward_cb.isChecked()}, FIRST_ID={FIRST_ID}")
             forward_annotations = []
             backward_annotations = []
 
@@ -1345,7 +1356,7 @@ class UnifiedPanel(QMainWindow):
                 print(f"[DEBUG {direction}] id范围: {FIRST_ID} ~ {ann_id - 1}")
                 return result_anns
 
-            print(f"=== 双向标注开始 === 提示帧: {prompt_idx}, 总帧数: {total}, 前向={self.forward_cb.isChecked()}, 后向={self.backward_cb.isChecked()}")
+            print(f"=== 双向标注开始 === 提示帧: {prompt_idx}, 总帧数: {total}, 前向={self.forward_cb.isChecked()}, 后向={self.backward_cb.isChecked()}, FIRST_ID={FIRST_ID}")
             forward_anns = []
             backward_anns = []
             if self.forward_cb.isChecked():
