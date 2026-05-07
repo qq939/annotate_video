@@ -346,11 +346,16 @@ class UnifiedPanel(QMainWindow):
 
         scale_layout = QHBoxLayout()
         scale_layout.setSpacing(4)
-        scale_layout.addWidget(QLabel("缩放倍数:"))
-        self.scale_input = QLineEdit("0.5")
-        self.scale_input.setFixedWidth(50)
-        self.scale_input.setFixedHeight(22)
-        scale_layout.addWidget(self.scale_input)
+        scale_layout.addWidget(QLabel("缩放:"))
+        self.scale_slider = QSlider(Qt.Horizontal)
+        self.scale_slider.setMinimum(50)
+        self.scale_slider.setMaximum(200)
+        self.scale_slider.setValue(50)
+        self.scale_slider.setFixedHeight(16)
+        scale_layout.addWidget(self.scale_slider)
+        self.scale_label = QLabel("50%")
+        self.scale_label.setFixedWidth(30)
+        scale_layout.addWidget(self.scale_label)
         scale_layout.addStretch()
         layout.addLayout(scale_layout)
 
@@ -386,9 +391,7 @@ class UnifiedPanel(QMainWindow):
             print(f"已拷贝到src: {dst_video}")
 
         src_video = str(src_dir / video_name)
-        scale = float(self.scale_input.text() or "0.5")
-        if scale <= 0:
-            scale = 0.5
+        scale = self.scale_slider.value() / 100.0
         dialog = AnnotationDialog(src_video, self, scale=scale)
         if dialog.exec_() != QDialog.Accepted:
             return
@@ -1665,6 +1668,8 @@ class UnifiedPanel(QMainWindow):
 
         self.viewer = VideoViewer(str(self.temp_data_path), controller=self.ctrl)
         self.viewer.video_clicked.connect(self.handle_viewer_click)
+        zoom_factor = self.zoom_slider.value() / 100.0
+        self.viewer.set_zoom(zoom_factor)
         geo = self.geometry()
         self.viewer.move(geo.right(), geo.top())
         self.viewer.show()
