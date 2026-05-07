@@ -353,6 +353,7 @@ class UnifiedPanel(QMainWindow):
         self.scale_slider.setValue(100)
         self.scale_slider.setFixedHeight(16)
         self.scale_slider.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.scale_slider.valueChanged.connect(self.on_scale_change)
         scale_layout.addWidget(self.scale_slider)
         self.scale_label = QLabel("100%")
         self.scale_label.setFixedWidth(30)
@@ -879,10 +880,10 @@ class UnifiedPanel(QMainWindow):
         return group
 
     def on_zoom_change(self, value):
-        if self.viewer:
-            factor = value / 100.0
-            self.zoom_label.setText(f"{value}%")
-            self.viewer.set_zoom(factor)
+        self.zoom_label.setText(f"{value}%")
+
+    def on_scale_change(self, value):
+        self.scale_label.setText(f"{value}%")
 
     def on_conf_change(self, value):
         self.ctrl.conf_threshold = value / 100.0
