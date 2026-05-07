@@ -10,7 +10,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QSlider, QLabel, QLineEdit, QFileDialog, QGroupBox, QTextEdit, QMessageBox, QListWidget, QSizePolicy, QDialog)
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QSlider, QLabel, QLineEdit, QFileDialog, QGroupBox, QTextEdit, QMessageBox, QListWidget, QSizePolicy, QDialog, QInputDialog)
 from PyQt5.QtCore import Qt, QTimer, QPoint, QRect, pyqtSignal
 from PyQt5.Qt import QDragEnterEvent, QDropEvent
 from PyQt5.QtGui import QImage, QPainter, QPen, QColor, QFont, QPixmap, QKeySequence
@@ -1587,17 +1587,50 @@ class UnifiedPanel(QMainWindow):
 
         _, annotations = self.viewer.load_frame_data(frame_idx)
         filtered = self.ctrl.filter_annotations(annotations)
-        found = self.ctrl.find_annotation_at(filtered, video_x, video_y)
 
-        if found is not None:
-            track_id = found.get('track_id', found.get('id', 0))
-            new_id = self.ctrl.next_track_id
-            self.trace_id_list.addItem(f"ID: {track_id} → {new_id}")
-            self.ctrl.next_track_id += 1
-            self.trace_id_label.setText(str(self.ctrl.next_track_id))
-            self._save_trace_id_mappings()
-            if self.viewer:
-                self.viewer.update_display()
+        all_found = []
+        for ann in filtered:
+            polygon = ann.get('segmentation')
+            if not polygon:
+                continue
+            pts = np.array(polygon[0], dtype=np.int32).reshape(-1, 2)
+            if cv2.pointPolygonTest(pts, (float(video_x), float(video_y)), False) >= 0:
+                all_found.append(ann)
+
+        if not all_found:
+            return
+
+        chosen = all_found[0]
+        if len(all_found) > 1:
+            items = [f"track_id={ann.get('track_id', ann.get('id', 0))}" for ann in all_found]
+            item, ok = QInputDialog.getItem(self, "选择标注", "多个标注重叠，请选择一个", items, 0, False)
+            if not ok:
+                return
+            idx = items.index(item)
+            chosen = all_found[idx]
+
+        old_id = chosen.get('track_id', 0)
+        new_id = self.ctrl.next_track_id
+
+        label_file = Path(TEMP_DATA_MID_DIR) / "labels" / f"frame_{frame_idx:06d}.json"
+        if label_file.exists():
+            with open(label_file) as f:
+                frame_anns = json.load(f)
+            for ann in frame_anns:
+                seg = ann.get('segmentation')
+                seg2 = chosen.get('segmentation')
+                if seg and seg2 and len(seg) > 0 and len(seg2) > 0 and np.allclose(seg[0], seg2[0]):
+                    ann['track_id'] = new_id
+                    break
+            with open(label_file, 'w') as f:
+                json.dump(frame_anns, f)
+
+        self.trace_id_list.addItem(f"ID: {old_id} → {new_id}")
+        self.ctrl.next_track_id += 1
+        self.trace_id_label.setText(str(self.ctrl.next_track_id))
+        self._save_trace_id_mappings()
+        if self.viewer:
+            self.viewer.update_display()
 
     def select_data_dir(self):
         msg = QMessageBox(self)
