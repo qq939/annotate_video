@@ -1321,10 +1321,10 @@ class UnifiedPanel(QMainWindow):
                     else:
                         orig_frame_idx = end_frame - 1 - frame_idx
                     if orig_frame_idx >= total:
-                        print(f"[DEBUG {direction}] [帧{total_results}] ⚠️ orig_frame_idx={orig_frame_idx} >= total={total}，跳过")
+                        print(f"[DEBUG {direction}] [帧{total_results}/{total}] ⚠️ orig_frame_idx={orig_frame_idx} >= total={total}，跳过")
                         frame_idx += 1
                         continue
-                    print(f"[DEBUG {direction}] [帧{total_results}] clip_frame={frame_idx} → 原帧{orig_frame_idx}, 新增标注数={len(frame_anns)}")
+                    print(f"[DEBUG {direction}] [帧{total_results}/{total}] clip_frame={frame_idx} → 原帧{orig_frame_idx}, 新增标注数={len(frame_anns)}")
                     label_file = src_labels_dir / f"frame_{orig_frame_idx:06d}.json"
                     existing_anns = []
                     if label_file.exists():
@@ -1391,7 +1391,7 @@ class UnifiedPanel(QMainWindow):
 
             print(f"[DEBUG 汇总] 追加 {new_anns_count} 条标注, 最终track_id范围: {FIRST_ID}~{max_track_id}")
 
-            with open(annotations_file, 'w') as f:
+            with open(src_annotations_file, 'w') as f:
                 json.dump(coco, f)
             print(f"[DEBUG 汇总] ✓ annotations.json 已写入")
             shutil.rmtree(Path("temp_inject"), ignore_errors=True)
