@@ -1616,13 +1616,11 @@ class UnifiedPanel(QMainWindow):
         if label_file.exists():
             with open(label_file) as f:
                 frame_anns = json.load(f)
+            chosen_track = chosen.get('track_id', 0)
             for ann in frame_anns:
-                seg = ann.get('segmentation')
-                seg2 = chosen.get('segmentation')
-                if seg and seg2 and len(seg) > 0 and len(seg2) > 0:
-                    if len(seg[0]) == len(seg2[0]) and np.allclose(seg[0], seg2[0]):
-                        ann['track_id'] = new_id
-                        break
+                if ann.get('track_id', 0) == chosen_track:
+                    ann['track_id'] = new_id
+                    break
             with open(label_file, 'w') as f:
                 json.dump(frame_anns, f)
 
