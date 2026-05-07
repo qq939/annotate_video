@@ -94,9 +94,10 @@ def _load_temp_annotations(temp_dir):
 class ImageAnnotationWidget(QWidget):
     box_added = pyqtSignal()
 
-    def __init__(self, image, boxes, color_index, category_names=None, parent=None):
+    def __init__(self, image, boxes, color_index, category_names=None, parent=None, scale=1.0):
         super().__init__(parent)
         self.image = image
+        self.scale = scale
         self.orig_h, self.orig_w = image.shape[:2]
         self.boxes = boxes
         self.color_index = color_index
@@ -105,8 +106,10 @@ class ImageAnnotationWidget(QWidget):
         self.start_point = QPoint()
         self.current_rect = QRect()
 
-        self.setFixedSize(self.orig_w, self.orig_h)
-        self.setMinimumSize(self.orig_w, self.orig_h)
+        self.scaled_w = int(self.orig_w * scale)
+        self.scaled_h = int(self.orig_h * scale)
+        self.setFixedSize(self.scaled_w, self.scaled_h)
+        self.setMinimumSize(self.scaled_w, self.scaled_h)
         self.setFocusPolicy(Qt.StrongFocus)
 
         rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -129,9 +132,13 @@ class ImageAnnotationWidget(QWidget):
             self.drawing = False
             if self.current_rect.width() > 5 and self.current_rect.height() > 5:
                 color = BOX_COLORS[self.color_index[0] % len(BOX_COLORS)]
+                x1 = int(self.current_rect.left() / self.scale)
+                y1 = int(self.current_rect.top() / self.scale)
+                x2 = int(self.current_rect.right() / self.scale)
+                y2 = int(self.current_rect.bottom() / self.scale)
                 self.boxes.append({
-                    'x1': self.current_rect.left(), 'y1': self.current_rect.top(),
-                    'x2': self.current_rect.right(), 'y2': self.current_rect.bottom(),
+                    'x1': x1, 'y1': y1,
+                    'x2': x2, 'y2': y2,
                     'color': color
                 })
                 self.color_index[0] += 1
@@ -158,13 +165,13 @@ class ImageAnnotationWidget(QWidget):
 
 
 class ImageAnnotationDialog(QDialog):
-    def __init__(self, image_path, parent=None, start_color_idx=0, category_names=None, zoom_scale=1.0):
+    def __init__(self, image_path, parent=None, start_color_idx=0, category_names=None, scale=1.0):
         super().__init__(parent)
         self.image_path = image_path
         self.boxes = []
         self.color_index = [start_color_idx]
         self.category_names = category_names or []
-        self.zoom_scale = zoom_scale
+        self.scale = scale
         self.image = cv2.imread(image_path)
         if self.image is None:
             raise ValueError(f"无法读取图片: {image_path}")
@@ -172,13 +179,13 @@ class ImageAnnotationDialog(QDialog):
         self._setup_shortcut()
 
     def _setup_ui(self):
-        self.img_widget = ImageAnnotationWidget(self.image, self.boxes, self.color_index, self.category_names)
-        iw = self.img_widget.orig_w
-        ih = self.img_widget.orig_h
+        self.img_widget = ImageAnnotationWidget(self.image, self.boxes, self.color_index, self.category_names, scale=self.scale)
+        iw = self.img_widget.scaled_w
+        ih = self.img_widget.scaled_h
         screen = QApplication.primaryScreen().geometry()
         sw, sh = screen.width() - 80, screen.height() - 120
-        dw = int(min(iw * self.zoom_scale, sw))
-        dh = int(min(ih * self.zoom_scale, sh))
+        dw = min(iw, sw)
+        dh = min(ih, sh)
         self.setWindowTitle(f"图片标注 - {Path(self.image_path).name}")
         self.setFixedSize(dw, dh + 36)
         self.setMinimumSize(dw, dh + 36)
@@ -495,21 +502,22 @@ class ImageAnnotatorApp(QMainWindow):
         color_layout.addStretch()
         layout.addLayout(color_layout)
 
-        zoom_layout = QHBoxLayout()
-        zoom_layout.setSpacing(8)
-        zoom_layout.addWidget(QLabel("缩放:"))
-        self.zoom_slider = QSlider(Qt.Horizontal)
-        self.zoom_slider.setMinimum(25)
-        self.zoom_slider.setMaximum(400)
-        self.zoom_slider.setValue(100)
-        self.zoom_slider.setFixedWidth(200)
-        zoom_layout.addWidget(self.zoom_slider)
-        self.zoom_label = QLabel("100%")
-        self.zoom_label.setFixedWidth(40)
-        zoom_layout.addWidget(self.zoom_label)
-        self.zoom_slider.valueChanged.connect(lambda v: self.zoom_label.setText(f"{v}%"))
-        zoom_layout.addStretch()
-        layout.addLayout(zoom_layout)
+        scale_layout = QHBoxLayout()
+        scale_layout.setSpacing(8)
+        scale_layout.addWidget(QLabel("缩放:"))
+        self.scale_slider = QSlider(Qt.Horizontal)
+        self.scale_slider.setMinimum(25)
+        self.scale_slider.setMaximum(200)
+        self.scale_slider.setValue(100)
+        self.scale_slider.setFixedWidth(200)
+        self.scale_slider.setTickPosition(QSlider.TicksBelow)
+        self.scale_slider.setTickInterval(25)
+        scale_layout.addWidget(self.scale_slider)
+        self.scale_label = QLabel("100%")
+        self.scale_label.setFixedWidth(40)
+        scale_layout.addWidget(self.scale_label)
+        scale_layout.addStretch()
+        layout.addLayout(scale_layout)
 
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(8)
@@ -525,6 +533,23 @@ class ImageAnnotatorApp(QMainWindow):
         self.statusLabel = QLabel("就绪")
         self.statusLabel.setStyleSheet("color: #666; font-size: 12px;")
         layout.addWidget(self.statusLabel)
+
+    def _on_scale_change(self, value):
+        self.scale_label.setText(f"{value}%")
+        self._image_scale = value / 100.0
+
+    def _select_color(self, idx):
+        self.selected_color_idx[0] = idx
+        for i, btn in enumerate(self.color_btns):
+            qc = btn.palette().color(QPalette.Button)
+            border = "2px solid white" if i == idx else "2px solid transparent"
+            r, g, b = qc.red(), qc.green(), qc.blue()
+            text_color = "black" if r > 200 or g > 200 else "white"
+            btn.setStyleSheet(
+                f"QPushButton {{ background: rgb({r},{g},{b}); color: {text_color}; "
+                f"border: {border}; border-radius: 4px; }}"
+                f"QPushButton:hover {{ border: 2px solid white; }}"
+            )
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
@@ -582,9 +607,9 @@ class ImageAnnotatorApp(QMainWindow):
                 print(f"已拷贝到{src_dir}: {dst_image}")
         src_image = str(dst_image)
 
-        zoom_scale = self.zoom_slider.value() / 100.0
         find_list = [s.strip() for s in self.text_input.text().split(',') if s.strip()]
-        dialog = ImageAnnotationDialog(src_image, self, self.selected_color_idx[0], find_list, zoom_scale=zoom_scale)
+        scale = getattr(self, '_image_scale', 1.0)
+        dialog = ImageAnnotationDialog(src_image, self, self.selected_color_idx[0], find_list, scale=scale)
         if dialog.exec_() != QDialog.Accepted:
             return
         boxes_colors = dialog.get_boxes_and_colors()
