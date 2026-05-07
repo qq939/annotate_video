@@ -790,6 +790,13 @@ class ImageAnnotatorApp(QMainWindow):
                                 print(f"[DEBUG] merge后={len(current_masks)}")
 
                     for idx, (mask, bbox) in enumerate(zip(current_masks, current_bboxes)):
+                        mb = (mask > 0.5).astype(np.uint8)
+                        cs, _ = cv2.findContours(mb, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                        polygon_list = []
+                        for contour in cs:
+                            if len(contour) >= 3:
+                                polygon = contour.squeeze().flatten().tolist()
+                                polygon_list.append(polygon)
                         x1, y1, x2, y2 = bbox[0], bbox[1], bbox[2], bbox[3]
                         track_id = annotation_id[0]
                         if find_list:
@@ -800,16 +807,16 @@ class ImageAnnotatorApp(QMainWindow):
                         ann_color = category_to_color.get(cat_idx, BOX_COLORS[0])
                         ann = {
                             'id': annotation_id[0], 'track_id': track_id, 'image_id': 0,
-                            'category_id': cat_idx, 
+                            'category_id': cat_idx,
                             'bbox': [float(x1), float(y1), float(x2 - x1), float(y2 - y1)],
-                            'area': float(cv2.countNonZero(mask)),
-                            'segmentation': [], 'iscrowd': 0, 'confidence': confidence,
+                            'area': float(cv2.countNonZero(mb)),
+                            'segmentation': polygon_list, 'iscrowd': 0, 'confidence': confidence,
                             'color': ann_color
                         }
                         coco_data['annotations'].append(ann)
                         frame_annotations.append(ann)
                         annotation_id[0] += 1
-                        print(f"[DEBUG] annotation[{idx}] 原bbox={bbox}, 转换bbox={[float(x1), float(y1), float(x2 - x1), float(y2 - y1)]}")
+                        print(f"[DEBUG] annotation[{idx}] contours={len(polygon_list)}, bbox={[float(x1), float(y1), float(x2 - x1), float(y2 - y1)]}")
                 else:
                     print("[DEBUG] 无有效mask")
 
