@@ -1135,13 +1135,14 @@ class UnifiedPanel(QMainWindow):
             sample_frame = cv2.imread(str(mid_frames_dir / f"frame_{0:06d}.jpg"))
             height, width = sample_frame.shape[:2]
 
-            existing_track_ids = set()
+            occupied_bands = set()
             if src_annotations_file.exists():
                 with open(src_annotations_file) as f:
                     coco = json.load(f)
                 for ann in coco.get('annotations', []):
-                    existing_track_ids.add(ann.get('track_id', 0))
-            available_options = [opt for opt in self.prompt_trace_id_options if opt not in existing_track_ids]
+                    tid = ann.get('track_id', 0)
+                    occupied_bands.add((tid // 10000) * 10000)
+            available_options = [opt for opt in self.prompt_trace_id_options if (opt // 10000) * 10000 not in occupied_bands]
             if not available_options:
                 QMessageBox.warning(self, "错误", "所有 track_id 选项都已被占用")
                 self.reset_prompt_btn()
