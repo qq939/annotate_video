@@ -755,45 +755,58 @@ class UnifiedPanel(QMainWindow):
         delete_trace_layout.addWidget(delete_trace_btn)
         layout.addLayout(delete_trace_layout)
 
-        trace_change_layout = QHBoxLayout()
-        trace_change_layout.setSpacing(4)
-        trace_change_layout.addWidget(QLabel("ID映射"))
+        trace_change_layout = QVBoxLayout()
+        trace_change_layout.setSpacing(3)
+
+        trace_top_row = QHBoxLayout()
+        trace_top_row.setSpacing(4)
+        trace_top_row.addWidget(QLabel("ID映射"))
         self.trace_id_list = QListWidget()
         self.trace_id_list.setAlternatingRowColors(True)
-        self.trace_id_list.setFixedWidth(110)
+        self.trace_id_list.setFixedWidth(180)
         self.trace_id_list.itemDoubleClicked.connect(self.on_trace_id_double_clicked)
-        trace_change_layout.addWidget(self.trace_id_list)
-
-        btn_style_green = "QPushButton { background-color: #28a745; color: white; border: none; border-radius: 3px; font-size: 14px; font-weight: bold; } QPushButton:hover { background-color: #218838; }"
-        btn_style_red = "QPushButton { background-color: #dc3545; color: white; border: none; border-radius: 3px; font-size: 14px; font-weight: bold; } QPushButton:hover { background-color: #c82333; }"
-        btn_style_gray = "QPushButton { background-color: #6c757d; color: white; border: none; border-radius: 3px; font-size: 12px; } QPushButton:hover { background-color: #5a6268; }"
-
-        self.add_trace_btn = QPushButton("+")
-        self.add_trace_btn.setFixedSize(22, 22)
-        self.add_trace_btn.setStyleSheet(btn_style_green)
-        self.add_trace_btn.clicked.connect(self.add_trace_id_mapping)
-        trace_change_layout.addWidget(self.add_trace_btn)
-
-        remove_trace_btn = QPushButton("-")
-        remove_trace_btn.setFixedSize(22, 22)
-        remove_trace_btn.setStyleSheet(btn_style_red)
-        remove_trace_btn.clicked.connect(self.remove_selected_trace_id)
-        trace_change_layout.addWidget(remove_trace_btn)
-
+        trace_top_row.addWidget(self.trace_id_list)
         clear_trace_btn = QPushButton("清")
         clear_trace_btn.setFixedSize(22, 22)
-        clear_trace_btn.setStyleSheet(btn_style_gray)
+        clear_trace_btn.setStyleSheet("QPushButton { background-color: #6c757d; color: white; border: none; border-radius: 3px; } QPushButton:hover { background-color: #5a6268; }")
         clear_trace_btn.clicked.connect(self.clear_trace_id_mappings)
-        trace_change_layout.addWidget(clear_trace_btn)
+        trace_top_row.addWidget(clear_trace_btn)
+        trace_change_layout.addLayout(trace_top_row)
 
-        trace_change_layout.addStretch()
-        trace_change_layout.addWidget(QLabel("当前ID:"))
+        assign_row = QHBoxLayout()
+        assign_row.setSpacing(4)
+        dec_btn = QPushButton("-")
+        dec_btn.setFixedSize(28, 28)
+        dec_btn.setStyleSheet("QPushButton { background-color: #dc3545; color: white; border: none; border-radius: 4px; font-size: 16px; font-weight: bold; } QPushButton:hover { background-color: #c82333; }")
+        dec_btn.clicked.connect(self.decrement_trace_id)
+        assign_row.addWidget(dec_btn)
+
         self.trace_id_label = QLabel(str(self.ctrl.next_track_id))
-        self.trace_id_label.setFixedHeight(22)
-        self.trace_id_label.setMinimumWidth(50)
-        self.trace_id_label.setStyleSheet("QLabel { background-color: #2c3e50; color: #ecf0f1; border-radius: 4px; padding: 0 8px; font-weight: bold; }")
+        self.trace_id_label.setFixedHeight(28)
+        self.trace_id_label.setMinimumWidth(80)
+        self.trace_id_label.setStyleSheet("QLabel { background-color: #2c3e50; color: #ecf0f1; border-radius: 4px; padding: 0 12px; font-weight: bold; font-size: 13px; }")
         self.trace_id_label.setAlignment(Qt.AlignCenter)
-        trace_change_layout.addWidget(self.trace_id_label)
+        assign_row.addWidget(self.trace_id_label)
+
+        inc_btn = QPushButton("+")
+        inc_btn.setFixedSize(28, 28)
+        inc_btn.setStyleSheet("QPushButton { background-color: #28a745; color: white; border: none; border-radius: 4px; font-size: 16px; font-weight: bold; } QPushButton:hover { background-color: #218838; }")
+        inc_btn.clicked.connect(self.increment_trace_id)
+        assign_row.addWidget(inc_btn)
+        trace_change_layout.addLayout(assign_row)
+
+        modify_btn = QPushButton("变更")
+        modify_btn.setFixedHeight(24)
+        modify_btn.setStyleSheet("QPushButton { background-color: #007bff; color: white; border: none; border-radius: 3px; } QPushButton:hover { background-color: #0069d9; }")
+        modify_btn.clicked.connect(self.modify_selected_trace_mapping)
+        trace_change_layout.addWidget(modify_btn)
+
+        delete_btn = QPushButton("删除")
+        delete_btn.setFixedHeight(24)
+        delete_btn.setStyleSheet("QPushButton { background-color: #dc3545; color: white; border: none; border-radius: 3px; } QPushButton:hover { background-color: #c82333; }")
+        delete_btn.clicked.connect(self.remove_selected_trace_id)
+        trace_change_layout.addWidget(delete_btn)
+
         layout.addLayout(trace_change_layout)
 
         self.export_btn = QPushButton("📦 导出到 temp_data_post")
@@ -1524,6 +1537,20 @@ class UnifiedPanel(QMainWindow):
             self._save_trace_id_mappings()
             if self.viewer:
                 self.viewer.update_display()
+
+    def decrement_trace_id(self):
+        if self.ctrl.next_track_id > 0:
+            self.ctrl.next_track_id -= 1
+            self.trace_id_label.setText(str(self.ctrl.next_track_id))
+
+    def increment_trace_id(self):
+        self.ctrl.next_track_id += 1
+        self.trace_id_label.setText(str(self.ctrl.next_track_id))
+
+    def modify_selected_trace_mapping(self):
+        item = self.trace_id_list.currentItem()
+        if item:
+            self.on_trace_id_double_clicked(item)
 
     def handle_viewer_click(self, video_x, video_y, frame_idx):
         if self.ctrl.fence_mode_active():
