@@ -1,377 +1,679 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html>
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>视频标注工具</title>
+<meta charset="utf-8">
+<title>标注工具 - Web App</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { background: #1a1a2e; color: #ddd; font-family: Arial, sans-serif; min-height: 100vh; display: flex; flex-direction: column; }
-.header { background: #111; padding: 10px 20px; border-bottom: 1px solid #333; display: flex; align-items: center; gap: 20px; }
-.header h2 { color: #00CC00; font-size: 18px; }
-.main-container { display: flex; flex: 1; overflow: hidden; }
-.left-panel { width: 380px; background: #16213e; border-right: 1px solid #333; padding: 12px; overflow-y: auto; max-height: calc(100vh - 50px); }
-.right-panel { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 20px; overflow-y: auto; max-height: calc(100vh - 50px); }
-.section { background: #0f3460; border: 1px solid #333; border-radius: 6px; padding: 10px; margin-bottom: 10px; }
-.section-title { font-size: 13px; font-weight: bold; color: #aaa; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 1px solid #333; }
-.row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
-label { font-size: 12px; color: #aaa; white-space: nowrap; }
-input[type=text], input[type=file], input[type=number] { background: #1a1a2e; border: 1px solid #444; color: #fff; border-radius: 4px; padding: 5px 8px; font-size: 12px; outline: none; width: 100px; }
-input:focus { border-color: #00CC00; }
-input.wide { flex: 1; min-width: 80px; }
-.btn { padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; transition: all 0.2s; }
-.btn-primary { background: #00CC00; color: white; }
-.btn-primary:hover { background: #009900; }
-.btn-primary:disabled { background: #555; color: #888; cursor: not-allowed; }
-.btn-secondary { background: #555; color: #fff; }
-.btn-secondary:hover { background: #666; }
-.btn-danger { background: #e74c3c; color: white; }
-.btn-danger:hover { background: #c0392b; }
-.btn-sm { padding: 4px 8px; font-size: 11px; }
-.file-drop { border: 2px dashed #444; border-radius: 6px; padding: 16px; text-align: center; color: #888; font-size: 12px; cursor: pointer; transition: all 0.2s; margin-bottom: 6px; }
-.file-drop:hover { border-color: #00CC00; background: rgba(0,204,0,0.05); }
-.canvas-wrap { position: relative; display: inline-block; margin: 8px 0; border: 1px solid #333; border-radius: 4px; overflow: hidden; }
-.canvas-wrap img { display: block; max-width: 100%; }
-#mainCanvas { position: absolute; top: 0; left: 0; cursor: crosshair; background: transparent; }
-.frame-nav { display: flex; align-items: center; gap: 4px; margin: 8px 0; flex-wrap: wrap; justify-content: center; }
-.frame-nav .btn { min-width: 40px; }
-.frame-display { background: #333; color: #fff; padding: 4px 10px; border-radius: 4px; font-weight: bold; font-size: 12px; min-width: 60px; text-align: center; }
-.progress-bar { width: 100%; height: 6px; background: #333; border-radius: 3px; overflow: hidden; margin: 6px 0; }
-.progress-fill { height: 100%; background: #00CC00; width: 0%; transition: width 0.3s; }
-.log-area { background: #0a0a15; border: 1px solid #333; border-radius: 4px; padding: 6px; font-family: monospace; font-size: 11px; max-height: 100px; overflow-y: auto; color: #0f0; white-space: pre-wrap; }
-.category-row { display: flex; align-items: center; gap: 4px; margin-bottom: 3px; }
-.category-row label { min-width: 70px; font-size: 11px; }
-.category-row input { width: 100%; font-size: 11px; }
-.trace-list { background: #0a0a15; border: 1px solid #333; border-radius: 4px; max-height: 80px; overflow-y: auto; margin-bottom: 4px; }
-.trace-item { padding: 3px 6px; font-size: 11px; cursor: pointer; }
-.trace-item:hover { background: #333; }
-.trace-item.selected { background: #005500; }
-.assign-row { display: flex; align-items: center; gap: 4px; justify-content: center; margin: 4px 0; }
-.assign-row .btn { min-width: 28px; height: 28px; font-size: 16px; padding: 0; }
-.assign-display { background: #2c3e50; color: #ecf0f1; padding: 4px 12px; border-radius: 4px; font-weight: bold; min-width: 70px; text-align: center; }
-.checkbox-row { display: flex; align-items: center; gap: 6px; }
-.checkbox-row input[type=checkbox] { width: 14px; height: 14px; }
-.prompt-bbox-list { background: #0a0a15; border: 1px solid #333; border-radius: 4px; max-height: 60px; overflow-y: auto; margin-bottom: 4px; font-size: 11px; }
-.prompt-bbox-item { padding: 2px 6px; }
+body { font-family: 'Segoe UI', sans-serif; background: #1e1e2e; color: #cdd6f4; height: 100vh; display: flex; }
+.container { display: flex; width: 100%; height: 100vh; }
+.left-panel { width: 380px; min-width: 380px; background: #181825; border-right: 1px solid #313244; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.right-panel { flex: 1; display: flex; flex-direction: column; background: #11111b; position: relative; }
+.panel-section { background: #1e1e2e; border: 1px solid #313244; border-radius: 6px; padding: 10px; }
+.panel-section h3 { font-size: 13px; color: #89b4fa; margin-bottom: 6px; border-bottom: 1px solid #313244; padding-bottom: 4px; }
+.row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.row label { font-size: 12px; color: #a6adc8; min-width: 40px; }
+.row input, .row select { flex: 1; padding: 4px 8px; background: #313244; border: 1px solid #45475a; border-radius: 4px; color: #cdd6f4; font-size: 12px; }
+.row input:focus { outline: none; border-color: #89b4fa; }
+.btn { padding: 5px 14px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600; transition: background 0.2s; }
+.btn-primary { background: #89b4fa; color: #1e1e2e; }
+.btn-primary:hover { background: #74c7ec; }
+.btn-success { background: #a6e3a1; color: #1e1e2e; }
+.btn-success:hover { background: #94e2d5; }
+.btn-danger { background: #f38ba8; color: #1e1e2e; }
+.btn-danger:hover { background: #eba0ac; }
+.btn-warning { background: #fab387; color: #1e1e2e; }
+.btn-warning:hover { background: #f9e2af; }
+.btn-secondary { background: #45475a; color: #cdd6f4; }
+.btn-secondary:hover { background: #585b70; }
+.btn-sm { padding: 3px 10px; font-size: 11px; }
+.btn-lg { padding: 8px 20px; font-size: 14px; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.progress-bar { height: 6px; background: #313244; border-radius: 3px; overflow: hidden; margin-top: 4px; display: none; }
+.progress-fill { height: 100%; background: #89b4fa; width: 0%; transition: width 0.2s; }
+.progress-text { font-size: 11px; color: #a6adc8; text-align: center; margin-top: 2px; display: none; }
+.canvas-wrapper { flex: 1; display: flex; justify-content: center; align-items: center; overflow: hidden; padding: 10px; position: relative; }
+.canvas-wrapper canvas { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 4px; }
+.nav-bar { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 8px; background: #181825; border-top: 1px solid #313244; }
+.nav-bar span { font-size: 13px; color: #a6adc8; min-width: 100px; text-align: center; }
+.nav-bar input[type="text"] { width: 70px; text-align: center; padding: 3px 6px; background: #313244; border: 1px solid #45475a; border-radius: 4px; color: #cdd6f4; font-size: 13px; }
+.trace-id-row { display: flex; align-items: center; gap: 6px; }
+.trace-id-row .minus-btn, .trace-id-row .plus-btn { width: 28px; height: 28px; border: 1px solid #45475a; border-radius: 4px; background: #313244; color: #cdd6f4; font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.trace-id-row .minus-btn:hover, .trace-id-row .plus-btn:hover { background: #45475a; }
+.trace-id-row input { width: 100px; text-align: center; padding: 4px 6px; background: #313244; border: 1px solid #45475a; border-radius: 4px; color: #cdd6f4; font-size: 14px; font-weight: bold; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: bold; background: #313244; color: #cdd6f4; }
+.modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; display: none; justify-content: center; align-items: center; }
+.modal-content { background: #1e1e2e; border: 1px solid #45475a; border-radius: 8px; padding: 16px; width: 800px; max-width: 90vw; max-height: 90vh; overflow-y: auto; }
+.modal-content h2 { color: #89b4fa; margin-bottom: 10px; font-size: 16px; }
+.modal-canvas { width: 100%; border: 1px solid #45475a; border-radius: 4px; cursor: crosshair; background: #111; }
+.modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.mapping-list { max-height: 120px; overflow-y: auto; font-size: 11px; margin-top: 4px; }
+.mapping-list .item { display: flex; align-items: center; gap: 6px; padding: 2px 4px; border-bottom: 1px solid #313244; }
+.mapping-list .item span { flex: 1; color: #a6adc8; }
+.mapping-list .item .del-btn { color: #f38ba8; cursor: pointer; font-size: 14px; }
+.status-msg { font-size: 12px; color: #a6adc8; padding: 4px 8px; background: #313244; border-radius: 4px; display: none; }
+.cat-row { display: flex; align-items: center; gap: 4px; margin: 2px 0; }
+.cat-row label { font-size: 11px; color: #a6adc8; min-width: 80px; }
+.cat-row input { flex: 1; padding: 2px 6px; background: #313244; border: 1px solid #45475a; border-radius: 4px; color: #cdd6f4; font-size: 11px; }
+.checkbox-row { display: flex; align-items: center; gap: 8px; }
+.checkbox-row label { font-size: 12px; color: #a6adc8; cursor: pointer; display: flex; align-items: center; gap: 4px; }
+.debug-box { font-size: 11px; color: #f9e2af; background: #313244; border-radius: 4px; padding: 4px 8px; max-height: 60px; overflow-y: auto; display: none; }
 </style>
 </head>
 <body>
-<div class="header">
-  <h2>视频标注工具</h2>
-  <span style="color:#888;font-size:12px">与app.py功能同步</span>
-</div>
-<div class="main-container">
+<div class="container">
   <div class="left-panel">
-    <div class="section">
-      <div class="section-title">1. 视频标注</div>
-      <div class="file-drop" id="videoDrop">点击或拖拽上传视频文件</div>
-      <input type="file" id="videoFile" accept="video/*" style="display:none">
+    <div class="panel-section">
+      <h3>📁 视频上传</h3>
       <div class="row">
-        <label>IoU:</label>
-        <input type="text" id="iouInput" value="0.5" style="width:50px">
-        <label>合并IoU:</label>
-        <input type="text" id="mergeIouInput" value="0.5" style="width:50px">
+        <input type="file" id="videoFile" accept="video/*" style="flex:1">
+        <button class="btn btn-primary btn-sm" id="uploadBtn">上传</button>
       </div>
-      <div class="row">
-        <label>物品:</label>
-        <input type="text" id="itemsInput" class="wide" placeholder="类别名称,逗号分隔">
+      <div class="row" style="margin-top:4px">
+        <label>视频:</label>
+        <span id="videoName" style="font-size:12px;color:#a6adc8;">未选择</span>
       </div>
-      <div class="row">
-        <button class="btn btn-primary" id="annotateBtn" disabled>▶ 执行标注</button>
-        <button class="btn btn-secondary" id="showViewerBtn" disabled>显示</button>
-      </div>
-      <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
-      <div id="progressText" style="font-size:11px;color:#888"></div>
     </div>
 
-    <div class="section">
-      <div class="section-title">2. 类别名称 (trace_id → 类别)</div>
-      <div id="categoryList"></div>
+    <div class="panel-section">
+      <h3>⚙️ 标注参数</h3>
+      <div class="row">
+        <label>IOU:</label>
+        <input type="number" id="iouInput" value="0.5" min="0" max="1" step="0.05">
+        <label style="min-width:60px">合并IOU:</label>
+        <input type="number" id="mergeIouInput" value="0.5" min="0" max="1" step="0.05">
+      </div>
+      <div class="row" style="margin-top:4px">
+        <label>查找:</label>
+        <input type="text" id="itemsInput" placeholder="逗号分隔,如: person,car" style="flex:1">
+      </div>
     </div>
 
-    <div class="section">
-      <div class="section-title">3. 预览控制</div>
+    <div class="row" style="gap:8px">
+      <button class="btn btn-primary btn-lg" id="annotateBtn" disabled>▶ 执行标注</button>
+    </div>
+
+    <div class="panel-section">
+      <div class="progress-bar" id="progressBar"><div class="progress-fill" id="progressFill"></div></div>
+      <div class="progress-text" id="progressText"></div>
+    </div>
+
+    <div class="panel-section" id="viewerSection" style="display:none">
+      <h3>👁️ 标注结果</h3>
       <div class="row">
-        <label>缩放:</label>
-        <input type="range" id="zoomSlider" min="50" max="200" value="100" style="flex:1">
-        <span id="zoomLabel">100%</span>
+        <button class="btn btn-success" id="showViewerBtn">显示标注结果</button>
+        <button class="btn btn-secondary btn-sm" id="refreshViewerBtn">刷新</button>
       </div>
+      <div class="trace-id-row" style="margin-top:8px">
+        <span style="font-size:12px;color:#a6adc8;">绿点TraceID:</span>
+        <button class="minus-btn" id="traceMinus">−</button>
+        <input type="text" id="traceIdInput" value="1000000">
+        <button class="plus-btn" id="tracePlus">+</button>
+      </div>
+      <div class="mapping-list" id="mappingList"></div>
+      <div class="row" style="margin-top:6px">
+        <input type="text" id="changeIdInput" placeholder="旧ID→新ID" style="flex:1;font-size:11px">
+        <button class="btn btn-warning btn-sm" id="changeIdBtn">变更</button>
+      </div>
+      <div class="row" style="margin-top:4px">
+        <button class="btn btn-danger btn-sm" id="delMappingBtn">删除</button>
+        <button class="btn btn-secondary btn-sm" id="clearMappingBtn">清空</button>
+        <button class="btn btn-primary btn-sm" id="saveMappingBtn">保存变更</button>
+      </div>
+    </div>
+
+    <div class="panel-section" id="bidirectionalSection" style="display:none">
+      <h3>🔄 双向标注</h3>
       <div class="row">
-        <label>置信度:</label>
-        <input type="range" id="confSlider" min="0" max="100" value="50" style="flex:1">
-        <span id="confLabel">50%</span>
+        <label>提示帧:</label>
+        <input type="number" id="promptFrameIdx" value="0" min="0" style="width:60px">
+        <button class="btn btn-warning btn-sm" id="promptBtn">执行提示帧</button>
       </div>
-      <div class="frame-nav" id="frameNav" style="display:none">
-        <button class="btn btn-secondary btn-sm" id="backwardFastBtn">倒播</button>
-        <button class="btn btn-secondary btn-sm" id="backwardBtn">倒帧</button>
-        <button class="btn btn-primary btn-sm" id="promptBtn">提示帧</button>
+      <div class="row" style="margin-top:4px">
         <div class="checkbox-row">
-          <input type="checkbox" id="backwardCb" checked>
-          <label style="font-size:10px">后向</label>
+          <label><input type="checkbox" id="backwardCheck" checked> 后向</label>
+          <span style="color:#a6adc8;font-size:12px;">→ 提示帧 →</span>
+          <label><input type="checkbox" id="forwardCheck" checked> 前向</label>
         </div>
-        <span class="frame-display" id="frameDisplay">1/1</span>
-        <div class="checkbox-row">
-          <input type="checkbox" id="forwardCb" checked>
-          <label style="font-size:10px">前向</label>
-        </div>
-        <button class="btn btn-secondary btn-sm" id="forwardBtn">正帧</button>
-        <button class="btn btn-secondary btn-sm" id="forwardFastBtn">正播</button>
       </div>
+      <div class="row" style="margin-top:6px">
+        <button class="btn btn-primary" id="bidirectionalBtn">▶ 双向标注</button>
+      </div>
+      <div class="debug-box" id="bidirectionalDebug"></div>
     </div>
 
-    <div class="section">
-      <div class="section-title">ID映射列表</div>
-      <div class="trace-list" id="traceList"></div>
-      <div class="row">
-        <button class="btn btn-secondary btn-sm" id="clearTraceBtn">清空</button>
-        <button class="btn btn-primary btn-sm" id="modifyTraceBtn">变更</button>
-        <button class="btn btn-danger btn-sm" id="deleteTraceBtn">删除</button>
+    <div class="panel-section" id="exportSection" style="display:none">
+      <h3>📤 导出</h3>
+      <div id="categoryMappings">
+        <div class="cat-row"><label>类别0(1000000):</label><input type="text" class="cat-input" value="Detect"></div>
+        <div class="cat-row"><label>类别1(1000001):</label><input type="text" class="cat-input" value="Detect"></div>
+        <div class="cat-row"><label>类别2(1000002):</label><input type="text" class="cat-input" value="Detect"></div>
+        <div class="cat-row"><label>类别3(1000003):</label><input type="text" class="cat-input" value="Detect"></div>
+        <div class="cat-row"><label>类别4(1000004):</label><input type="text" class="cat-input" value="Detect"></div>
+        <div class="cat-row"><label>类别5(1000005):</label><input type="text" class="cat-input" value="Detect"></div>
+        <div class="cat-row"><label>类别6(1000006):</label><input type="text" class="cat-input" value="Detect"></div>
+        <div class="cat-row"><label>类别7(1000007):</label><input type="text" class="cat-input" value="Detect"></div>
       </div>
-      <div class="assign-row">
-        <button class="btn btn-danger" id="decBtn">-</button>
-        <span class="assign-display" id="assignDisplay">1000000</span>
-        <button class="btn btn-primary" id="incBtn">+</button>
+      <div class="row" style="margin-top:6px">
+        <button class="btn btn-success" id="exportBtn">导出到 temp_data_post</button>
       </div>
-    </div>
-
-    <div class="section">
-      <div class="section-title">双向标注</div>
-      <div class="prompt-bbox-list" id="promptBboxList"></div>
-      <div class="row">
-        <button class="btn btn-primary" id="runBidirectionalBtn" disabled>执行双向标注</button>
-      </div>
-    </div>
-
-    <div class="section">
-      <button class="btn btn-primary" id="exportBtn" style="width:100%">📦 导出到 temp_data_post</button>
-    </div>
-
-    <div class="section">
-      <div class="log-area" id="logArea"></div>
     </div>
   </div>
 
   <div class="right-panel">
-    <div class="canvas-wrap" id="canvasWrap">
-      <img id="videoImg" style="display:none">
-      <canvas id="mainCanvas"></canvas>
+    <div class="canvas-wrapper">
+      <canvas id="viewerCanvas"></canvas>
     </div>
-    <div class="row" id="videoInfo" style="display:none">
-      <span style="color:#888;font-size:11px" id="videoInfoText"></span>
+    <div class="nav-bar">
+      <button class="btn btn-secondary btn-sm" id="prevFrameBtn">◀</button>
+      <input type="text" id="frameIdxInput" value="0">
+      <span id="frameInfo">/ 0</span>
+      <button class="btn btn-secondary btn-sm" id="nextFrameBtn">▶</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="annotateModal">
+  <div class="modal-content">
+    <h2>📦 标注预览 - 绘制边界框或输入文本</h2>
+    <div class="row" style="margin-bottom:8px">
+      <label>查找:</label>
+      <input type="text" id="modalItemsInput" placeholder="逗号分隔,如: person,car" style="flex:1">
+    </div>
+    <div class="row" style="margin-bottom:8px">
+      <canvas id="modalCanvas" class="modal-canvas" height="480"></canvas>
+    </div>
+    <div class="row" style="font-size:11px;color:#a6adc8;">
+      <span>在画布上拖动绘制边界框（可选），或输入文本进行语义标注</span>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" id="modalCancelBtn">取消</button>
+      <button class="btn btn-primary" id="modalRunBtn">▶ 执行标注</button>
     </div>
   </div>
 </div>
 
 <script>
-let state = {
+const state = {
   videoName: '',
   totalFrames: 0,
   currentFrame: 0,
-  isPlaying: false,
-  zoom: 1.0,
-  conf: 0.5,
-  nextTrackId: 1000000,
-  traceList: [],
+  annotations: [],
+  traceIdChanges: [],
+  currentTraceId: 1000000,
   promptBboxes: [],
-  promptFrameIdx: -1,
-  categoryMappings: ['Detect','Detect','Detect','Detect','Detect','Detect','Detect','Detect']
+  annotationRunning: false,
+  isModifying: false,
 };
-const WARM_COLORS = [[180,130,255],[200,100,220],[255,50,200],[255,0,180],[220,0,150],[180,0,120],[139,0,100],[100,0,80]];
-const COLD_COLORS = [[100,150,255],[100,200,255],[150,200,255],[100,255,200],[150,100,255],[100,200,200],[150,150,255],[100,180,255]];
-function getColor(trackId) {
-  if (trackId >= 1000000) return WARM_COLORS[(trackId - 1000000) % 8];
-  return COLD_COLORS[trackId % 8];
+
+const canvas = document.getElementById('viewerCanvas');
+const ctx = canvas.getContext('2d');
+const modalCanvas = document.getElementById('modalCanvas');
+const modalCtx = modalCanvas.getContext('2d');
+
+function $(id) { return document.getElementById(id); }
+
+function setStatus(msg, isError) {
+  const el = $('statusMsg') || (() => {
+    const d = document.createElement('div');
+    d.id = 'statusMsg';
+    d.className = 'status-msg';
+    document.querySelector('.left-panel').insertBefore(d, document.querySelector('.left-panel').firstChild);
+    return d;
+  })();
+  el.textContent = msg;
+  el.style.display = 'block';
+  el.style.background = isError ? '#f38ba8' : '#313244';
+  el.style.color = isError ? '#1e1e2e' : '#cdd6f4';
+  setTimeout(() => el.style.display = 'none', 5000);
 }
-function log(msg) {
-  const area = document.getElementById('logArea');
-  area.textContent += new Date().toLocaleTimeString() + ' ' + msg + '\n';
-  area.scrollTop = area.scrollHeight;
-}
-function updateProgress(percent, text) {
-  document.getElementById('progressFill').style.width = percent + '%';
-  document.getElementById('progressText').textContent = text || '';
-}
-document.getElementById('videoDrop').onclick = () => document.getElementById('videoFile').click();
-document.getElementById('videoFile').onchange = async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  const formData = new FormData();
-  formData.append('file', file);
-  const res = await fetch('/api/upload_video', {method:'POST', body:formData});
+
+async function apiPost(url, body) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined
+  });
   const data = await res.json();
-  if (data.error) { alert(data.error); return; }
-  state.videoName = data.filename;
-  document.getElementById('videoDrop').innerHTML = '已上传: ' + data.filename;
-  document.getElementById('annotateBtn').disabled = false;
-  document.getElementById('showViewerBtn').disabled = false;
-  log('视频已上传: ' + data.filename + ' (' + data.width + 'x' + data.height + ')');
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
+async function apiGet(url) {
+  const res = await fetch(url);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
+$('uploadBtn').onclick = async () => {
+  const file = $('videoFile').files[0];
+  if (!file) { setStatus('请选择视频文件', true); return; }
+  const fd = new FormData();
+  fd.append('video', file);
+  try {
+    const res = await fetch('/api/upload_video', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    state.videoName = data.video_name;
+    $('videoName').textContent = state.videoName;
+    $('annotateBtn').disabled = false;
+    setStatus('上传成功: ' + state.videoName);
+  } catch (e) { setStatus('上传失败: ' + e.message, true); }
 };
-document.getElementById('annotateBtn').onclick = async () => {
-  const formData = new FormData();
-  formData.append('video_name', state.videoName);
-  formData.append('iou', document.getElementById('iouInput').value);
-  formData.append('merge_iou', document.getElementById('mergeIouInput').value);
-  formData.append('items', document.getElementById('itemsInput').value);
-  formData.append('boxes', JSON.stringify(state.promptBboxes));
-  const es = new EventSource('/api/annotate_stream', {method:'POST', body:formData});
-  es.onmessage = (e) => {
-    const d = JSON.parse(e.data);
-    if (d.type === 'start') { log('开始标注...'); updateProgress(0, '0%'); }
-    if (d.type === 'progress') { updateProgress(d.percent, d.frame + '/' + d.total); }
-    if (d.type === 'done') { log('标注完成: ' + d.frames + '帧'); updateProgress(100, '完成'); es.close(); }
-    if (d.type === 'error') { log('错误: ' + d.msg); es.close(); }
+
+$('annotateBtn').onclick = async () => {
+  if (!state.videoName) { setStatus('请先上传视频', true); return; }
+  if (state.annotationRunning) { setStatus('标注正在执行中...', true); return; }
+  await showAnnotateModal();
+};
+
+async function showAnnotateModal() {
+  const modal = $('annotateModal');
+  const itemsInput = $('modalItemsInput');
+  itemsInput.value = $('itemsInput').value;
+  modal.style.display = 'flex';
+
+  modalCtx.clearRect(0, 0, modalCanvas.width, modalCanvas.height);
+  modalCanvas.width = 800;
+  modalCanvas.height = 480;
+  modalCtx.fillStyle = '#111';
+  modalCtx.fillRect(0, 0, modalCanvas.width, modalCanvas.height);
+  modalCtx.fillStyle = '#666';
+  modalCtx.font = '20px sans-serif';
+  modalCtx.textAlign = 'center';
+  modalCtx.fillText('等待预览帧...', modalCanvas.width / 2, modalCanvas.height / 2);
+
+  state.promptBboxes = [];
+  let drawing = false;
+  let startX, startY, endX, endY;
+
+  const mouseDown = (e) => {
+    const r = modalCanvas.getBoundingClientRect();
+    const scaleX = modalCanvas.width / r.width;
+    const scaleY = modalCanvas.height / r.height;
+    startX = (e.clientX - r.left) * scaleX;
+    startY = (e.clientY - r.top) * scaleY;
+    drawing = true;
   };
+  const mouseMove = (e) => {
+    if (!drawing) return;
+    const r = modalCanvas.getBoundingClientRect();
+    const scaleX = modalCanvas.width / r.width;
+    const scaleY = modalCanvas.height / r.height;
+    endX = (e.clientX - r.left) * scaleX;
+    endY = (e.clientY - r.top) * scaleY;
+    modalCtx.clearRect(0, 0, modalCanvas.width, modalCanvas.height);
+    modalCtx.drawImage(previewFrame, 0, 0, modalCanvas.width, modalCanvas.height);
+    modalCtx.strokeStyle = '#89b4fa';
+    modalCtx.lineWidth = 2;
+    modalCtx.strokeRect(startX, startY, endX - startX, endY - startY);
+    for (const bx of state.promptBboxes) {
+      modalCtx.strokeStyle = '#a6e3a1';
+      modalCtx.strokeRect(bx[0], bx[1], bx[2] - bx[0], bx[3] - bx[1]);
+    }
+  };
+  const mouseUp = (e) => {
+    if (!drawing) return;
+    drawing = false;
+    const r = modalCanvas.getBoundingClientRect();
+    const scaleX = modalCanvas.width / r.width;
+    const scaleY = modalCanvas.height / r.height;
+    endX = (e.clientX - r.left) * scaleX;
+    endY = (e.clientY - r.top) * scaleY;
+    const x1 = Math.min(startX, endX), y1 = Math.min(startY, endY);
+    const x2 = Math.max(startX, endX), y2 = Math.max(startY, endY);
+    if (x2 - x1 > 5 && y2 - y1 > 5) {
+      state.promptBboxes.push([x1, y1, x2, y2]);
+    }
+    modalCtx.clearRect(0, 0, modalCanvas.width, modalCanvas.height);
+    modalCtx.drawImage(previewFrame, 0, 0, modalCanvas.width, modalCanvas.height);
+    for (const bx of state.promptBboxes) {
+      modalCtx.strokeStyle = '#a6e3a1';
+      modalCtx.lineWidth = 2;
+      modalCtx.strokeRect(bx[0], bx[1], bx[2] - bx[0], bx[3] - bx[1]);
+    }
+  };
+
+  let previewFrame = new Image();
+  previewFrame.onload = () => {
+    modalCtx.clearRect(0, 0, modalCanvas.width, modalCanvas.height);
+    modalCtx.drawImage(previewFrame, 0, 0, modalCanvas.width, modalCanvas.height);
+  };
+  previewFrame.onerror = () => {
+    modalCtx.fillStyle = '#666';
+    modalCtx.font = '16px sans-serif';
+    modalCtx.textAlign = 'center';
+    modalCtx.fillText('无法加载预览帧', modalCanvas.width / 2, modalCanvas.height / 2);
+  };
+  previewFrame.src = '/api/get_frame/0';
+
+  modalCanvas.addEventListener('mousedown', mouseDown);
+  modalCanvas.addEventListener('mousemove', mouseMove);
+  modalCanvas.addEventListener('mouseup', mouseUp);
+
+  modalCanvas.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    if (state.promptBboxes.length > 0) {
+      state.promptBboxes.pop();
+      modalCtx.clearRect(0, 0, modalCanvas.width, modalCanvas.height);
+      modalCtx.drawImage(previewFrame, 0, 0, modalCanvas.width, modalCanvas.height);
+      for (const bx of state.promptBboxes) {
+        modalCtx.strokeStyle = '#a6e3a1';
+        modalCtx.lineWidth = 2;
+        modalCtx.strokeRect(bx[0], bx[1], bx[2] - bx[0], bx[3] - bx[1]);
+      }
+    }
+  });
+
+  $('modalCancelBtn').onclick = () => {
+    modalCanvas.removeEventListener('mousedown', mouseDown);
+    modalCanvas.removeEventListener('mousemove', mouseMove);
+    modalCanvas.removeEventListener('mouseup', mouseUp);
+    modal.style.display = 'none';
+  };
+
+  $('modalRunBtn').onclick = async () => {
+    modalCanvas.removeEventListener('mousedown', mouseDown);
+    modalCanvas.removeEventListener('mousemove', mouseMove);
+    modalCanvas.removeEventListener('mouseup', mouseUp);
+    modal.style.display = 'none';
+    await runAnnotation(itemsInput.value);
+  };
+}
+
+async function runAnnotation(items) {
+  state.annotationRunning = true;
+  $('annotateBtn').disabled = true;
+  $('progressBar').style.display = 'block';
+  $('progressText').style.display = 'block';
+  $('progressFill').style.width = '0%';
+  $('progressText').textContent = '正在初始化...';
+
+  const params = {
+    video_name: state.videoName,
+    iou: parseFloat($('iouInput').value),
+    merge_iou: parseFloat($('mergeIouInput').value),
+    items: items,
+  };
+
+  try {
+    const response = await fetch('/api/run_annotate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params)
+    });
+    if (!response.ok) {
+      const ed = await response.json().catch(() => ({}));
+      throw new Error(ed.error || `HTTP ${response.status}`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.type === 'progress') {
+              const pct = data.percent || 0;
+              $('progressFill').style.width = pct + '%';
+              $('progressText').textContent = `处理中: ${data.frame}/${data.total} (${pct}%)`;
+            } else if (data.type === 'done') {
+              $('progressFill').style.width = '100%';
+              $('progressText').textContent = `完成! 共处理 ${data.frames} 帧`;
+              state.totalFrames = data.frames;
+              $('viewerSection').style.display = 'block';
+              $('bidirectionalSection').style.display = 'block';
+              $('exportSection').style.display = 'block';
+              await showViewer();
+            } else if (data.type === 'error') {
+              throw new Error(data.msg);
+            } else if (data.type === 'start') {
+              $('progressText').textContent = data.msg;
+            }
+          } catch (e) {
+            if (e.message !== 'Unexpected end of JSON input') console.error('SSE parse err:', e, line);
+          }
+        }
+      }
+    }
+  } catch (e) {
+    setStatus('标注失败: ' + e.message, true);
+    $('progressText').textContent = '失败: ' + e.message;
+  } finally {
+    state.annotationRunning = false;
+    $('annotateBtn').disabled = !state.videoName;
+  }
+}
+
+$('showViewerBtn').onclick = showViewer;
+
+$('refreshViewerBtn').onclick = async () => {
+  await showViewer(true);
 };
-document.getElementById('showViewerBtn').onclick = async () => {
-  const res = await fetch('/api/show_viewer', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({category_mappings:state.categoryMappings, trace_id_changes:state.traceList})});
-  const data = await res.json();
-  if (data.error) { alert(data.error); return; }
-  state.totalFrames = data.frames;
-  state.currentFrame = 0;
-  document.getElementById('frameNav').style.display = 'flex';
-  document.getElementById('videoInfo').style.display = 'flex';
-  document.getElementById('videoInfoText').textContent = state.videoName + ' - ' + data.frames + '帧';
-  log('已加载到 temp_data_mid: ' + data.frames + '帧');
-  await loadFrame(0);
-};
+
+async function showViewer(applyChanges) {
+  if (!state.videoName) { setStatus('请先完成标注', true); return; }
+  try {
+    const data = await apiPost('/api/show_viewer', {
+      trace_id_changes: applyChanges ? state.traceIdChanges : undefined
+    });
+    state.totalFrames = data.total || data.frames || 0;
+    $('frameInfo').textContent = '/ ' + state.totalFrames;
+    if (state.totalFrames > 0) {
+      await loadFrame(0);
+    }
+    setStatus('已加载 ' + state.totalFrames + ' 帧');
+    await loadMappings();
+  } catch (e) { setStatus('显示失败: ' + e.message, true); }
+}
+
 async function loadFrame(idx) {
-  if (idx < 0 || idx >= state.totalFrames) return;
+  if (!state.totalFrames) return;
+  if (idx < 0) idx = 0;
+  if (idx >= state.totalFrames) idx = state.totalFrames - 1;
   state.currentFrame = idx;
-  const res = await fetch('/api/get_frame/' + idx);
-  const imgData = await res.text();
-  const img = document.getElementById('videoImg');
-  img.src = 'data:image/jpeg;base64,' + imgData;
-  img.onload = () => {
-    const canvas = document.getElementById('mainCanvas');
-    canvas.width = img.naturalWidth * state.zoom;
-    canvas.height = img.naturalHeight * state.zoom;
-    img.style.width = canvas.width + 'px';
-    img.style.height = canvas.height + 'px';
-    drawCanvas();
-  };
-  document.getElementById('frameDisplay').textContent = (idx + 1) + '/' + state.totalFrames;
-}
-function drawCanvas() {
-  const canvas = document.getElementById('mainCanvas');
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.strokeStyle = '#ff0';
-  state.promptBboxes.forEach(b => {
-    ctx.strokeRect(b[0] * state.zoom, b[1] * state.zoom, (b[2]-b[0]) * state.zoom, (b[3]-b[1]) * state.zoom);
-  });
-}
-document.getElementById('mainCanvas').onclick = async (e) => {
-  if (state.promptBboxes.length === 0) return;
-  await fetch('/api/bidirectional_annotate', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({
-      prompt_frame_idx: state.currentFrame,
-      prompt_bboxes: state.promptBboxes,
-      forward_enabled: document.getElementById('forwardCb').checked,
-      backward_enabled: document.getElementById('backwardCb').checked,
-      iou: parseFloat(document.getElementById('iouInput').value),
-      merge_iou: parseFloat(document.getElementById('mergeIouInput').value)
-    })
-  }).then(r => r.json()).then(d => {
-    if (d.error) { log('错误: ' + d.error); return; }
-    log(d.msg + ', FIRST_ID=' + d.FIRST_ID);
-    loadFrame(state.currentFrame);
-  });
-};
-document.getElementById('promptBtn').onclick = () => {
-  if (state.promptBboxes.length === 0) {
-    const canvas = document.getElementById('mainCanvas');
-    canvas.onclick = async (e) => {
-      const rect = canvas.getBoundingClientRect();
-      const x = (e.clientX - rect.left) / state.zoom;
-      const y = (e.clientY - rect.top) / state.zoom;
-      const w = 100, h = 100;
-      state.promptBboxes.push([x - w/2, y - h/2, x + w/2, y + h/2]);
-      document.getElementById('promptBboxList').innerHTML = state.promptBboxes.map((b,i) => '<div class="prompt-bbox-item">bbox' + i + ': ' + Math.round(b[0]) + ',' + Math.round(b[1]) + '</div>').join('');
-      document.getElementById('runBidirectionalBtn').disabled = false;
-      drawCanvas();
-      log('已添加prompt bbox，位置: ' + Math.round(x) + ',' + Math.round(y));
-      canvas.onclick = null;
+  $('frameIdxInput').value = idx;
+  $('frameInfo').textContent = '/ ' + state.totalFrames;
+
+  try {
+    const data = await apiGet('/api/get_frame/' + idx);
+    const img = new Image();
+    img.onload = () => {
+      canvas.width = img.width;
+      canvas.height = img.height;
+      ctx.drawImage(img, 0, 0);
     };
-    log('请点击画布添加bbox');
-  } else {
-    state.promptBboxes = [];
-    document.getElementById('promptBboxList').innerHTML = '';
-    document.getElementById('runBidirectionalBtn').disabled = true;
-    drawCanvas();
-    log('已清除prompt bboxes');
+    img.src = 'data:image/jpeg;base64,' + data.image;
+  } catch (e) { setStatus('加载帧失败: ' + e.message, true); }
+}
+
+$('prevFrameBtn').onclick = () => loadFrame(state.currentFrame - 1);
+$('nextFrameBtn').onclick = () => loadFrame(state.currentFrame + 1);
+$('frameIdxInput').onchange = () => {
+  const v = parseInt($('frameIdxInput').value);
+  if (!isNaN(v)) loadFrame(v);
+};
+
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.key === 'ArrowLeft') loadFrame(state.currentFrame - 1);
+  if (e.key === 'ArrowRight') loadFrame(state.currentFrame + 1);
+});
+
+canvas.onclick = async (e) => {
+  if (!$('viewerSection').style.display || $('viewerSection').style.display === 'none') return;
+  const r = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / r.width;
+  const scaleY = canvas.height / r.height;
+  const cx = (e.clientX - r.left) * scaleX;
+  const cy = (e.clientY - r.top) * scaleY;
+
+  try {
+    const af = await apiGet('/api/get_video_info');
+    if (af.annotations) {
+      for (const ann of af.annotations) {
+        if (ann.image_id !== state.currentFrame) continue;
+        const seg = ann.segmentation;
+        if (seg && seg[0]) {
+          const pts = [];
+          for (let i = 0; i < seg[0].length; i += 2) {
+            pts.push([seg[0][i], seg[0][i + 1]]);
+          }
+          if (isPointInPolygon(cx, cy, pts)) {
+            $('traceIdInput').value = ann.track_id || 0;
+            state.currentTraceId = ann.track_id || 0;
+            break;
+          }
+        }
+      }
+    }
+  } catch (e) { /* ignore */ }
+};
+
+function isPointInPolygon(px, py, polygon) {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i][0], yi = polygon[i][1];
+    const xj = polygon[j][0], yj = polygon[j][1];
+    if ((yi > py) !== (yj > py) && px < (xj - xi) * (py - yi) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+$('traceMinus').onclick = () => {
+  let v = parseInt($('traceIdInput').value) || 1000000;
+  v = Math.max(1, v - 1);
+  $('traceIdInput').value = v;
+  state.currentTraceId = v;
+};
+
+$('tracePlus').onclick = () => {
+  let v = parseInt($('traceIdInput').value) || 1000000;
+  v = v + 1;
+  $('traceIdInput').value = v;
+  state.currentTraceId = v;
+};
+
+$('traceIdInput').onchange = () => {
+  const v = parseInt($('traceIdInput').value);
+  if (!isNaN(v)) state.currentTraceId = v;
+};
+
+$('changeIdBtn').onclick = () => {
+  const text = $('changeIdInput').value.trim();
+  if (!text) { setStatus('请输入旧ID→新ID', true); return; }
+  if (!text.includes('→')) { setStatus('格式: 旧ID→新ID', true); return; }
+  state.traceIdChanges.push('ID:' + text);
+  renderMappings();
+  $('changeIdInput').value = '';
+};
+
+$('delMappingBtn').onclick = () => {
+  if (state.traceIdChanges.length === 0) return;
+  state.traceIdChanges.pop();
+  renderMappings();
+};
+
+$('clearMappingBtn').onclick = () => {
+  state.traceIdChanges = [];
+  renderMappings();
+};
+
+$('saveMappingBtn').onclick = async () => {
+  if (state.traceIdChanges.length === 0) { setStatus('没有要保存的变更', true); return; }
+  try {
+    await apiPost('/api/save_mappings', { mappings: state.traceIdChanges });
+    setStatus('已保存 ' + state.traceIdChanges.length + ' 条变更');
+    await showViewer(true);
+  } catch (e) { setStatus('保存失败: ' + e.message, true); }
+};
+
+function renderMappings() {
+  const el = $('mappingList');
+  el.innerHTML = state.traceIdChanges.map((m, i) =>
+    `<div class="item"><span>${m.replace('ID:', '')}</span><span class="del-btn" data-idx="${i}">✕</span></div>`
+  ).join('');
+  el.querySelectorAll('.del-btn').forEach(btn => {
+    btn.onclick = () => {
+      const idx = parseInt(btn.dataset.idx);
+      state.traceIdChanges.splice(idx, 1);
+      renderMappings();
+    };
+  });
+}
+
+async function loadMappings() {
+  try {
+    const data = await apiGet('/api/load_mappings');
+    if (data.mappings && data.mappings.length) {
+      state.traceIdChanges = data.mappings;
+      renderMappings();
+    }
+  } catch (e) { /* ignore */ }
+}
+
+$('promptBtn').onclick = async () => {
+  if (!state.videoName) { setStatus('请先完成标注', true); return; }
+  const idx = parseInt($('promptFrameIdx').value) || 0;
+  try {
+    const info = await apiGet('/api/get_video_info');
+    const data = await apiPost('/api/bidirectional', {
+      prompt_frame_idx: idx,
+      bboxes: [],
+      forward_enabled: false,
+      backward_enabled: false,
+      iou: parseFloat($('iouInput').value),
+      merge_iou: parseFloat($('mergeIouInput').value),
+    });
+    $('bidirectionalDebug').style.display = 'block';
+    $('bidirectionalDebug').textContent = `提示帧完成: ${data.msg || ''} 初始ID: ${data.FIRST_ID || 'N/A'}`;
+    setStatus(data.msg || '提示帧执行完成');
+  } catch (e) { setStatus('提示帧失败: ' + e.message, true); }
+};
+
+$('bidirectionalBtn').onclick = async () => {
+  if (!state.videoName) { setStatus('请先完成标注', true); return; }
+  const idx = parseInt($('promptFrameIdx').value) || 0;
+  const forwardEn = $('forwardCheck').checked;
+  const backwardEn = $('backwardCheck').checked;
+
+  $('bidirectionalDebug').style.display = 'block';
+  $('bidirectionalDebug').textContent = '正在执行双向标注...';
+
+  try {
+    const data = await apiPost('/api/bidirectional', {
+      prompt_frame_idx: idx,
+      bboxes: [],
+      forward_enabled: forwardEn,
+      backward_enabled: backwardEn,
+      iou: parseFloat($('iouInput').value),
+      merge_iou: parseFloat($('mergeIouInput').value),
+    });
+    $('bidirectionalDebug').textContent = `双向标注完成: ${data.msg || ''} 初始ID: ${data.FIRST_ID || 'N/A'}`;
+    setStatus(data.msg || '双向标注完成');
+  } catch (e) {
+    $('bidirectionalDebug').textContent = '双向标注失败: ' + e.message;
+    setStatus('双向标注失败: ' + e.message, true);
   }
 };
-document.getElementById('backwardBtn').onclick = () => loadFrame(state.currentFrame - 1);
-document.getElementById('forwardBtn').onclick = () => loadFrame(state.currentFrame + 1);
-document.getElementById('backwardFastBtn').onclick = async () => {
-  for (let i = state.currentFrame - 1; i >= 0 && i >= state.currentFrame - 30; i--) await loadFrame(i);
-};
-document.getElementById('forwardFastBtn').onclick = async () => {
-  for (let i = state.currentFrame + 1; i < state.totalFrames && i <= state.currentFrame + 30; i++) await loadFrame(i);
-};
-document.getElementById('zoomSlider').oninput = (e) => {
-  state.zoom = e.target.value / 100;
-  document.getElementById('zoomLabel').textContent = e.target.value + '%';
-  if (document.getElementById('videoImg').src) loadFrame(state.currentFrame);
-};
-document.getElementById('confSlider').oninput = (e) => {
-  state.conf = e.target.value / 100;
-  document.getElementById('confLabel').textContent = e.target.value + '%';
-};
-document.getElementById('decBtn').onclick = () => {
-  if (state.nextTrackId > 0) { state.nextTrackId--; document.getElementById('assignDisplay').textContent = state.nextTrackId; }
-};
-document.getElementById('incBtn').onclick = () => {
-  state.nextTrackId++; document.getElementById('assignDisplay').textContent = state.nextTrackId;
-};
-document.getElementById('clearTraceBtn').onclick = () => {
-  state.traceList = []; renderTraceList();
-  fetch('/api/save_trace_id_changes', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mappings:[]})});
-  log('已清空ID映射');
-  loadFrame(state.currentFrame);
-};
-document.getElementById('modifyTraceBtn').onclick = () => {
-  const sel = document.querySelector('.trace-item.selected');
-  if (!sel) return;
-  const newVal = prompt('修改映射:', sel.textContent);
-  if (!newVal) return;
-  sel.textContent = 'ID: ' + newVal;
-  state.traceList = Array.from(document.querySelectorAll('.trace-item')).map(e => e.textContent);
-  fetch('/api/save_trace_id_changes', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mappings:state.traceList})});
-  log('已修改映射: ' + newVal);
-};
-document.getElementById('deleteTraceBtn').onclick = () => {
-  const sel = document.querySelector('.trace-item.selected');
-  if (!sel) return;
-  sel.remove();
-  state.traceList = Array.from(document.querySelectorAll('.trace-item')).map(e => e.textContent);
-  fetch('/api/save_trace_id_changes', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mappings:state.traceList})});
-  log('已删除映射');
-};
-function renderTraceList() {
-  const list = document.getElementById('traceList');
-  list.innerHTML = state.traceList.map((t, i) => '<div class="trace-item' + (i === 0 ? ' selected' : '') + '">' + t + '</div>').join('');
-  list.querySelectorAll('.trace-item').forEach(el => {
-    el.onclick = () => { list.querySelectorAll('.trace-item').forEach(e => e.classList.remove('selected')); el.classList.add('selected'); };
-  });
-}
-for (let i = 0; i < 8; i++) {
-  const tid = 1000000 + i;
-  const row = document.createElement('div');
-  row.className = 'category-row';
-  row.innerHTML = '<label>' + tid + ':</label><input type="text" id="cat' + i + '" value="Detect">';
-  document.getElementById('categoryList').appendChild(row);
-  document.getElementById('cat' + i).onchange = (e) => {
-    state.categoryMappings[i] = e.target.value;
-  };
-}
-document.getElementById('exportBtn').onclick = async () => {
-  const res = await fetch('/api/export_to_post', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({category_mappings:state.categoryMappings})});
-  const data = await res.json();
-  if (data.error) { alert(data.error); return; }
-  log('导出完成: ' + data.msg);
-  alert(data.msg);
+
+$('exportBtn').onclick = async () => {
+  const cats = Array.from(document.querySelectorAll('.cat-input')).map(inp => inp.value.trim() || 'Detect');
+  try {
+    const data = await apiPost('/api/export', { category_mappings: cats });
+    setStatus(data.msg || '导出完成');
+  } catch (e) { setStatus('导出失败: ' + e.message, true); }
 };
 </script>
 </body>
