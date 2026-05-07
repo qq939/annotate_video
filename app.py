@@ -10,7 +10,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QSlider, QLabel, QLineEdit, QFileDialog, QGroupBox, QTextEdit, QMessageBox, QListWidget, QSizePolicy, QDialog, QInputDialog)
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QSlider, QLabel, QLineEdit, QFileDialog, QGroupBox, QTextEdit, QMessageBox, QListWidget, QSizePolicy, QDialog, QInputDialog, QCheckBox)
 from PyQt5.QtCore import Qt, QTimer, QPoint, QRect, pyqtSignal
 from PyQt5.Qt import QDragEnterEvent, QDropEvent
 from PyQt5.QtGui import QImage, QPainter, QPen, QColor, QFont, QPixmap, QKeySequence
@@ -723,6 +723,18 @@ class UnifiedPanel(QMainWindow):
         self.prompt_btn.clicked.connect(self.toggle_prompt_mode)
         frame_nav_play_layout.addWidget(self.prompt_btn)
 
+        self.forward_cb = QCheckBox("前向")
+        self.forward_cb.setFixedHeight(24)
+        self.forward_cb.setChecked(True)
+        self.forward_cb.setStyleSheet("QCheckBox { font-size: 11px; }")
+        frame_nav_play_layout.addWidget(self.forward_cb)
+
+        self.backward_cb = QCheckBox("后向")
+        self.backward_cb.setFixedHeight(24)
+        self.backward_cb.setChecked(True)
+        self.backward_cb.setStyleSheet("QCheckBox { font-size: 11px; }")
+        frame_nav_play_layout.addWidget(self.backward_cb)
+
         self.frame_label = QLabel("1/1")
         self.frame_label.setAlignment(Qt.AlignCenter)
         self.frame_label.setFixedHeight(24)
@@ -1120,7 +1132,7 @@ class UnifiedPanel(QMainWindow):
             predictor = SAM3VideoPredictor(overrides=overrides)
             print(f"使用 SAM3VideoPredictor 进行双向标注，track_id 起始: 50000")
 
-            sample_frame = cv2.imread(str(frames_dir / f"frame_{0:06d}.jpg"))
+            sample_frame = cv2.imread(str(mid_frames_dir / f"frame_{0:06d}.jpg"))
             height, width = sample_frame.shape[:2]
 
             FIRST_ID = 50000
@@ -1333,13 +1345,17 @@ class UnifiedPanel(QMainWindow):
                 print(f"[DEBUG {direction}] id范围: {FIRST_ID} ~ {ann_id - 1}")
                 return result_anns
 
-            print(f"=== 双向标注开始 === 提示帧: {prompt_idx}, 总帧数: {total}, prompt_bboxes数量: {len(prompt_bboxes)}")
-            forward_start = prompt_idx + 1
-            print(f"[1/2] 向前标注: 帧 {forward_start} → {total-1} (共 {total - forward_start} 帧)")
-            forward_anns = process_clip(forward_start, total, forward=True, prompt_bboxes=prompt_bboxes)
+            print(f"=== 双向标注开始 === 提示帧: {prompt_idx}, 总帧数: {total}, 前向={self.forward_cb.isChecked()}, 后向={self.backward_cb.isChecked()}")
+            forward_anns = []
+            backward_anns = []
+            if self.forward_cb.isChecked():
+                forward_start = prompt_idx + 1
+                print(f"[1/2] 向前标注: 帧 {forward_start} → {total-1} (共 {total - forward_start} 帧)")
+                forward_anns = process_clip(forward_start, total, forward=True, prompt_bboxes=prompt_bboxes)
 
-            print(f"\n[2/2] 向后标注: 帧 0 → {prompt_idx-1} (共 {prompt_idx} 帧)")
-            backward_anns = process_clip(0, prompt_idx, forward=False, prompt_bboxes=prompt_bboxes)
+            if self.backward_cb.isChecked():
+                print(f"\n[2/2] 向后标注: 帧 0 → {prompt_idx-1} (共 {prompt_idx} 帧)")
+                backward_anns = process_clip(0, prompt_idx, forward=False, prompt_bboxes=prompt_bboxes)
 
             all_new_anns = backward_anns + forward_anns
             print(f"\n[DEBUG 汇总] 向后标注={len(backward_anns)}, 向前标注={len(forward_anns)}, 合计={len(all_new_anns)}")
