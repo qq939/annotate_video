@@ -514,9 +514,10 @@ class ImageAnnotatorApp(QMainWindow):
         self.scale_slider.setTickInterval(25)
         scale_layout.addWidget(self.scale_slider)
         self.scale_label = QLabel("100%")
-        self.scale_label.setFixedWidth(40)
+        self.scale_label.setFixedWidth(50)
         scale_layout.addWidget(self.scale_label)
         scale_layout.addStretch()
+        self.scale_slider.valueChanged.connect(self._on_scale_change)
         layout.addLayout(scale_layout)
 
         btn_layout = QHBoxLayout()
