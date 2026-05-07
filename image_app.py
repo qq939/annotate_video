@@ -781,34 +781,37 @@ class ImageAnnotatorApp(QMainWindow):
 
                 if current_masks:
                     print(f"[DEBUG] 有效mask={len(current_masks)}, bboxes={len(current_bboxes)}")
-                    current_masks, current_bboxes = merge_masks_in_frame(current_masks, current_bboxes, merge_iou_val)
-                    print(f"[DEBUG] merge后={len(current_masks)}")
+                    
+                    if has_bbox and len(current_bboxes) > 0:
+                        if len(current_masks) > 0:
+                            merged = merge_masks_in_frame(current_masks, current_bboxes, merge_iou_val)
+                            if merged:
+                                current_masks, current_bboxes = merged
+                                print(f"[DEBUG] merge后={len(current_masks)}")
 
                     for idx, (mask, bbox) in enumerate(zip(current_masks, current_bboxes)):
-                        mb = (mask > 0.5).astype(np.uint8)
-                        cs, _ = cv2.findContours(mb, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                        for contour in cs:
-                            if len(contour) >= 3:
-                                polygon = contour.squeeze().flatten().tolist()
-                                area = cv2.contourArea(contour)
-                                track_id = annotation_id[0]
-                                if find_list:
-                                    cat_idx = idx % len(find_list)
-                                else:
-                                    cat_idx = 0
-                                confidence = float(confs[idx]) if confs is not None and idx < len(confs) else float(mask.max())
-                                ann_color = category_to_color.get(cat_idx, BOX_COLORS[0])
-                                ann = {
-                                    'id': annotation_id[0], 'track_id': track_id, 'image_id': 0,
-                                    'category_id': cat_idx, 'bbox': bbox, 'area': float(area),
-                                    'segmentation': [polygon], 'iscrowd': 0, 'confidence': confidence,
-                                    'color': ann_color
-                                }
-                                coco_data['annotations'].append(ann)
-                                frame_annotations.append(ann)
-                                annotation_id[0] += 1
+                        x1, y1, x2, y2 = bbox[0], bbox[1], bbox[2], bbox[3]
+                        track_id = annotation_id[0]
+                        if find_list:
+                            cat_idx = idx % len(find_list)
+                        else:
+                            cat_idx = 0
+                        confidence = float(confs[idx]) if confs is not None and idx < len(confs) else float(mask.max())
+                        ann_color = category_to_color.get(cat_idx, BOX_COLORS[0])
+                        ann = {
+                            'id': annotation_id[0], 'track_id': track_id, 'image_id': 0,
+                            'category_id': cat_idx, 
+                            'bbox': [float(x1), float(y1), float(x2 - x1), float(y2 - y1)],
+                            'area': float(cv2.countNonZero(mask)),
+                            'segmentation': [], 'iscrowd': 0, 'confidence': confidence,
+                            'color': ann_color
+                        }
+                        coco_data['annotations'].append(ann)
+                        frame_annotations.append(ann)
+                        annotation_id[0] += 1
+                        print(f"[DEBUG] annotation[{idx}] 原bbox={bbox}, 转换bbox={[float(x1), float(y1), float(x2 - x1), float(y2 - y1)]}")
                 else:
-                    print("[DEBUG] 无有效polygon")
+                    print("[DEBUG] 无有效mask")
 
             print(f"[DEBUG] 图片annotations数量={len(frame_annotations)}")
 
