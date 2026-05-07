@@ -460,6 +460,7 @@ class UnifiedPanel(QMainWindow):
             fps = cap.get(cv2.CAP_PROP_FPS)
             width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             cap.release()
 
             output_filename = get_output_filename(src_video)
@@ -531,7 +532,7 @@ class UnifiedPanel(QMainWindow):
                         confs = None
                         if hasattr(r, 'boxes') and r.boxes is not None and hasattr(r.boxes, 'conf'):
                             confs = r.boxes.conf.cpu().numpy()
-                            print(f"[DEBUG 帧{frame_count}] boxes.conf={confs.tolist()}")
+                            print(f"[DEBUG {frame_count}/{total_frames}] boxes.conf={confs.tolist()}")
 
                         current_masks = []
                         current_bboxes = []
@@ -565,7 +566,7 @@ class UnifiedPanel(QMainWindow):
                                 for contour in contours:
                                     if len(contour) >= 3:
                                         after_merge_contours += 1
-                            print(f"[DEBUG 帧{frame_count}] 原始contours={debug_contours_count}, 有效polygon={debug_merged_count}, merge后={len(current_masks)}, merge后contours={after_merge_contours}, track_ids={track_ids}")
+                            print(f"[DEBUG {frame_count}/{total_frames}] 原始contours={debug_contours_count}, 有效polygon={debug_merged_count}, merge后={len(current_masks)}, merge后contours={after_merge_contours}, track_ids={track_ids}")
                             for idx, (mask, bbox) in enumerate(zip(current_masks, current_bboxes)):
                                 mask_binary = (mask > 0.5).astype(np.uint8)
                                 contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -584,11 +585,11 @@ class UnifiedPanel(QMainWindow):
                                         frame_annotations.append(ann)
                                         annotation_id[0] += 1
                     else:
-                        print(f"[DEBUG 帧{frame_count}] masks_tensor长度=0")
+                        print(f"[DEBUG {frame_count}/{total_frames}] masks_tensor长度=0")
                 else:
-                    print(f"[DEBUG 帧{frame_count}] 无masks属性或masks为None")
+                    print(f"[DEBUG {frame_count}/{total_frames}] 无masks属性或masks为None")
 
-                print(f"[DEBUG 帧{frame_count}] 帧annotations数量={len(frame_annotations)}, track_ids={debug_track_ids}")
+                print(f"[DEBUG {frame_count}/{total_frames}] 帧annotations数量={len(frame_annotations)}, track_ids={debug_track_ids}")
                 with open(labels_dir / f"frame_{frame_count:06d}.json", 'w') as f:
                     json.dump(frame_annotations, f)
 
