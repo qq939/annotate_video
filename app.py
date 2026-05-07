@@ -1669,8 +1669,8 @@ class UnifiedPanel(QMainWindow):
 
         self.trace_id_list.addItem(f"ID: {old_id} → {new_id}")
         self._save_trace_id_mappings()
-        if self.viewer:
-            self.viewer.update_display()
+        self.viewer.current_frame_idx = frame_idx
+        self.viewer.update_display()
 
     def select_data_dir(self):
         msg = QMessageBox(self)
