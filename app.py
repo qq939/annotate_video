@@ -289,7 +289,7 @@ class UnifiedPanel(QMainWindow):
             (128, 0, 128),   # 紫 (BGR)
         ]
         self.selected_color_index = random.randint(0, 6)
-        self.prompt_trace_id_options = [10000, 20000, 30000, 40000, 50000, 60000, 70000, 80000, 90000]
+        self.prompt_trace_id_options = list(range(10000, 501000, 10000))
 
         self.init_ui()
 
