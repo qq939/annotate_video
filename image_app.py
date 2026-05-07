@@ -148,20 +148,29 @@ class ImageAnnotationWidget(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.drawImage(0, 0, self.qimage)
+        scaled_rect = QRect(0, 0, self.scaled_w, self.scaled_h)
+        painter.drawImage(scaled_rect, self.qimage)
         for i, box in enumerate(self.boxes):
             color = QColor(*box['color'][::-1])
             pen = QPen(color, 2)
             painter.setPen(pen)
-            painter.drawRect(box['x1'], box['y1'], box['x2'] - box['x1'], box['y2'] - box['y1'])
-            painter.setFont(QFont("Arial", 12))
+            x1 = int(box['x1'] * self.scale)
+            y1 = int(box['y1'] * self.scale)
+            x2 = int(box['x2'] * self.scale)
+            y2 = int(box['y2'] * self.scale)
+            painter.drawRect(x1, y1, x2 - x1, y2 - y1)
+            painter.setFont(QFont("Arial", int(12 * self.scale)))
             label = self.category_names[i] if i < len(self.category_names) else f"目标{i+1}"
-            painter.drawText(box['x1'], box['y1'] - 3, label)
+            painter.drawText(x1, y1 - 3, label)
         if self.drawing and not self.current_rect.isNull():
             color = QColor(*BOX_COLORS[self.color_index[0] % len(BOX_COLORS)][::-1])
             pen = QPen(color, 2)
             painter.setPen(pen)
-            painter.drawRect(self.current_rect)
+            x1 = int(self.current_rect.left() * self.scale)
+            y1 = int(self.current_rect.top() * self.scale)
+            x2 = int(self.current_rect.right() * self.scale)
+            y2 = int(self.current_rect.bottom() * self.scale)
+            painter.drawRect(x1, y1, x2 - x1, y2 - y1)
 
 
 class ImageAnnotationDialog(QDialog):
