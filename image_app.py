@@ -737,47 +737,52 @@ class ImageAnnotatorApp(QMainWindow):
             frame_annotations = []
             annotation_id = [0]
 
+            print(f"[DEBUG] has_bbox={has_bbox}, has_text={bool(find_list)}, boxes数量={len(boxes) if has_bbox else 0}")
+
             if all_masks:
                 import torch
                 combined = torch.cat(all_masks, dim=0)
                 confs = np.concatenate(all_confs) if all_confs else None
-                print(f"[DEBUG] 总masks={len(combined)}, confs={confs.tolist() if confs is not None else None}")
+                print(f"[DEBUG] 总masks={len(combined)}, confs shape={confs.shape if confs is not None else None}")
 
                 current_masks = []
                 current_bboxes = []
-                contours_total = 0
-                for mask in combined:
-                    mask_np = mask.cpu().numpy() if hasattr(mask, 'numpy') else np.array(mask)
-                    mh, mw = mask_np.shape[-2:]
-                    if mh != img_h or mw != img_w:
-                        mask_np = cv2.resize(mask_np.astype(np.float32), (img_w, img_h), interpolation=cv2.INTER_LINEAR)
-                    mask_binary = (mask_np > 0.5).astype(np.uint8)
-                    contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                    contours_total += len(contours)
-                    for contour in contours:
-                        if len(contour) >= 3:
-                            polygon = contour.squeeze().flatten().tolist()
-                            x_coords = polygon[0::2]
-                            y_coords = polygon[1::2]
-                            x_min, x_max = min(x_coords), max(x_coords)
-                            y_min, y_max = min(y_coords), max(y_coords)
-                            bbox = [float(x_min), float(y_min), float(x_max - x_min), float(y_max - y_min)]
-                            area = cv2.contourArea(contour)
-                            if area > 0:
-                                current_masks.append(mask_binary)
-                                current_bboxes.append(bbox)
+
+                if has_bbox and len(boxes) > 0:
+                    for idx, (mask, orig_bbox) in enumerate(zip(combined, boxes)):
+                        mask_np = mask.cpu().numpy() if hasattr(mask, 'numpy') else np.array(mask)
+                        mh, mw = mask_np.shape[-2:]
+                        if mh != img_h or mw != img_w:
+                            mask_np = cv2.resize(mask_np.astype(np.float32), (img_w, img_h), interpolation=cv2.INTER_LINEAR)
+                        mask_binary = (mask_np > 0.5).astype(np.uint8)
+                        current_masks.append(mask_binary)
+                        current_bboxes.append(orig_bbox)
+                        print(f"[DEBUG] bbox[{idx}] 原={orig_bbox}, shape={mask_np.shape}")
+                else:
+                    for mask in combined:
+                        mask_np = mask.cpu().numpy() if hasattr(mask, 'numpy') else np.array(mask)
+                        mh, mw = mask_np.shape[-2:]
+                        if mh != img_h or mw != img_w:
+                            mask_np = cv2.resize(mask_np.astype(np.float32), (img_w, img_h), interpolation=cv2.INTER_LINEAR)
+                        mask_binary = (mask_np > 0.5).astype(np.uint8)
+                        contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                        for contour in contours:
+                            if len(contour) >= 3:
+                                polygon = contour.squeeze().flatten().tolist()
+                                x_coords = polygon[0::2]
+                                y_coords = polygon[1::2]
+                                x_min, x_max = min(x_coords), max(x_coords)
+                                y_min, y_max = min(y_coords), max(y_coords)
+                                bbox = [float(x_min), float(y_min), float(x_max - x_min), float(y_max - y_min)]
+                                area = cv2.contourArea(contour)
+                                if area > 0:
+                                    current_masks.append(mask_binary)
+                                    current_bboxes.append(bbox)
 
                 if current_masks:
-                    print(f"[DEBUG] 原始contours={contours_total}, 有效polygon={len(current_masks)}")
+                    print(f"[DEBUG] 有效mask={len(current_masks)}, bboxes={len(current_bboxes)}")
                     current_masks, current_bboxes = merge_masks_in_frame(current_masks, current_bboxes, merge_iou_val)
                     print(f"[DEBUG] merge后={len(current_masks)}")
-
-                    merge_contours = 0
-                    for mask in current_masks:
-                        mb = (mask > 0.5).astype(np.uint8)
-                        cs, _ = cv2.findContours(mb, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                        merge_contours += len(cs)
-                    print(f"[DEBUG] merge后contours={merge_contours}")
 
                     for idx, (mask, bbox) in enumerate(zip(current_masks, current_bboxes)):
                         mb = (mask > 0.5).astype(np.uint8)
