@@ -1105,8 +1105,8 @@ class UnifiedPanel(QMainWindow):
         mid_annotations_file = temp_mid / "annotations.json"
 
         src_frames_dir = self.temp_data_path / "frames"
-        src_labels_dir = self.temp_data_path / "labels"
-        src_annotations_file = self.temp_data_path / "annotations.json"
+        src_labels_dir = temp_mid / "labels"
+        src_annotations_file = temp_mid / "annotations.json"
 
         self.prompt_btn.setText("正在处理...")
         QApplication.processEvents()
