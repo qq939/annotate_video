@@ -415,7 +415,8 @@ $('selectVideoBtn').onclick = async () => {
 
 async function loadFirstFrameForDraw() {
   try {
-    const data = await apiGet('/api/get_video_first_frame');
+    const res = await fetch('/api/get_video_first_frame');
+    const data = await res.json();
     canvas.width = data.width || 800;
     canvas.height = data.height || 600;
     const img = new Image();
@@ -503,8 +504,6 @@ async function runAnnotation(items) {
     addDebugLog('标注完成！', 'success');
     setStatus('标注完成');
     state.promptBboxes = [];
-    cachedFirstFrameImg = null;
-    cachedFirstFrameData = null;
     await showViewer(true);
   } catch (e) {
     addDebugLog('标注失败: ' + e.message, 'error');
@@ -564,48 +563,8 @@ function updateFrameInfo() {
 }
 
 // ==================== Canvas Drawing (Annotate on Right Panel) ====================
-let cachedFirstFrameImg = null;
-let cachedFirstFrameData = null;
-
-function cacheFirstFrame() {
-  if (cachedFirstFrameData) return Promise.resolve();
-  return apiGet('/api/get_video_first_frame').then(data => {
-    cachedFirstFrameData = data;
-    cachedFirstFrameImg = null;
-  });
-}
-
-function getFirstFrameImg() {
-  if (cachedFirstFrameImg) return Promise.resolve(cachedFirstFrameImg);
-  if (!cachedFirstFrameData) return Promise.reject('no cache');
-  return new Promise(resolve => {
-    const img = new Image();
-    img.onload = () => {
-      cachedFirstFrameImg = img;
-      resolve(img);
-    };
-    img.src = 'data:image/jpeg;base64,' + cachedFirstFrameData.image;
-  });
-}
-
-function redrawCanvas() {
-  if (!canvas.width) return;
-  getFirstFrameImg().then(img => {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    ctx.strokeStyle = '#a6e3a1';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(state.drawStartX, state.drawStartY, 
-      state.drawCurrentX - state.drawStartX, state.drawCurrentY - state.drawStartY);
-    for (const bx of state.promptBboxes) {
-      ctx.strokeStyle = '#f9e2af';
-      ctx.strokeRect(bx[0], bx[1], bx[2] - bx[0], bx[3] - bx[1]);
-    }
-  }).catch(() => {});
-}
-
 canvas.addEventListener('mousedown', (e) => {
-  if (state.annotationRunning || !state.videoName) return;
+  if (state.annotationRunning || !state.videoName || canvas.width === 0) return;
   const r = canvas.getBoundingClientRect();
   const scaleX = canvas.width / r.width;
   const scaleY = canvas.height / r.height;
@@ -614,17 +573,16 @@ canvas.addEventListener('mousedown', (e) => {
   state.drawCurrentX = state.drawStartX;
   state.drawCurrentY = state.drawStartY;
   state.isDrawing = true;
-  cacheFirstFrame();
 });
 
 canvas.addEventListener('mousemove', (e) => {
-  if (!state.isDrawing) return;
+  if (!state.isDrawing || canvas.width === 0) return;
   const r = canvas.getBoundingClientRect();
   const scaleX = canvas.width / r.width;
   const scaleY = canvas.height / r.height;
   state.drawCurrentX = (e.clientX - r.left) * scaleX;
   state.drawCurrentY = (e.clientY - r.top) * scaleY;
-  redrawCanvas();
+  requestAnimationFrame(redrawBbox);
 });
 
 canvas.addEventListener('mouseup', (e) => {
@@ -639,9 +597,8 @@ canvas.addEventListener('mouseup', (e) => {
   const y1 = Math.min(state.drawStartY, endY);
   const x2 = Math.max(state.drawStartX, endX);
   const y2 = Math.max(state.drawStartY, endY);
-  if (x2 - x1 > 5 && y2 - y1 > 5) {
+  if (x2 - x1 > 10 && y2 - y1 > 10) {
     state.promptBboxes.push([x1, y1, x2, y2]);
-    redrawCanvas();
     setStatus('已添加边界框 (' + state.promptBboxes.length + ')', false);
   }
 });
@@ -650,12 +607,27 @@ canvas.addEventListener('contextmenu', (e) => {
   e.preventDefault();
   if (state.promptBboxes.length > 0) {
     state.promptBboxes.pop();
-    cachedFirstFrameImg = null;
-    cachedFirstFrameData = null;
-    if (state.videoName) cacheFirstFrame().then(redrawCanvas);
+    redrawBbox();
     setStatus('已删除最后一个边界框', false);
   }
 });
+
+function redrawBbox() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (state.isDrawing && state.drawStartX) {
+    ctx.strokeStyle = '#a6e3a1';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(
+      state.drawStartX, state.drawStartY,
+      state.drawCurrentX - state.drawStartX, state.drawCurrentY - state.drawStartY
+    );
+  }
+  ctx.strokeStyle = '#f9e2af';
+  ctx.lineWidth = 2;
+  for (const bx of state.promptBboxes) {
+    ctx.strokeRect(bx[0], bx[1], bx[2] - bx[0], bx[3] - bx[1]);
+  }
+}
 
 // ==================== Navigation ====================
 $('prevFrameBtn').onclick = () => { stopPlayback(); loadFrame(state.currentFrame - 1); };
