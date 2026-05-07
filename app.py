@@ -760,8 +760,14 @@ class UnifiedPanel(QMainWindow):
         trace_change_layout.addWidget(QLabel("ID映射"))
         self.trace_id_list = QListWidget()
         self.trace_id_list.setAlternatingRowColors(True)
+        self.trace_id_list.setFixedWidth(130)
         self.trace_id_list.itemDoubleClicked.connect(self.on_trace_id_double_clicked)
         trace_change_layout.addWidget(self.trace_id_list)
+
+        trace_change_layout.addWidget(QLabel("当前ID:"))
+        self.trace_id_label = QLabel(str(self.ctrl.next_track_id))
+        self.trace_id_label.setFixedWidth(50)
+        trace_change_layout.addWidget(self.trace_id_label)
 
         trace_btn_layout = QVBoxLayout()
         trace_btn_layout.setSpacing(2)
