@@ -3,6 +3,7 @@ FIND = []  # 第1行：文本提示词列表，运行时由用户输入，用于
 SRC_DIR = "1src"  # 第31行：视频源目录
 DST_DIR = "1dst"  # 第67行：输出视频目录
 TEMP_DATA_DIR = "temp_data"  # 第8行：临时数据目录，用于保存每帧画面和COCO格式标注
+TEMP_DATA_MID_DIR = "temp_data_mid"  # 中间处理目录
 IOU_THRESHOLD = 0.5  # 第10行：IoU阈值，默认0.5，用于目标跟踪匹配（前后帧IoU）
 MERGE_IOU_THRESHOLD = 0.5  # 当前帧IoU阈值，默认0.5，用于合并同帧内重叠的分割
 WINDOW_NAME = "视频标注工具"  # 第37行：窗口名称

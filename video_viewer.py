@@ -3,6 +3,7 @@
 
 import sys
 from pathlib import Path
+import random
 
 import cv2
 import numpy as np
@@ -14,6 +15,20 @@ from PyQt5.QtGui import QImage, QPixmap, QPainter, QPen, QColor
 from PyQt5.QtCore import pyqtSignal
 
 from video_control import VideoController
+
+WARM_COLORS = [(255, 100, 100), (255, 150, 100), (255, 200, 100), (255, 100, 150), (255, 150, 150), (255, 180, 120), (255, 120, 180), (255, 200, 150)]
+COLD_COLORS = [(100, 150, 255), (100, 200, 255), (150, 200, 255), (100, 255, 200), (150, 100, 255), (100, 200, 200), (150, 150, 255), (100, 180, 255)]
+_color_cache = {}
+
+def get_color_for_track_id(track_id):
+    if track_id in _color_cache:
+        return _color_cache[track_id]
+    if track_id >= 1000000:
+        color = WARM_COLORS[track_id % len(WARM_COLORS)]
+    else:
+        color = COLD_COLORS[track_id % len(COLD_COLORS)]
+    _color_cache[track_id] = color
+    return color
 
 
 class VideoLabel(QLabel):

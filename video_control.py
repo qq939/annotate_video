@@ -13,8 +13,16 @@ MASK_COLORS = [
     (255, 0, 0), (0, 255, 0), (0, 0, 255),
     (255, 255, 0), (255, 0, 255), (0, 255, 255)
 ]
+WARM_COLORS = [(255, 100, 100), (255, 150, 100), (255, 200, 100), (255, 100, 150), (255, 150, 150), (255, 180, 120), (255, 120, 180), (255, 200, 150)]
+COLD_COLORS = [(100, 150, 255), (100, 200, 255), (150, 200, 255), (100, 255, 200), (150, 100, 255), (100, 200, 200), (150, 150, 255), (100, 180, 255)]
 TRACK_ID_PURPLE_START = 999999
 GREEN_POINT_COLOR = (0, 255, 0)
+
+def get_color_for_track_id(track_id):
+    if track_id >= 1000000:
+        return WARM_COLORS[track_id % len(WARM_COLORS)]
+    else:
+        return COLD_COLORS[track_id % len(COLD_COLORS)]
 
 
 class VideoController:
@@ -82,11 +90,8 @@ class VideoController:
             if not bbox:
                 continue
 
-            color = MASK_COLORS[ann.get('category_id', 0) % len(MASK_COLORS)]
             track_id = ann.get('track_id', 0)
-            is_purple = track_id >= TRACK_ID_PURPLE_START
-            if is_purple:
-                color = (128, 0, 128)
+            color = get_color_for_track_id(track_id)
             category = ann.get('category', ann.get('category_id', 0))
             conf = ann.get('confidence', 1.0)
 

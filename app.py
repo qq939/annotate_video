@@ -407,7 +407,7 @@ class UnifiedPanel(QMainWindow):
         QApplication.processEvents()
 
         try:
-            from annotate_video import SAM_MODEL_PATH, DST_DIR, TEMP_DATA_DIR
+            from annotate_video import SAM_MODEL_PATH, DST_DIR, TEMP_DATA_DIR, TEMP_DATA_MID_DIR
             from annotate_video import merge_masks_in_frame, TrackManager, get_device, get_output_filename
             from annotate_video import put_chinese_text, IOU_THRESHOLD as OrigIOU, MERGE_IOU_THRESHOLD as OrigMergeIOU, FIND as OrigFIND
             import annotate_video as av_module
@@ -754,56 +754,37 @@ class UnifiedPanel(QMainWindow):
         delete_trace_layout.addWidget(delete_trace_btn)
         layout.addLayout(delete_trace_layout)
 
-        del_layout = QHBoxLayout()
-        del_layout.setSpacing(4)
-        del_layout.addWidget(QLabel("绿点列表"))
-        self.track_id_list = QListWidget()
-        del_layout.addWidget(self.track_id_list)
+        trace_change_layout = QHBoxLayout()
+        trace_change_layout.setSpacing(4)
+        trace_change_layout.addWidget(QLabel("ID映射"))
+        self.trace_id_list = QListWidget()
+        self.trace_id_list.setAlternatingRowColors(True)
+        self.trace_id_list.itemDoubleClicked.connect(self.on_trace_id_double_clicked)
+        trace_change_layout.addWidget(self.trace_id_list)
 
-        del_btn_layout = QVBoxLayout()
-        del_btn_layout.setSpacing(2)
+        trace_btn_layout = QVBoxLayout()
+        trace_btn_layout.setSpacing(2)
 
-        trace_id_ctrl_layout = QHBoxLayout()
-        trace_id_ctrl_layout.setSpacing(2)
-        self.trace_id_minus_btn = QPushButton("-")
-        self.trace_id_minus_btn.setFixedSize(24, 24)
-        self.trace_id_minus_btn.setStyleSheet("QPushButton { background-color: #FFA500; color: white; border: none; border-radius: 3px; font-size: 14px; font-weight: bold; } QPushButton:hover { background-color: #FF8C00; }")
-        self.trace_id_minus_btn.clicked.connect(self.decrement_track_id)
-        trace_id_ctrl_layout.addWidget(self.trace_id_minus_btn)
+        self.add_trace_btn = QPushButton("+")
+        self.add_trace_btn.setFixedSize(24, 24)
+        self.add_trace_btn.setStyleSheet("QPushButton { background-color: #00CC00; color: white; border: none; border-radius: 3px; font-size: 14px; font-weight: bold; } QPushButton:hover { background-color: #009900; }")
+        self.add_trace_btn.clicked.connect(self.add_trace_id_mapping)
+        trace_btn_layout.addWidget(self.add_trace_btn)
 
-        self.trace_id_label = QLabel(str(self.ctrl.next_track_id))
-        self.trace_id_label.setAlignment(Qt.AlignCenter)
-        self.trace_id_label.setFixedHeight(24)
-        self.trace_id_label.setStyleSheet("QLabel { background-color: #222; color: #ccc; border: 1px solid #555; border-radius: 3px; font-size: 11px; font-weight: bold; padding: 0 6px; }")
-        trace_id_ctrl_layout.addWidget(self.trace_id_label)
+        remove_trace_btn = QPushButton("-")
+        remove_trace_btn.setFixedSize(24, 24)
+        remove_trace_btn.setStyleSheet("QPushButton { background-color: #FF4444; color: white; border: none; border-radius: 3px; font-size: 14px; font-weight: bold; } QPushButton:hover { background-color: #CC0000; }")
+        remove_trace_btn.clicked.connect(self.remove_selected_trace_id)
+        trace_btn_layout.addWidget(remove_trace_btn)
 
-        self.trace_id_plus_btn = QPushButton("+")
-        self.trace_id_plus_btn.setFixedSize(24, 24)
-        self.trace_id_plus_btn.setStyleSheet("QPushButton { background-color: #00CC00; color: white; border: none; border-radius: 3px; font-size: 14px; font-weight: bold; } QPushButton:hover { background-color: #009900; }")
-        self.trace_id_plus_btn.clicked.connect(self.increment_track_id)
-        trace_id_ctrl_layout.addWidget(self.trace_id_plus_btn)
+        clear_trace_btn = QPushButton("清")
+        clear_trace_btn.setFixedSize(24, 24)
+        clear_trace_btn.setStyleSheet("QPushButton { background-color: #555555; color: white; border: none; border-radius: 3px; font-size: 12px; } QPushButton:hover { background-color: #333333; }")
+        clear_trace_btn.clicked.connect(self.clear_trace_id_mappings)
+        trace_btn_layout.addWidget(clear_trace_btn)
 
-        del_btn_layout.addLayout(trace_id_ctrl_layout)
-
-        track_btn_row = QHBoxLayout()
-        track_btn_row.setSpacing(2)
-        remove_btn = QPushButton("删除")
-        remove_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        remove_btn.setFixedHeight(24)
-        remove_btn.setStyleSheet("QPushButton { background-color: #FF4444; color: white; border: none; border-radius: 3px; } QPushButton:hover { background-color: #CC0000; }")
-        remove_btn.clicked.connect(self.remove_selected_track_id)
-        track_btn_row.addWidget(remove_btn)
-
-        clear_del_btn = QPushButton("清空")
-        clear_del_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        clear_del_btn.setFixedHeight(24)
-        clear_del_btn.setStyleSheet("QPushButton { background-color: #555555; color: white; border: none; border-radius: 3px; } QPushButton:hover { background-color: #333333; }")
-        clear_del_btn.clicked.connect(self.clear_track_id)
-        track_btn_row.addWidget(clear_del_btn)
-        del_btn_layout.addLayout(track_btn_row)
-
-        del_layout.addLayout(del_btn_layout)
-        layout.addLayout(del_layout)
+        trace_change_layout.addLayout(trace_btn_layout)
+        layout.addLayout(trace_change_layout)
 
         self.export_btn = QPushButton("📦 导出到 temp_data_post")
         self.export_btn.setFixedHeight(26)
@@ -1068,9 +1049,15 @@ class UnifiedPanel(QMainWindow):
 
         prompt_idx = self.prompt_frame_idx
         total = self.total_frames
-        frames_dir = self.temp_data_path / "frames"
-        labels_dir = self.temp_data_path / "labels"
-        annotations_file = self.temp_data_path / "annotations.json"
+
+        temp_mid = Path(TEMP_DATA_MID_DIR)
+        mid_frames_dir = temp_mid / "frames"
+        mid_labels_dir = temp_mid / "labels"
+        mid_annotations_file = temp_mid / "annotations.json"
+
+        src_frames_dir = self.temp_data_path / "frames"
+        src_labels_dir = self.temp_data_path / "labels"
+        src_annotations_file = self.temp_data_path / "annotations.json"
 
         self.prompt_btn.setText("正在处理...")
         QApplication.processEvents()
@@ -1120,7 +1107,7 @@ class UnifiedPanel(QMainWindow):
                 print(f"[DEBUG {direction}] 正在复制 {frame_count} 帧到临时目录...")
                 if forward:
                     for i in range(start_frame, end_frame):
-                        src = frames_dir / f"frame_{i:06d}.jpg"
+                        src = mid_frames_dir / f"frame_{i:06d}.jpg"
                         dst = temp_frames / f"frame_{i - start_frame:06d}.jpg"
                         if src.exists():
                             shutil.copy2(src, dst)
@@ -1128,7 +1115,7 @@ class UnifiedPanel(QMainWindow):
                             print(f"[DEBUG {direction}] ⚠️ 帧文件不存在: {src}")
                 else:
                     for rev_idx, i in enumerate(range(end_frame - 1, start_frame - 1, -1)):
-                        src = frames_dir / f"frame_{i:06d}.jpg"
+                        src = mid_frames_dir / f"frame_{i:06d}.jpg"
                         dst = temp_frames / f"frame_{rev_idx:06d}.jpg"
                         if src.exists():
                             shutil.copy2(src, dst)
@@ -1144,13 +1131,13 @@ class UnifiedPanel(QMainWindow):
                 frames_written = 0
                 if forward:
                     for i in range(start_frame, end_frame):
-                        frame = cv2.imread(str(frames_dir / f"frame_{i:06d}.jpg"))
+                        frame = cv2.imread(str(mid_frames_dir / f"frame_{i:06d}.jpg"))
                         if frame is not None:
                             out.write(frame)
                             frames_written += 1
                 else:
                     for rev_idx, i in enumerate(range(end_frame - 1, start_frame - 1, -1)):
-                        frame = cv2.imread(str(frames_dir / f"frame_{i:06d}.jpg"))
+                        frame = cv2.imread(str(mid_frames_dir / f"frame_{i:06d}.jpg"))
                         if frame is not None:
                             out.write(frame)
                             frames_written += 1
@@ -1290,17 +1277,17 @@ class UnifiedPanel(QMainWindow):
                         frame_idx += 1
                         continue
                     print(f"[DEBUG {direction}] [帧{total_results}] clip_frame={frame_idx} → 原帧{orig_frame_idx}, 新增标注数={len(frame_anns)}")
-                    label_file = labels_dir / f"frame_{orig_frame_idx:06d}.json"
+                    label_file = src_labels_dir / f"frame_{orig_frame_idx:06d}.json"
                     existing_anns = []
                     if label_file.exists():
                         with open(label_file) as f:
                             existing_anns = json.load(f)
                         print(f"[DEBUG {direction}] [帧{total_results}] 已存在标注{len(existing_anns)}条，追加新标注")
-                    existing_anns = [ann for ann in existing_anns if ann.get('track_id', 0) < 1000000]
+                    existing_anns = [ann for ann in existing_anns if ann.get('track_id', 0) >= 1000000]
                     merged_anns = existing_anns + frame_anns
                     with open(label_file, 'w') as f:
                         json.dump(merged_anns, f)
-                    print(f"[DEBUG {direction}] [帧{total_results}] 保存label文件: frame_{orig_frame_idx:06d}.json, 过滤后{len(existing_anns)}+新增{len(frame_anns)}=合计{len(merged_anns)}")
+                    print(f"[DEBUG {direction}] [帧{total_results}] 保存label文件: frame_{orig_frame_idx:06d}.json, 保留{len(existing_anns)}+新增{len(frame_anns)}=合计{len(merged_anns)}")
                     frame_idx += 1
 
                 print(f"[DEBUG {direction}] === process_clip 完成 ===")
@@ -1326,8 +1313,8 @@ class UnifiedPanel(QMainWindow):
                 self.reset_prompt_btn()
                 return
 
-            if annotations_file.exists():
-                with open(annotations_file) as f:
+            if src_annotations_file.exists():
+                with open(src_annotations_file) as f:
                     coco = json.load(f)
                 print(f"[DEBUG 汇总] 现有coco: 已有annotations={len(coco.get('annotations', []))}")
             else:
@@ -1383,36 +1370,6 @@ class UnifiedPanel(QMainWindow):
         if self.viewer:
             self.viewer.enable_bbox_drawing(False)
 
-    def remove_selected_track_id(self):
-        row = self.track_id_list.currentRow()
-        if row >= 0:
-            self.ctrl.remove_track_id_point(row)
-            self.track_id_list.takeItem(row)
-            if self.viewer:
-                self.viewer.update_display()
-
-    def clear_track_id(self):
-        for pt in self.ctrl.track_id_points:
-            if pt['assigned_id'] is not None:
-                self._convert_track_id(pt['assigned_id'], pt['track_id'])
-                self.ctrl.assigned_to_original.pop(pt['assigned_id'], None)
-                self.ctrl.track_ids_to_9999.discard(pt['track_id'])
-        self.ctrl.clear_track_id_points()
-        self.track_id_list.clear()
-        if self.viewer:
-            self.viewer.update_display()
-
-    def increment_track_id(self):
-        self.ctrl.next_track_id += 1
-        self.trace_id_label.setText(str(self.ctrl.next_track_id))
-        print(f"next_track_id 递增 → {self.ctrl.next_track_id}")
-
-    def decrement_track_id(self):
-        if self.ctrl.next_track_id > 1000000:
-            self.ctrl.next_track_id -= 1
-            self.trace_id_label.setText(str(self.ctrl.next_track_id))
-            print(f"next_track_id 递减 → {self.ctrl.next_track_id}")
-
     def delete_trace_id(self):
         trace_id_text = self.delete_trace_input.text().strip()
         if not trace_id_text:
@@ -1454,49 +1411,109 @@ class UnifiedPanel(QMainWindow):
         if self.viewer:
             self.viewer.update_display()
 
-    def remove_selected_track_id(self):
-        row = self.track_id_list.currentRow()
-        if row < 0:
-            return
-        pt = self.ctrl.track_id_points[row]
-        if pt['assigned_id'] is not None:
-            self._convert_track_id(pt['assigned_id'], pt['track_id'])
-            self.ctrl.assigned_to_original.pop(pt['assigned_id'], None)
-            self.ctrl.track_ids_to_9999.discard(pt['track_id'])
-        self.ctrl.remove_track_id_point(row)
-        self.track_id_list.takeItem(row)
-        self._refresh_track_id_list()
-        if self.viewer:
-            self.viewer.update_display()
+    def _get_trace_id_mappings_file(self):
+        return Path(TEMP_DATA_MID_DIR) / "trace_id_changes.json"
 
-    def _refresh_track_id_list(self):
-        self.track_id_list.clear()
-        for i, pt in enumerate(self.ctrl.track_id_points):
-            if pt['assigned_id'] is not None:
-                self.track_id_list.addItem(
-                    f"绿点 {i} 帧{pt['frame_idx']+1} ({pt['x']},{pt['y']}) ID:{pt['track_id']}→{pt['assigned_id']}"
-                )
-            else:
-                self.track_id_list.addItem(
-                    f"绿点 {i} 帧{pt['frame_idx']+1} ({pt['x']},{pt['y']}) ID:{pt['track_id']}"
-                )
+    def _save_trace_id_mappings(self):
+        mappings_file = self._get_trace_id_mappings_file()
+        mappings_file.parent.mkdir(parents=True, exist_ok=True)
+        mappings = []
+        for i in range(self.trace_id_list.count()):
+            text = self.trace_id_list.item(i).text()
+            mappings.append(text)
+        with open(mappings_file, 'w') as f:
+            json.dump(mappings, f)
+        print(f"已保存 trace_id_mappings 到 {mappings_file}")
 
-    def _convert_track_id(self, old_id, new_id):
-        labels_dir = self.temp_data_path / "labels"
+    def _load_trace_id_mappings(self):
+        mappings_file = self._get_trace_id_mappings_file()
+        self.trace_id_list.clear()
+        if mappings_file.exists():
+            with open(mappings_file, 'r') as f:
+                mappings = json.load(f)
+            for m in mappings:
+                self.trace_id_list.addItem(m)
+            print(f"已加载 trace_id_mappings: {len(mappings)} 条")
+
+    def _apply_trace_id_mappings_to_mid(self):
+        temp_mid = Path(TEMP_DATA_MID_DIR)
+        frames_dir = temp_mid / "frames"
+        labels_dir = temp_mid / "labels"
+        annotations_file = temp_mid / "annotations.json"
+
+        mappings = []
+        for i in range(self.trace_id_list.count()):
+            text = self.trace_id_list.item(i).text()
+            parts = text.replace("ID:", "").split("→")
+            if len(parts) == 2:
+                try:
+                    old_id = int(parts[0].strip())
+                    new_id = int(parts[1].strip())
+                    mappings.append((old_id, new_id))
+                except ValueError:
+                    pass
+
         converted_count = 0
         for label_file in sorted(labels_dir.glob("frame_*.json")):
             with open(label_file) as f:
                 frame_anns = json.load(f)
             changed = False
             for ann in frame_anns:
-                if ann.get('track_id') == old_id:
-                    ann['track_id'] = new_id
-                    changed = True
+                for old_id, new_id in mappings:
+                    if ann.get('track_id') == old_id:
+                        ann['track_id'] = new_id
+                        changed = True
             if changed:
                 with open(label_file, 'w') as f:
                     json.dump(frame_anns, f)
                 converted_count += 1
-        print(f"已将 track_id={old_id} → {new_id}，共影响 {converted_count} 帧")
+
+        if annotations_file.exists():
+            with open(annotations_file) as f:
+                coco = json.load(f)
+            changed = False
+            for ann in coco.get('annotations', []):
+                for old_id, new_id in mappings:
+                    if ann.get('track_id') == old_id:
+                        ann['track_id'] = new_id
+                        changed = True
+            if changed:
+                with open(annotations_file, 'w') as f:
+                    json.dump(coco, f)
+
+        print(f"应用 trace_id 映射: {len(mappings)} 条规则, 影响 {converted_count} 帧")
+
+    def add_trace_id_mapping(self):
+        text, ok = QInputDialog.getText(self, "添加ID映射", "输入映射 (如: 100 → 500)")
+        if ok and text:
+            text = text.strip()
+            self.trace_id_list.addItem(f"ID: {text}")
+            self._save_trace_id_mappings()
+            if self.viewer:
+                self.viewer.update_display()
+
+    def remove_selected_trace_id(self):
+        row = self.trace_id_list.currentRow()
+        if row >= 0:
+            self.trace_id_list.takeItem(row)
+            self._save_trace_id_mappings()
+            if self.viewer:
+                self.viewer.update_display()
+
+    def clear_trace_id_mappings(self):
+        self.trace_id_list.clear()
+        self._save_trace_id_mappings()
+        if self.viewer:
+            self.viewer.update_display()
+
+    def on_trace_id_double_clicked(self, item):
+        old_text = item.text()
+        text, ok = QInputDialog.getText(self, "修改ID映射", "输入新映射", text=old_text.replace("ID: ", ""))
+        if ok and text:
+            item.setText(f"ID: {text.strip()}")
+            self._save_trace_id_mappings()
+            if self.viewer:
+                self.viewer.update_display()
 
     def handle_viewer_click(self, video_x, video_y, frame_idx):
         if self.ctrl.fence_mode_active():
@@ -1525,16 +1542,13 @@ class UnifiedPanel(QMainWindow):
 
         if found is not None:
             track_id = found.get('track_id', found.get('id', 0))
-            assigned_id = self.ctrl.next_track_id
-            self.ctrl.add_track_id_point(video_x, video_y, frame_idx, track_id)
-            pt = self.ctrl.track_id_points[-1]
-            pt['assigned_id'] = assigned_id
-            self.ctrl.track_ids_to_9999.add(track_id)
-            self.ctrl.assigned_to_original[assigned_id] = track_id
-            self._convert_track_id(track_id, assigned_id)
-            idx = len(self.ctrl.track_id_points) - 1
-            self.track_id_list.addItem(f"绿点 {idx} 帧{frame_idx+1} ({video_x},{video_y}) ID:{track_id}→{assigned_id}")
-            self.viewer.update_display()
+            new_id = self.ctrl.next_track_id
+            self.trace_id_list.addItem(f"ID: {track_id} → {new_id}")
+            self.ctrl.next_track_id += 1
+            self.trace_id_label.setText(str(self.ctrl.next_track_id))
+            self._save_trace_id_mappings()
+            if self.viewer:
+                self.viewer.update_display()
 
     def select_data_dir(self):
         msg = QMessageBox(self)
@@ -1670,7 +1684,16 @@ class UnifiedPanel(QMainWindow):
             return
         self.total_frames = len(coco_data.get('images', []))
 
-        self.viewer = VideoViewer(str(self.temp_data_path), controller=self.ctrl)
+        temp_mid = Path(TEMP_DATA_MID_DIR)
+        if temp_mid.exists():
+            shutil.rmtree(temp_mid)
+        shutil.copytree(self.temp_data_path, temp_mid)
+        print(f"已从 {self.temp_data_path} 拷贝到 {temp_mid}")
+
+        self._load_trace_id_mappings()
+        self._apply_trace_id_mappings_to_mid()
+
+        self.viewer = VideoViewer(str(temp_mid), controller=self.ctrl)
         self.viewer.video_clicked.connect(self.handle_viewer_click)
         zoom_factor = self.zoom_slider.value() / 100.0
         self.viewer.set_zoom(zoom_factor)
@@ -1696,14 +1719,14 @@ class UnifiedPanel(QMainWindow):
         return (0, self.ctrl.category_name)
 
     def export_to_temp_data_post(self):
-        data_dir = self.temp_data_path
+        data_dir = Path(TEMP_DATA_MID_DIR)
         if not data_dir.exists():
-            QMessageBox.warning(self, "错误", "数据目录不存在")
+            QMessageBox.warning(self, "错误", "temp_data_mid 目录不存在，请先点击显示")
             return
 
         annotations_file = data_dir / "annotations.json"
         if not annotations_file.exists():
-            QMessageBox.warning(self, "错误", "annotations.json 不存在")
+            QMessageBox.warning(self, "错误", "temp_data_mid/annotations.json 不存在")
             return
 
         with open(annotations_file) as f:
