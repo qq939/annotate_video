@@ -367,8 +367,15 @@ async function apiPost(url, body) {
 
 async function apiGet(url) {
   const res = await fetch(url);
+  if (!res.ok) {
+    const ct = res.headers.get('content-type');
+    if (ct && ct.includes('application/json')) {
+      const data = await res.json();
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+    throw new Error(`HTTP ${res.status}`);
+  }
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
 }
 
@@ -416,6 +423,14 @@ $('selectVideoBtn').onclick = async () => {
 async function loadFirstFrameForDraw() {
   try {
     const res = await fetch('/api/get_video_first_frame');
+    if (!res.ok) {
+      const ct = res.headers.get('content-type');
+      if (ct && ct.includes('application/json')) {
+        const d = await res.json();
+        throw new Error(d.error || `HTTP ${res.status}`);
+      }
+      throw new Error(`HTTP ${res.status}`);
+    }
     const data = await res.json();
     canvas.width = data.width || 800;
     canvas.height = data.height || 600;
@@ -425,7 +440,7 @@ async function loadFirstFrameForDraw() {
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
     };
     img.src = 'data:image/jpeg;base64,' + data.image;
-  } catch (e) { /* ignore */ }
+  } catch (e) { console.error('loadFirstFrameForDraw error:', e); }
 }
 
 // ==================== Annotate ====================
@@ -436,8 +451,14 @@ $('annotateBtn').onclick = async () => {
 };
 
 $('scaleSlider').oninput = () => { $('scaleLabel').textContent = $('scaleSlider').value + '%'; };
-$('zoomSlider').oninput = () => { $('zoomLabel').textContent = $('zoomSlider').value + '%'; loadFrame(state.currentFrame); };
-$('confSlider').oninput = () => { $('confLabel').textContent = $('confSlider').value + '%'; loadFrame(state.currentFrame); };
+$('zoomSlider').oninput = () => {
+  $('zoomLabel').textContent = $('zoomSlider').value + '%';
+  if (!state.annotationRunning && state.isAnnotatingDone) loadFrame(state.currentFrame);
+};
+$('confSlider').oninput = () => {
+  $('confLabel').textContent = $('confSlider').value + '%';
+  if (!state.annotationRunning && state.isAnnotatingDone) loadFrame(state.currentFrame);
+};
 $('alphaSlider').oninput = () => { $('alphaLabel').textContent = $('alphaSlider').value + '%'; };
 
 async function runAnnotation(items) {
@@ -504,6 +525,7 @@ async function runAnnotation(items) {
     addDebugLog('标注完成！', 'success');
     setStatus('标注完成');
     state.promptBboxes = [];
+    state.isAnnotatingDone = true;
     await showViewer(true);
   } catch (e) {
     addDebugLog('标注失败: ' + e.message, 'error');
@@ -539,7 +561,16 @@ async function loadFrame(idx) {
 
   try {
     const conf = parseInt($('confSlider').value) / 100;
-    const data = await apiGet('/api/get_frame/' + idx + '?conf=' + conf);
+    const res = await fetch('/api/get_frame/' + idx + '?conf=' + conf);
+    if (!res.ok) {
+      const ct = res.headers.get('content-type');
+      if (ct && ct.includes('application/json')) {
+        const d = await res.json();
+        throw new Error(d.error || `HTTP ${res.status}`);
+      }
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const data = await res.json();
     canvas.width = data.width || 800;
     canvas.height = data.height || 600;
     const img = new Image();
@@ -551,7 +582,7 @@ async function loadFrame(idx) {
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
     };
     img.src = 'data:image/jpeg;base64,' + data.image;
-  } catch (e) { setStatus('加载帧失败: ' + e.message, true); }
+  } catch (e) { console.error('loadFrame error:', e); setStatus('加载帧失败: ' + e.message, true); }
 }
 
 function updateFrameInfo() {
