@@ -289,6 +289,7 @@ class UnifiedPanel(QMainWindow):
             (128, 0, 128),   # 紫 (BGR)
         ]
         self.selected_color_index = random.randint(0, 6)
+        self.prompt_trace_id_options = [10000, 20000, 30000, 40000, 50000, 60000, 70000, 80000, 90000]
 
         self.init_ui()
 
@@ -1135,7 +1136,7 @@ class UnifiedPanel(QMainWindow):
             sample_frame = cv2.imread(str(mid_frames_dir / f"frame_{0:06d}.jpg"))
             height, width = sample_frame.shape[:2]
 
-            FIRST_ID = 50000
+            FIRST_ID = random.choice(self.prompt_trace_id_options)
             forward_annotations = []
             backward_annotations = []
 
