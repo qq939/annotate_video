@@ -723,6 +723,13 @@ class UnifiedPanel(QMainWindow):
         self.prompt_btn.clicked.connect(self.toggle_prompt_mode)
         frame_nav_play_layout.addWidget(self.prompt_btn)
 
+        self.frame_label = QLabel("1/1")
+        self.frame_label.setAlignment(Qt.AlignCenter)
+        self.frame_label.setFixedHeight(24)
+        self.frame_label.setFixedWidth(52)
+        self.frame_label.setStyleSheet("QLabel { background-color: #333; color: #fff; border-radius: 3px; font-weight: bold; font-size: 11px; padding: 0 4px; }")
+        frame_nav_play_layout.addWidget(self.frame_label)
+
         self.forward_cb = QCheckBox("前向")
         self.forward_cb.setFixedHeight(24)
         self.forward_cb.setChecked(True)
@@ -734,13 +741,6 @@ class UnifiedPanel(QMainWindow):
         self.backward_cb.setChecked(True)
         self.backward_cb.setStyleSheet("QCheckBox { font-size: 11px; }")
         frame_nav_play_layout.addWidget(self.backward_cb)
-
-        self.frame_label = QLabel("1/1")
-        self.frame_label.setAlignment(Qt.AlignCenter)
-        self.frame_label.setFixedHeight(24)
-        self.frame_label.setFixedWidth(52)
-        self.frame_label.setStyleSheet("QLabel { background-color: #333; color: #fff; border-radius: 3px; font-weight: bold; font-size: 11px; padding: 0 4px; }")
-        frame_nav_play_layout.addWidget(self.frame_label)
 
         self.next_btn = QPushButton("正帧")
         self.next_btn.setFixedHeight(24)
