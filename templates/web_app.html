@@ -3,78 +3,23 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Web标注工具</title>
+<title>视频标注工具</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body {
-  background: #1a1a2e;
-  color: #ddd;
-  font-family: Arial, sans-serif;
-  min-height: 100vh;
-}
-.tab-bar {
-  display: flex;
-  background: #111;
-  border-bottom: 1px solid #333;
-}
-.tab-btn {
-  padding: 12px 28px;
-  cursor: pointer;
-  background: #111;
-  color: #888;
-  border: none;
-  border-bottom: 2px solid transparent;
-  font-size: 15px;
-  font-weight: bold;
-  transition: all 0.2s;
-}
-.tab-btn:hover { color: #fff; }
-.tab-btn.active {
-  color: #00CC00;
-  border-bottom-color: #00CC00;
-  background: #1a1a2e;
-}
-.tab-content { display: none; padding: 16px; }
-.tab-content.active { display: block; }
-
-.panel {
-  background: #16213e;
-  border: 1px solid #333;
-  border-radius: 8px;
-  padding: 16px;
-  margin-bottom: 16px;
-  max-width: 900px;
-}
-.panel-title {
-  font-size: 14px;
-  font-weight: bold;
-  color: #aaa;
-  margin-bottom: 12px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid #333;
-}
-.row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
-label { font-size: 13px; color: #aaa; white-space: nowrap; }
-input[type=text], input[type=file] {
-  background: #0f3460;
-  border: 1px solid #444;
-  color: #fff;
-  border-radius: 4px;
-  padding: 6px 10px;
-  font-size: 13px;
-  outline: none;
-}
-input[type=text]:focus { border-color: #00CC00; }
-input[type=file] { background: #0f3460; }
-.btn {
-  padding: 7px 16px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: bold;
-  transition: all 0.2s;
-}
+body { background: #1a1a2e; color: #ddd; font-family: Arial, sans-serif; min-height: 100vh; display: flex; flex-direction: column; }
+.header { background: #111; padding: 10px 20px; border-bottom: 1px solid #333; display: flex; align-items: center; gap: 20px; }
+.header h2 { color: #00CC00; font-size: 18px; }
+.main-container { display: flex; flex: 1; overflow: hidden; }
+.left-panel { width: 380px; background: #16213e; border-right: 1px solid #333; padding: 12px; overflow-y: auto; max-height: calc(100vh - 50px); }
+.right-panel { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 20px; overflow-y: auto; max-height: calc(100vh - 50px); }
+.section { background: #0f3460; border: 1px solid #333; border-radius: 6px; padding: 10px; margin-bottom: 10px; }
+.section-title { font-size: 13px; font-weight: bold; color: #aaa; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 1px solid #333; }
+.row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
+label { font-size: 12px; color: #aaa; white-space: nowrap; }
+input[type=text], input[type=file], input[type=number] { background: #1a1a2e; border: 1px solid #444; color: #fff; border-radius: 4px; padding: 5px 8px; font-size: 12px; outline: none; width: 100px; }
+input:focus { border-color: #00CC00; }
+input.wide { flex: 1; min-width: 80px; }
+.btn { padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; transition: all 0.2s; }
 .btn-primary { background: #00CC00; color: white; }
 .btn-primary:hover { background: #009900; }
 .btn-primary:disabled { background: #555; color: #888; cursor: not-allowed; }
@@ -82,1018 +27,352 @@ input[type=file] { background: #0f3460; }
 .btn-secondary:hover { background: #666; }
 .btn-danger { background: #e74c3c; color: white; }
 .btn-danger:hover { background: #c0392b; }
-.btn-sm { padding: 4px 10px; font-size: 12px; }
-
-.file-drop {
-  border: 2px dashed #444;
-  border-radius: 8px;
-  padding: 24px;
-  text-align: center;
-  color: #888;
-  font-size: 14px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-.file-drop:hover, .file-drop.dragover {
-  border-color: #00CC00;
-  background: rgba(0,204,0,0.05);
-}
-
-.canvas-wrap {
-  position: relative;
-  display: inline-block;
-  margin: 8px 0;
-  border: 1px solid #333;
-  border-radius: 4px;
-  overflow: hidden;
-  max-width: 100%;
-}
+.btn-sm { padding: 4px 8px; font-size: 11px; }
+.file-drop { border: 2px dashed #444; border-radius: 6px; padding: 16px; text-align: center; color: #888; font-size: 12px; cursor: pointer; transition: all 0.2s; margin-bottom: 6px; }
+.file-drop:hover { border-color: #00CC00; background: rgba(0,204,0,0.05); }
+.canvas-wrap { position: relative; display: inline-block; margin: 8px 0; border: 1px solid #333; border-radius: 4px; overflow: hidden; }
 .canvas-wrap img { display: block; max-width: 100%; }
-#videoCanvas, #imageCanvas {
-  position: absolute;
-  top: 0; left: 0;
-  cursor: crosshair;
-  border: 1px solid #666;
-  background: rgba(0,0,0,0.15);
-  z-index: 1;
-}
-.canvas-wrap img { position: relative; z-index: 0; }
-#videoCanvasTab, #imageCanvasTab {
-  display: none;
-  font-size: 12px;
-  color: #888;
-  margin: 6px 0;
-}
-
-.color-palette {
-  display: flex;
-  gap: 4px;
-  align-items: center;
-}
-.color-btn {
-  width: 28px;
-  height: 22px;
-  border: 2px solid transparent;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.15s;
-  opacity: 0.7;
-}
-.color-btn:hover { opacity: 1; }
-.color-btn.selected { opacity: 1; border-color: white; }
-
-.color-name {
-  display: inline-block;
-  width: 18px; height: 18px;
-  border-radius: 3px;
-  border: 1px solid #555;
-}
-
-#videoStatus, #imageStatus {
-  margin-top: 10px;
-  padding: 10px;
-  border-radius: 4px;
-  font-size: 13px;
-  display: none;
-}
-#videoStatus.error, #imageStatus.error { background: rgba(231,76,60,0.2); border: 1px solid #e74c3c; color: #e74c3c; }
-#videoStatus.success, #imageStatus.success { background: rgba(0,204,0,0.15); border: 1px solid #00CC00; color: #00CC00; }
-#videoStatus.info, #imageStatus.info { background: rgba(52,152,219,0.2); border: 1px solid #3498db; color: #3498db; }
-
-.box-list {
-  margin-top: 8px;
-  max-height: 120px;
-  overflow-y: auto;
-}
-.box-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 6px;
-  background: #0f3460;
-  border-radius: 3px;
-  margin-bottom: 3px;
-  font-size: 12px;
-}
-.box-item .color-swatch {
-  width: 14px; height: 14px;
-  border-radius: 2px;
-  flex-shrink: 0;
-}
-
-.progress-bar {
-  width: 100%;
-  height: 6px;
-  background: #333;
-  border-radius: 3px;
-  margin-top: 8px;
-  overflow: hidden;
-  display: none;
-}
-.progress-fill {
-  height: 100%;
-  background: #00CC00;
-  width: 0%;
-  transition: width 0.3s;
-  border-radius: 3px;
-}
-
-.result-img {
-  max-width: 100%;
-  border-radius: 4px;
-  margin-top: 10px;
-  border: 1px solid #333;
-}
-a { color: #3498db; }
-.info-text { font-size: 11px; color: #777; margin-top: 4px; }
+#mainCanvas { position: absolute; top: 0; left: 0; cursor: crosshair; background: transparent; }
+.frame-nav { display: flex; align-items: center; gap: 4px; margin: 8px 0; flex-wrap: wrap; justify-content: center; }
+.frame-nav .btn { min-width: 40px; }
+.frame-display { background: #333; color: #fff; padding: 4px 10px; border-radius: 4px; font-weight: bold; font-size: 12px; min-width: 60px; text-align: center; }
+.progress-bar { width: 100%; height: 6px; background: #333; border-radius: 3px; overflow: hidden; margin: 6px 0; }
+.progress-fill { height: 100%; background: #00CC00; width: 0%; transition: width 0.3s; }
+.log-area { background: #0a0a15; border: 1px solid #333; border-radius: 4px; padding: 6px; font-family: monospace; font-size: 11px; max-height: 100px; overflow-y: auto; color: #0f0; white-space: pre-wrap; }
+.category-row { display: flex; align-items: center; gap: 4px; margin-bottom: 3px; }
+.category-row label { min-width: 70px; font-size: 11px; }
+.category-row input { width: 100%; font-size: 11px; }
+.trace-list { background: #0a0a15; border: 1px solid #333; border-radius: 4px; max-height: 80px; overflow-y: auto; margin-bottom: 4px; }
+.trace-item { padding: 3px 6px; font-size: 11px; cursor: pointer; }
+.trace-item:hover { background: #333; }
+.trace-item.selected { background: #005500; }
+.assign-row { display: flex; align-items: center; gap: 4px; justify-content: center; margin: 4px 0; }
+.assign-row .btn { min-width: 28px; height: 28px; font-size: 16px; padding: 0; }
+.assign-display { background: #2c3e50; color: #ecf0f1; padding: 4px 12px; border-radius: 4px; font-weight: bold; min-width: 70px; text-align: center; }
+.checkbox-row { display: flex; align-items: center; gap: 6px; }
+.checkbox-row input[type=checkbox] { width: 14px; height: 14px; }
+.prompt-bbox-list { background: #0a0a15; border: 1px solid #333; border-radius: 4px; max-height: 60px; overflow-y: auto; margin-bottom: 4px; font-size: 11px; }
+.prompt-bbox-item { padding: 2px 6px; }
 </style>
 </head>
 <body>
-
-<div class="tab-bar">
-  <button class="tab-btn active" onclick="switchTab('video')">视频标注</button>
-  <button class="tab-btn" onclick="switchTab('image')">图片标注</button>
-  <button class="tab-btn" onclick="switchTab('viewer')">视频预览</button>
-  <button class="tab-btn" onclick="switchTab('save')">视频保存</button>
+<div class="header">
+  <h2>视频标注工具</h2>
+  <span style="color:#888;font-size:12px">与app.py功能同步</span>
 </div>
+<div class="main-container">
+  <div class="left-panel">
+    <div class="section">
+      <div class="section-title">1. 视频标注</div>
+      <div class="file-drop" id="videoDrop">点击或拖拽上传视频文件</div>
+      <input type="file" id="videoFile" accept="video/*" style="display:none">
+      <div class="row">
+        <label>IoU:</label>
+        <input type="text" id="iouInput" value="0.5" style="width:50px">
+        <label>合并IoU:</label>
+        <input type="text" id="mergeIouInput" value="0.5" style="width:50px">
+      </div>
+      <div class="row">
+        <label>物品:</label>
+        <input type="text" id="itemsInput" class="wide" placeholder="类别名称,逗号分隔">
+      </div>
+      <div class="row">
+        <button class="btn btn-primary" id="annotateBtn" disabled>▶ 执行标注</button>
+        <button class="btn btn-secondary" id="showViewerBtn" disabled>显示</button>
+      </div>
+      <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+      <div id="progressText" style="font-size:11px;color:#888"></div>
+    </div>
 
+    <div class="section">
+      <div class="section-title">2. 类别名称 (trace_id → 类别)</div>
+      <div id="categoryList"></div>
+    </div>
 
+    <div class="section">
+      <div class="section-title">3. 预览控制</div>
+      <div class="row">
+        <label>缩放:</label>
+        <input type="range" id="zoomSlider" min="50" max="200" value="100" style="flex:1">
+        <span id="zoomLabel">100%</span>
+      </div>
+      <div class="row">
+        <label>置信度:</label>
+        <input type="range" id="confSlider" min="0" max="100" value="50" style="flex:1">
+        <span id="confLabel">50%</span>
+      </div>
+      <div class="frame-nav" id="frameNav" style="display:none">
+        <button class="btn btn-secondary btn-sm" id="backwardFastBtn">倒播</button>
+        <button class="btn btn-secondary btn-sm" id="backwardBtn">倒帧</button>
+        <button class="btn btn-primary btn-sm" id="promptBtn">提示帧</button>
+        <div class="checkbox-row">
+          <input type="checkbox" id="backwardCb" checked>
+          <label style="font-size:10px">后向</label>
+        </div>
+        <span class="frame-display" id="frameDisplay">1/1</span>
+        <div class="checkbox-row">
+          <input type="checkbox" id="forwardCb" checked>
+          <label style="font-size:10px">前向</label>
+        </div>
+        <button class="btn btn-secondary btn-sm" id="forwardBtn">正帧</button>
+        <button class="btn btn-secondary btn-sm" id="forwardFastBtn">正播</button>
+      </div>
+    </div>
 
-<!-- ==================== 视频标注 ==================== -->
-<div id="tab-video" class="tab-content active">
-  <div class="panel">
-    <div class="panel-title">1. 视频文件</div>
-    <div class="file-drop" id="videoDrop" onclick="document.getElementById('videoFileInput').click()"
-         ondragover="event.preventDefault();this.classList.add('dragover')"
-         ondragleave="this.classList.remove('dragover')"
-         ondrop="handleVideoDrop(event)">
-      <div>拖入视频文件 或 点击选择</div>
-      <div style="font-size:11px;color:#666;margin-top:4px">支持 mp4, avi, mov, mkv</div>
+    <div class="section">
+      <div class="section-title">ID映射列表</div>
+      <div class="trace-list" id="traceList"></div>
+      <div class="row">
+        <button class="btn btn-secondary btn-sm" id="clearTraceBtn">清空</button>
+        <button class="btn btn-primary btn-sm" id="modifyTraceBtn">变更</button>
+        <button class="btn btn-danger btn-sm" id="deleteTraceBtn">删除</button>
+      </div>
+      <div class="assign-row">
+        <button class="btn btn-danger" id="decBtn">-</button>
+        <span class="assign-display" id="assignDisplay">1000000</span>
+        <button class="btn btn-primary" id="incBtn">+</button>
+      </div>
     </div>
-    <input type="file" id="videoFileInput" accept="video/*" style="display:none" onchange="handleVideoFile(this)">
-    <div id="videoFileName" style="margin-top:6px;font-size:12px;color:#888;"></div>
+
+    <div class="section">
+      <div class="section-title">双向标注</div>
+      <div class="prompt-bbox-list" id="promptBboxList"></div>
+      <div class="row">
+        <button class="btn btn-primary" id="runBidirectionalBtn" disabled>执行双向标注</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <button class="btn btn-primary" id="exportBtn" style="width:100%">📦 导出到 temp_data_post</button>
+    </div>
+
+    <div class="section">
+      <div class="log-area" id="logArea"></div>
+    </div>
   </div>
 
-  <div class="panel" id="videoDrawPanel" style="display:none">
-    <div class="panel-title">2. 框选目标（首帧）</div>
-    <div id="videoCanvasTab">提示: 在图片上拖动画框 | C:撤销 | 最多20个</div>
-    <div class="canvas-wrap" id="videoCanvasWrap">
-      <img id="videoThumbImg" crossorigin="anonymous">
-      <canvas id="videoCanvas"></canvas>
+  <div class="right-panel">
+    <div class="canvas-wrap" id="canvasWrap">
+      <img id="videoImg" style="display:none">
+      <canvas id="mainCanvas"></canvas>
     </div>
-    <div class="box-list" id="videoBoxList"></div>
-  </div>
-
-  <div class="panel" id="videoParamsPanel" style="display:none">
-    <div class="panel-title">3. 参数设置</div>
-    <div class="row">
-      <label>帧IoU:</label>
-      <input type="text" id="videoMergeIou" value="0.5" style="width:60px">
-      <label style="margin-left:12px">前后IoU:</label>
-      <input type="text" id="videoIou" value="0.5" style="width:60px">
-      <label style="margin-left:12px">物品(逗号分隔):</label>
-      <input type="text" id="videoItems" placeholder="如: nozzle, needle" style="width:200px">
-    </div>
-    <div class="row" style="margin-top:10px">
-      <button class="btn btn-primary" id="videoRunBtn" onclick="runVideoAnnotate()">▶ 执行标注</button>
-      <button class="btn btn-danger btn-sm" onclick="clearVideoBoxes()">清空框</button>
-    </div>
-    <div class="progress-bar" id="videoProgressBar">
-      <div class="progress-fill" id="videoProgressFill"></div>
-    </div>
-    <div id="videoStatus"></div>
-    <div id="videoResultArea" style="display:none;margin-top:12px">
-      <div style="font-size:13px;color:#00CC00;margin-bottom:6px">✓ 标注完成</div>
-      <a id="videoResultLink" href="#" target="_blank">下载标注视频</a>
-    </div>
-  </div>
-</div>
-
-<!-- ==================== 图片标注 ==================== -->
-<div id="tab-image" class="tab-content">
-  <div class="panel">
-    <div class="panel-title">1. 图片文件</div>
-    <div class="file-drop" id="imageDrop" onclick="document.getElementById('imageFileInput').click()"
-         ondragover="event.preventDefault();this.classList.add('dragover')"
-         ondragleave="this.classList.remove('dragover')"
-         ondrop="handleImageDrop(event)">
-      <div>拖入图片文件 或 点击选择</div>
-      <div style="font-size:11px;color:#666;margin-top:4px">支持 jpg, png, webp, bmp, heic</div>
-    </div>
-    <input type="file" id="imageFileInput" accept="image/*" style="display:none" onchange="handleImageFile(this)">
-    <div id="imageFileName" style="margin-top:6px;font-size:12px;color:#888;"></div>
-  </div>
-  <div class="panel" id="imageDrawPanel" style="display:none">
-    <div class="panel-title">2. 框选目标 & 颜色</div>
-    <div class="row">
-      <label>颜色:</label>
-      <div class="color-palette" id="colorPalette"></div>
-    </div>
-    <div id="imageCanvasTab">提示: 在图片上拖动画框 | C:撤销</div>
-    <div class="canvas-wrap" id="imageCanvasWrap">
-      <img id="imageThumbImg" crossorigin="anonymous">
-      <canvas id="imageCanvas"></canvas>
-    </div>
-    <div class="box-list" id="imageBoxList"></div>
-  </div>
-  <div class="panel" id="imageParamsPanel" style="display:none">
-    <div class="panel-title">3. 参数设置</div>
-    <div class="row">
-      <label>文本提示词(逗号分隔):</label>
-      <input type="text" id="imageItems" placeholder="如: nozzle, needle" style="width:220px">
-    </div>
-    <div class="row">
-      <label>前后IoU:</label>
-      <input type="text" id="imageIou" value="0.5" style="width:60px">
-      <label style="margin-left:12px">帧IoU:</label>
-      <input type="text" id="imageMergeIou" value="0.5" style="width:60px">
-      <label style="margin-left:12px"></label>
-      <label><input type="checkbox" id="imageSemantic" style="margin-right:4px">使用语义推理模型</label>
-    </div>
-    <div class="row" style="margin-top:10px">
-      <button class="btn btn-primary" id="imageRunBtn" onclick="runImageAnnotate()">▶ 执行标注</button>
-      <button class="btn btn-danger btn-sm" onclick="clearImageBoxes()">清空框</button>
-    </div>
-    <div class="progress-bar" id="imageProgressBar">
-      <div class="progress-fill" id="imageProgressFill"></div>
-    </div>
-    <div id="imageStatus"></div>
-    <div id="imageResultArea" style="display:none;margin-top:12px">
-      <div style="font-size:13px;color:#00CC00;margin-bottom:6px">✓ 标注完成</div>
-      <img id="imageResultImg" class="result-img">
-    </div>
-  </div>
-</div>
-
-<!-- ==================== 视频预览 ==================== -->
-<div id="tab-viewer" class="tab-content">
-  <div class="panel">
-    <div class="panel-title">预览设置</div>
-    <div class="row">
-      <label>数据目录:</label>
-      <input type="text" id="viewDirInput" value="temp_data" style="width:150px">
-      <button class="btn btn-secondary btn-sm" onclick="openViewer(document.getElementById('viewDirInput').value)">打开</button>
-    </div>
-    <div class="row">
-      <label>置信度:</label>
-      <input type="range" id="viewConf" min="0" max="100" value="0" style="width:120px" oninput="viewConf=this.value/100;document.getElementById('viewConfVal').textContent=this.value;loadViewFrame(viewFrameIdx)">
-      <span id="viewConfVal" style="min-width:30px">0</span>
-      <label style="margin-left:12px">缩放:</label>
-      <input type="range" id="viewZoom" min="50" max="200" value="100" style="width:100px" oninput="viewZoom=this.value/100;document.getElementById('viewZoomVal').textContent=this.value+'%';loadViewFrame(viewFrameIdx)">
-      <span id="viewZoomVal" style="min-width:40px">100%</span>
-    </div>
-    <div class="row">
-      <label>前后IoU:</label>
-      <input type="text" id="viewIou" value="0.5" style="width:50px">
-      <label style="margin-left:8px">帧IoU:</label>
-      <input type="text" id="viewMergeIou" value="0.5" style="width:50px">
-      <label style="margin-left:8px">物品:</label>
-      <input type="text" id="viewItems" placeholder="逗号分隔" style="width:150px">
-      <button class="btn btn-secondary btn-sm" id="viewPromptBtn" onclick="viewTogglePrompt()">提示帧</button>
-    </div>
-  </div>
-  <div class="panel">
-    <div class="panel-title">帧导航 &amp; 标注</div>
-    <div class="row">
-      <button class="btn btn-secondary btn-sm" onclick="viewPrev()">◀上一帧</button>
-      <button class="btn btn-secondary btn-sm" id="viewPlayBtn" onclick="toggleViewPlay()">▶播放</button>
-      <button class="btn btn-secondary btn-sm" onclick="viewNext()">下一帧▶</button>
-      <span id="viewFrameInfo" style="min-width:80px;text-align:center;background:#222;color:#0f0;padding:2px 8px;border-radius:3px;font-size:12px">0/0</span>
-      <span id="viewAnnCount" style="font-size:12px;color:#888;margin-left:8px"></span>
-    </div>
-    <div class="canvas-wrap" id="viewCanvasWrap" style="overflow:auto;max-height:500px;position:relative;min-height:200px;background:#111;display:flex;align-items:center;justify-content:center">
-      <span id="viewLoading" style="color:#666;font-size:14px">正在加载视频帧...</span>
-      <img id="viewImg" crossorigin="anonymous" style="display:none;width:100%" src="">
-      <canvas id="viewCanvas" style="position:absolute;top:0;left:0;border:1px solid #666;background:rgba(0,0,0,0.1);z-index:1;cursor:crosshair;width:100%;height:100%;display:none"></canvas>
-    </div>
-  </div>
-  <div class="panel">
-    <div class="panel-title">trace_id 管理</div>
-    <div class="row">
-      <label>下一trace_id:</label>
-      <input type="number" id="viewNextTid" value="1000000" style="width:90px">
-      <button class="btn btn-secondary btn-sm" onclick="viewSetNextTid()">设置</button>
-    </div>
-    <div class="row">
-      <label>删除trace:</label>
-      <input type="number" id="viewDeleteInput" placeholder="trace_id" style="width:90px">
-      <button class="btn btn-danger btn-sm" onclick="viewDeleteTrace()">删除</button>
-    </div>
-    <div class="row">
-      <label>类别(逗号分隔):</label>
-      <input type="text" id="viewCategories" placeholder="逗号分隔" style="width:300px">
-    </div>
-    <div class="row" style="margin-top:8px">
-      <button class="btn btn-primary btn-sm" onclick="viewPostprocess()">按置信度过滤</button>
-    </div>
-  </div>
-</div>
-
-<!-- ==================== 视频保存 ==================== -->
-<div id="tab-save" class="tab-content">
-  <div class="panel">
-    <div class="panel-title">1. 导出到 temp_data_post</div>
-    <div class="row">
-      <label>源目录:</label>
-      <input type="text" id="saveSrcDir" value="temp_data" style="width:150px">
-      <button class="btn btn-primary btn-sm" onclick="doVideoExport()">导出到 temp_data_post</button>
-    </div>
-  </div>
-  <div class="panel">
-    <div class="panel-title">2. 保存视频</div>
-    <div class="row">
-      <label>输入:</label>
-      <input type="text" id="saveInputDir" value="temp_data_post" style="width:150px">
-      <label style="margin-left:8px">输出名称:</label>
-      <input type="text" id="saveOutputName" value="output.mp4" style="width:150px">
-    </div>
-    <div class="row">
-      <label>透明度:</label>
-      <input type="range" id="saveAlpha" min="10" max="100" value="30" style="width:120px">
-      <span id="saveAlphaVal">30</span><span>%</span>
-      <label style="margin-left:12px">置信度:</label>
-      <input type="range" id="saveConf" min="0" max="100" value="0" style="width:100px">
-      <span id="saveConfVal">0</span><span>%</span>
-    </div>
-    <div class="row">
-      <label>类别:</label>
-      <input type="text" id="saveCategories" placeholder="逗号分隔" style="width:300px">
-    </div>
-    <div class="row" style="margin-top:8px">
-      <button class="btn btn-primary" onclick="doVideoSave()">💾 保存视频</button>
-      <a id="saveResult" href="#" style="display:none;margin-left:16px">下载视频</a>
+    <div class="row" id="videoInfo" style="display:none">
+      <span style="color:#888;font-size:11px" id="videoInfoText"></span>
     </div>
   </div>
 </div>
 
 <script>
-const BOX_COLORS_HEX = ['#0000FF','#FFA500','#FFFF00','#00FF00','#00FFFF','#FF0000','#FF0080'];
-const BOX_COLORS_RGB = [[0,0,255],[0,165,255],[0,255,255],[0,255,0],[255,255,0],[255,0,0],[255,0,128]];
-
-let selectedColorIdx = 0;
-let videoBoxes = [];
-let imageBoxes = [];
-let videoImgNatural = {w:0, h:0};
-let imageImgNatural = {w:0, h:0};
-
-// ===================== 标签切换 =====================
-function switchTab(tab) {
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-  document.querySelector(`.tab-btn[onclick="switchTab('${tab}')"]`).classList.add('active');
-  document.getElementById(`tab-${tab}`).classList.add('active');
-  if (tab === 'viewer') {
-    console.log('[switchTab] viewer clicked, calling openViewer');
-    document.getElementById('viewDirInput').value = 'temp_data';
-    openViewer('temp_data');
-  }
-  if (tab === 'save') {
-    document.getElementById('saveSrcDir').value = 'temp_data';
-    document.getElementById('saveInputDir').value = 'temp_data_post';
-  }
+let state = {
+  videoName: '',
+  totalFrames: 0,
+  currentFrame: 0,
+  isPlaying: false,
+  zoom: 1.0,
+  conf: 0.5,
+  nextTrackId: 1000000,
+  traceList: [],
+  promptBboxes: [],
+  promptFrameIdx: -1,
+  categoryMappings: ['Detect','Detect','Detect','Detect','Detect','Detect','Detect','Detect']
+};
+const WARM_COLORS = [[180,130,255],[200,100,220],[255,50,200],[255,0,180],[220,0,150],[180,0,120],[139,0,100],[100,0,80]];
+const COLD_COLORS = [[100,150,255],[100,200,255],[150,200,255],[100,255,200],[150,100,255],[100,200,200],[150,150,255],[100,180,255]];
+function getColor(trackId) {
+  if (trackId >= 1000000) return WARM_COLORS[(trackId - 1000000) % 8];
+  return COLD_COLORS[trackId % 8];
 }
-
-// ===================== 颜色面板 =====================
-function initColorPalette() {
-  const pal = document.getElementById('colorPalette');
-  pal.innerHTML = '';
-  const names = ['红','橙','黄','绿','青','蓝','紫'];
-  names.forEach((name, i) => {
-    const btn = document.createElement('button');
-    btn.className = 'color-btn' + (i === selectedColorIdx ? ' selected' : '');
-    btn.style.background = BOX_COLORS_HEX[i];
-    btn.title = name;
-    btn.onclick = () => selectColor(i);
-    pal.appendChild(btn);
-  });
-  // 随机初始颜色
-  selectColor(Math.floor(Math.random() * 7));
+function log(msg) {
+  const area = document.getElementById('logArea');
+  area.textContent += new Date().toLocaleTimeString() + ' ' + msg + '\n';
+  area.scrollTop = area.scrollHeight;
 }
-
-function selectColor(idx) {
-  selectedColorIdx = idx;
-  document.querySelectorAll('.color-btn').forEach((b, i) => {
-    b.classList.toggle('selected', i === idx);
-  });
+function updateProgress(percent, text) {
+  document.getElementById('progressFill').style.width = percent + '%';
+  document.getElementById('progressText').textContent = text || '';
 }
-
-// ===================== 视频文件 =====================
-function handleVideoDrop(e) {
-  e.preventDefault();
-  e.currentTarget.classList.remove('dragover');
-  const f = e.dataTransfer.files[0];
-  if (f) uploadVideoFile(f);
-}
-
-function handleVideoFile(inp) {
-  const f = inp.files[0];
-  if (f) uploadVideoFile(f);
-}
-
-async function uploadVideoFile(file) {
-  showStatus('video', '正在上传...', 'info');
-  const fd = new FormData();
-  fd.append('file', file);
-  try {
-    const r = await fetch('/api/upload_video', {method:'POST', body:fd});
-    const d = await r.json();
-    if (d.error) { showStatus('video', d.error, 'error'); return; }
-    document.getElementById('videoFileName').textContent = d.filename;
-    loadVideoThumb(d.thumb, d.width, d.height);
-    document.getElementById('videoDrawPanel').style.display = 'block';
-    document.getElementById('videoParamsPanel').style.display = 'block';
-    document.getElementById('videoResultArea').style.display = 'none';
-    videoBoxes = [];
-    renderVideoBoxes();
-    showStatus('video', '首帧已加载，请在图片上框选目标', 'info');
-  } catch(e) { showStatus('video', '上传失败: '+e, 'error'); }
-}
-
-function loadVideoThumb(dataUrl, natW, natH) {
-  const img = document.getElementById('videoThumbImg');
+document.getElementById('videoDrop').onclick = () => document.getElementById('videoFile').click();
+document.getElementById('videoFile').onchange = async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch('/api/upload_video', {method:'POST', body:formData});
+  const data = await res.json();
+  if (data.error) { alert(data.error); return; }
+  state.videoName = data.filename;
+  document.getElementById('videoDrop').innerHTML = '已上传: ' + data.filename;
+  document.getElementById('annotateBtn').disabled = false;
+  document.getElementById('showViewerBtn').disabled = false;
+  log('视频已上传: ' + data.filename + ' (' + data.width + 'x' + data.height + ')');
+};
+document.getElementById('annotateBtn').onclick = async () => {
+  const formData = new FormData();
+  formData.append('video_name', state.videoName);
+  formData.append('iou', document.getElementById('iouInput').value);
+  formData.append('merge_iou', document.getElementById('mergeIouInput').value);
+  formData.append('items', document.getElementById('itemsInput').value);
+  formData.append('boxes', JSON.stringify(state.promptBboxes));
+  const es = new EventSource('/api/annotate_stream', {method:'POST', body:formData});
+  es.onmessage = (e) => {
+    const d = JSON.parse(e.data);
+    if (d.type === 'start') { log('开始标注...'); updateProgress(0, '0%'); }
+    if (d.type === 'progress') { updateProgress(d.percent, d.frame + '/' + d.total); }
+    if (d.type === 'done') { log('标注完成: ' + d.frames + '帧'); updateProgress(100, '完成'); es.close(); }
+    if (d.type === 'error') { log('错误: ' + d.msg); es.close(); }
+  };
+};
+document.getElementById('showViewerBtn').onclick = async () => {
+  const res = await fetch('/api/show_viewer', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({category_mappings:state.categoryMappings, trace_id_changes:state.traceList})});
+  const data = await res.json();
+  if (data.error) { alert(data.error); return; }
+  state.totalFrames = data.frames;
+  state.currentFrame = 0;
+  document.getElementById('frameNav').style.display = 'flex';
+  document.getElementById('videoInfo').style.display = 'flex';
+  document.getElementById('videoInfoText').textContent = state.videoName + ' - ' + data.frames + '帧';
+  log('已加载到 temp_data_mid: ' + data.frames + '帧');
+  await loadFrame(0);
+};
+async function loadFrame(idx) {
+  if (idx < 0 || idx >= state.totalFrames) return;
+  state.currentFrame = idx;
+  const res = await fetch('/api/get_frame/' + idx);
+  const imgData = await res.text();
+  const img = document.getElementById('videoImg');
+  img.src = 'data:image/jpeg;base64,' + imgData;
   img.onload = () => {
-    videoImgNatural = {w: natW, h: natH};
-    const wrap = document.getElementById('videoCanvasWrap');
-    const panelW = Math.max(wrap.parentElement.offsetWidth || 600, 100);
-    const displayW = Math.min(panelW - 20, natW);
-    const displayH = Math.round(natH * (displayW / natW));
-    img.style.width = displayW + 'px';
-    img.style.height = displayH + 'px';
-    const canvas = document.getElementById('videoCanvas');
-    canvas.width = displayW;
-    canvas.height = displayH;
-    canvas.style.width = displayW + 'px';
-    canvas.style.height = displayH + 'px';
-    canvas.style.display = 'block';
-    canvas.style.background = 'rgba(0,0,0,0.2)';
-    setupVideoCanvas();
+    const canvas = document.getElementById('mainCanvas');
+    canvas.width = img.naturalWidth * state.zoom;
+    canvas.height = img.naturalHeight * state.zoom;
+    img.style.width = canvas.width + 'px';
+    img.style.height = canvas.height + 'px';
+    drawCanvas();
   };
-  img.src = 'data:image/jpeg;base64,' + dataUrl;
+  document.getElementById('frameDisplay').textContent = (idx + 1) + '/' + state.totalFrames;
 }
-
-// ===================== 视频画框 =====================
-function setupVideoCanvas() {
-  const canvas = document.getElementById('videoCanvas');
+function drawCanvas() {
+  const canvas = document.getElementById('mainCanvas');
   const ctx = canvas.getContext('2d');
-  let drawing = false, sx = 0, sy = 0;
-
-  canvas.onmousedown = e => {
-    if (videoBoxes.length >= 20) return;
-    const r = canvas.getBoundingClientRect();
-    sx = e.clientX - r.left;
-    sy = e.clientY - r.top;
-    drawing = true;
-  };
-  canvas.onmousemove = e => {
-    if (!drawing) return;
-    const r = canvas.getBoundingClientRect();
-    const mx = e.clientX - r.left, my = e.clientY - r.top;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    drawVideoBoxes(ctx);
-    ctx.strokeStyle = BOX_COLORS_HEX[selectedColorIdx];
-    ctx.lineWidth = 2;
-    ctx.strokeRect(sx, sy, mx - sx, my - sy);
-  };
-  canvas.onmouseup = e => {
-    if (!drawing) return;
-    drawing = false;
-    const r = canvas.getBoundingClientRect();
-    const mx = e.clientX - r.left, my = e.clientY - r.top;
-    const x1 = Math.min(sx, mx), y1 = Math.min(sy, my);
-    const x2 = Math.max(sx, mx), y2 = Math.max(sy, my);
-    if (x2 - x1 > 5 && y2 - y1 > 5) {
-      const dispW = r.width, dispH = r.height;
-      const natW = videoImgNatural.w, natH = videoImgNatural.h;
-      videoBoxes.push({
-        x1: Math.round(x1 * natW / dispW),
-        y1: Math.round(y1 * natH / dispH),
-        x2: Math.round(x2 * natW / dispW),
-        y2: Math.round(y2 * natH / dispH),
-        colorIdx: selectedColorIdx
-      });
-      renderVideoBoxes();
-    }
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    drawVideoBoxes(ctx);
-  };
-  canvas.onmouseleave = () => {
-    if (drawing) { drawing = false; ctx.clearRect(0,0,canvas.width,canvas.height); drawVideoBoxes(ctx); }
-  };
-
-  document.addEventListener('keydown', e => {
-    if (document.getElementById('tab-video').classList.contains('active') && (e.key === 'c' || e.key === 'C')) {
-      videoBoxes.pop();
-      renderVideoBoxes();
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      drawVideoBoxes(ctx);
-    }
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = '#ff0';
+  state.promptBboxes.forEach(b => {
+    ctx.strokeRect(b[0] * state.zoom, b[1] * state.zoom, (b[2]-b[0]) * state.zoom, (b[3]-b[1]) * state.zoom);
   });
 }
-
-function drawVideoBoxes(ctx) {
-  const canvas = ctx.canvas;
-  const dispW = canvas.width, dispH = canvas.height;
-  const natW = videoImgNatural.w, natH = videoImgNatural.h;
-  videoBoxes.forEach(b => {
-    ctx.strokeStyle = BOX_COLORS_HEX[b.colorIdx];
-    ctx.lineWidth = 2;
-    ctx.strokeRect(b.x1 * dispW / natW, b.y1 * dispH / natH, (b.x2 - b.x1) * dispW / natW, (b.y2 - b.y1) * dispH / natH);
-  });
-}
-
-function renderVideoBoxes() {
-  const list = document.getElementById('videoBoxList');
-  list.innerHTML = videoBoxes.map((b, i) => {
-    const c = BOX_COLORS_HEX[b.colorIdx];
-    return `<div class="box-item">
-      <div class="color-swatch" style="background:${c}"></div>
-      <span>目标${i+1}: [${b.x1},${b.y1},${b.x2},${b.y2}]</span>
-    </div>`;
-  }).join('');
-}
-
-function clearVideoBoxes() {
-  videoBoxes = [];
-  renderVideoBoxes();
-  const canvas = document.getElementById('videoCanvas');
-  canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
-}
-
-// ===================== 视频执行 =====================
-let _videoAbortCtrl = null;
-
-async function runVideoAnnotate() {
-  const videoName = document.getElementById('videoFileName').textContent.trim();
-  if (!videoName) { showStatus('video', '请先上传视频', 'error'); return; }
-  if (!videoBoxes.length && !document.getElementById('videoItems').value.trim()) {
-    showStatus('video', '请至少框选目标或填写物品名称', 'error'); return; }
-  const btn = document.getElementById('videoRunBtn');
-  btn.disabled = true;
-  document.getElementById('videoProgressBar').style.display = 'block';
-  document.getElementById('videoProgressFill').style.width = '0%';
-  showStatus('video', '正在处理，请稍候...', 'info');
-
-  if (_videoAbortCtrl) { _videoAbortCtrl.abort(); _videoAbortCtrl = null; }
-  _videoAbortCtrl = new AbortController();
-
-  const boxes = videoBoxes.map(b => [b.x1, b.y1, b.x2, b.y2]);
-  const body = JSON.stringify({
-    video_name: videoName,
-    boxes: boxes,
-    items: document.getElementById('videoItems').value,
-    iou: document.getElementById('videoIou').value,
-    merge_iou: document.getElementById('videoMergeIou').value
-  });
-
-  try {
-    const resp = await fetch('/api/run_video_annotate_stream', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: body,
-      signal: _videoAbortCtrl.signal
-    });
-
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop();
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        try {
-          const data = JSON.parse(line.slice(6));
-          if (data.type === 'progress') {
-            document.getElementById('videoProgressFill').style.width = data.percent + '%';
-            showStatus('video', `处理中: ${data.frame}/${data.total} 帧 (${data.percent}%)`, 'info');
-          } else if (data.type === 'done') {
-            document.getElementById('videoProgressFill').style.width = '100%';
-            showStatus('video', `✓ 完成，共 ${data.frames} 帧`, 'success');
-            document.getElementById('videoResultLink').href = data.output;
-            document.getElementById('videoResultLink').textContent = '下载: ' + data.output.split('/').pop();
-            document.getElementById('videoResultArea').style.display = 'block';
-          } else if (data.type === 'error') {
-            showStatus('video', '执行失败: ' + data.msg, 'error');
-          }
-        } catch(e) { /* ignore parse error */ }
-      }
-    }
-  } catch(e) {
-    if (e.name !== 'AbortError') {
-      showStatus('video', '执行失败: ' + e.message, 'error');
-    }
-  } finally {
-    btn.disabled = false;
-    _videoAbortCtrl = null;
-  }
-}
-
-// ===================== 图片文件 =====================
-function handleImageDrop(e) {
-  e.preventDefault();
-  e.currentTarget.classList.remove('dragover');
-  const f = e.dataTransfer.files[0];
-  if (f) uploadImageFile(f);
-}
-
-function handleImageFile(inp) {
-  const f = inp.files[0];
-  if (f) uploadImageFile(f);
-}
-
-async function uploadImageFile(file) {
-  showStatus('image', '正在上传...', 'info');
-  const fd = new FormData();
-  fd.append('file', file);
-  try {
-    const r = await fetch('/api/upload_image', {method:'POST', body:fd});
-    const d = await r.json();
-    if (d.error) { showStatus('image', d.error, 'error'); return; }
-    document.getElementById('imageFileName').textContent = d.filename;
-    loadImageThumb(d.thumb, d.width, d.height);
-    document.getElementById('imageDrawPanel').style.display = 'block';
-    document.getElementById('imageParamsPanel').style.display = 'block';
-    document.getElementById('imageResultArea').style.display = 'none';
-    imageBoxes = [];
-    renderImageBoxes();
-    showStatus('image', '图片已加载，请在图片上框选目标', 'info');
-  } catch(e) { showStatus('image', '上传失败: '+e, 'error'); }
-}
-
-function loadImageThumb(dataUrl, natW, natH) {
-  const img = document.getElementById('imageThumbImg');
-  img.onload = () => {
-    imageImgNatural = {w: natW, h: natH};
-    const wrap = document.getElementById('imageCanvasWrap');
-    const panelW = Math.max(wrap.parentElement.offsetWidth || 600, 100);
-    const displayW = Math.min(panelW - 20, natW);
-    const displayH = Math.round(natH * (displayW / natW));
-    img.style.width = displayW + 'px';
-    img.style.height = displayH + 'px';
-    const canvas = document.getElementById('imageCanvas');
-    canvas.width = displayW;
-    canvas.height = displayH;
-    canvas.style.width = displayW + 'px';
-    canvas.style.height = displayH + 'px';
-    canvas.style.display = 'block';
-    canvas.style.background = 'rgba(0,0,0,0.2)';
-    setupImageCanvas();
-  };
-  img.src = 'data:image/jpeg;base64,' + dataUrl;
-}
-
-// ===================== 图片画框 =====================
-function setupImageCanvas() {
-  const canvas = document.getElementById('imageCanvas');
-  const ctx = canvas.getContext('2d');
-  let drawing = false, sx = 0, sy = 0;
-
-  canvas.onmousedown = e => {
-    const r = canvas.getBoundingClientRect();
-    sx = e.clientX - r.left;
-    sy = e.clientY - r.top;
-    drawing = true;
-  };
-  canvas.onmousemove = e => {
-    if (!drawing) return;
-    const r = canvas.getBoundingClientRect();
-    const mx = e.clientX - r.left, my = e.clientY - r.top;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    drawImageBoxes(ctx);
-    ctx.strokeStyle = BOX_COLORS_HEX[selectedColorIdx];
-    ctx.lineWidth = 2;
-    ctx.strokeRect(sx, sy, mx - sx, my - sy);
-  };
-  canvas.onmouseup = e => {
-    if (!drawing) return;
-    drawing = false;
-    const r = canvas.getBoundingClientRect();
-    const mx = e.clientX - r.left, my = e.clientY - r.top;
-    const x1 = Math.min(sx, mx), y1 = Math.min(sy, my);
-    const x2 = Math.max(sx, mx), y2 = Math.max(sy, my);
-    if (x2 - x1 > 5 && y2 - y1 > 5) {
-      const dispW = r.width, dispH = r.height;
-      const natW = imageImgNatural.w, natH = imageImgNatural.h;
-      imageBoxes.push({
-        x1: Math.round(x1 * natW / dispW),
-        y1: Math.round(y1 * natH / dispH),
-        x2: Math.round(x2 * natW / dispW),
-        y2: Math.round(y2 * natH / dispH),
-        colorIdx: selectedColorIdx
-      });
-      renderImageBoxes();
-    }
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    drawImageBoxes(ctx);
-  };
-  canvas.onmouseleave = () => {
-    if (drawing) { drawing = false; ctx.clearRect(0,0,canvas.width,canvas.height); drawImageBoxes(ctx); }
-  };
-
-  document.addEventListener('keydown', e => {
-    if (document.getElementById('tab-image').classList.contains('active') && (e.key === 'c' || e.key === 'C')) {
-      imageBoxes.pop();
-      renderImageBoxes();
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      drawImageBoxes(ctx);
-    }
-  });
-}
-
-function drawImageBoxes(ctx) {
-  const canvas = ctx.canvas;
-  const dispW = canvas.width, dispH = canvas.height;
-  const natW = imageImgNatural.w, natH = imageImgNatural.h;
-  imageBoxes.forEach(b => {
-    ctx.strokeStyle = BOX_COLORS_HEX[b.colorIdx];
-    ctx.lineWidth = 2;
-    ctx.strokeRect(b.x1 * dispW / natW, b.y1 * dispH / natH, (b.x2 - b.x1) * dispW / natW, (b.y2 - b.y1) * dispH / natH);
-    ctx.fillStyle = BOX_COLORS_HEX[b.colorIdx];
-    ctx.font = '12px Arial';
-    ctx.fillText('目标' + (b.colorIdx + 1), b.x1 * dispW / natW, b.y1 * dispH / natH - 3);
-  });
-}
-
-function renderImageBoxes() {
-  const list = document.getElementById('imageBoxList');
-  list.innerHTML = imageBoxes.map((b, i) => {
-    const c = BOX_COLORS_HEX[b.colorIdx];
-    return `<div class="box-item">
-      <div class="color-swatch" style="background:${c}"></div>
-      <span>目标${i+1}: [${b.x1},${b.y1},${b.x2},${b.y2}]</span>
-    </div>`;
-  }).join('');
-}
-
-function clearImageBoxes() {
-  imageBoxes = [];
-  renderImageBoxes();
-  const canvas = document.getElementById('imageCanvas');
-  canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
-}
-
-// ===================== 图片执行 =====================
-async function runImageAnnotate() {
-  const imageName = document.getElementById('imageFileName').textContent.trim();
-  if (!imageName) { showStatus('image', '请先上传图片', 'error'); return; }
-  if (!imageBoxes.length && !document.getElementById('imageItems').value.trim()) {
-    showStatus('image', '请至少框选目标或填写文本提示词', 'error'); return;
-  }
-  const btn = document.getElementById('imageRunBtn');
-  btn.disabled = true;
-  document.getElementById('imageProgressBar').style.display = 'block';
-  showStatus('image', '正在处理，请稍候...', 'info');
-  try {
-    const boxes = imageBoxes.map(b => [b.x1, b.y1, b.x2, b.y2]);
-    const boxColors = imageBoxes.map(b => BOX_COLORS_RGB[b.colorIdx]);
-    const r = await fetch('/api/run_image_annotate', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        image_name: imageName,
-        boxes: boxes,
-        box_colors: boxColors,
-        items: document.getElementById('imageItems').value,
-        use_semantic: document.getElementById('imageSemantic').checked,
-        iou: document.getElementById('imageIou').value,
-        merge_iou: document.getElementById('imageMergeIou').value,
-        selected_color_idx: selectedColorIdx
-      })
-    });
-    const d = await r.json();
-    if (d.error) { showStatus('image', d.error, 'error'); return; }
-    showStatus('image', `✓ 完成，共 ${d.annotations ? d.annotations.length : 0} 个标注`, 'success');
-    document.getElementById('imageResultImg').src = d.output + '?t=' + Date.now();
-    document.getElementById('imageResultArea').style.display = 'block';
-  } catch(e) { showStatus('image', '执行失败: '+e, 'error'); }
-  finally { btn.disabled = false; document.getElementById('imageProgressBar').style.display = 'none'; }
-}
-
-// ===================== 通用 =====================
-function showStatus(tab, msg, type) {
-  const el = document.getElementById(tab + 'Status');
-  el.textContent = msg;
-  el.className = type;
-  el.style.display = 'block';
-}
-
-// ===================== 初始化 =====================
-initColorPalette();
-
-
-
-// ==================== 视频预览 JS ====================
-let viewDir = 'temp_data';
-let viewFrameIdx = 0;
-let viewTotalFrames = 0;
-let viewPlaying = false;
-let viewPlayTimer = null;
-let viewNextTrackId = 1000000;
-let viewConf = 0.0;
-let viewZoom = 1.0;
-let promptMode = false;
-let promptBoxes = [];
-
-function openViewer(dir) {
-  console.log('[openViewer] dir=', dir);
-  viewDir = dir || viewDir;
-  const loading = document.getElementById('viewLoading');
-  loading.textContent = '正在加载视频帧...';
-  loading.style.display = 'flex';
-  document.getElementById('viewImg').style.display = 'none';
-  document.getElementById('viewCanvas').style.display = 'none';
-  fetch('/api/video_frames?dir=' + encodeURIComponent(viewDir) + '&conf=' + viewConf)
-    .then(r => { console.log('[openViewer] status', r.status); return r.json(); })
-    .then(d => {
-      if (d.error) { console.error('[openViewer] error:', d.error); loading.textContent = '加载失败: ' + d.error; return; }
-      viewTotalFrames = d.total;
-      viewNextTrackId = d.next_track_id;
-      document.getElementById('viewNextTid').value = viewNextTrackId;
-      if (viewTotalFrames === 0) {
-        loading.textContent = '没有视频帧数据，请先进行视频标注';
-        document.getElementById('viewFrameInfo').textContent = '0/0';
-        document.getElementById('viewAnnCount').textContent = '';
-        return;
-      }
-      loadViewFrame(0);
+document.getElementById('mainCanvas').onclick = async (e) => {
+  if (state.promptBboxes.length === 0) return;
+  await fetch('/api/bidirectional_annotate', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      prompt_frame_idx: state.currentFrame,
+      prompt_bboxes: state.promptBboxes,
+      forward_enabled: document.getElementById('forwardCb').checked,
+      backward_enabled: document.getElementById('backwardCb').checked,
+      iou: parseFloat(document.getElementById('iouInput').value),
+      merge_iou: parseFloat(document.getElementById('mergeIouInput').value)
     })
-    .catch(err => {
-      console.error('[openViewer] fetch error:', err);
-      loading.textContent = '网络错误: ' + err.message;
-    });
-}
-
-function loadViewFrame(idx) {
-  if (viewTotalFrames === 0) return;
-  if (idx < 0) idx = 0;
-  if (idx >= viewTotalFrames) idx = viewTotalFrames - 1;
-  viewFrameIdx = idx;
-  const cats = (document.getElementById('viewCategories').value || '').trim();
-  fetch('/api/video_frame?dir=' + encodeURIComponent(viewDir) + '&frame=' + idx + '&conf=' + viewConf + '&zoom=' + viewZoom + '&categories=' + encodeURIComponent(cats))
-    .then(r => r.json())
-    .then(d => {
-      if (d.error) {
-        document.getElementById('viewLoading').textContent = '加载失败: ' + d.error;
-        document.getElementById('viewLoading').style.display = 'flex';
-        return;
-      }
-      document.getElementById('viewLoading').style.display = 'none';
-      const imgEl = document.getElementById('viewImg');
-      const canvas = document.getElementById('viewCanvas');
-      imgEl.style.display = 'block';
-      canvas.style.display = 'block';
-      imgEl.src = 'data:image/jpeg;base64,' + d.thumb;
-      document.getElementById('viewFrameInfo').textContent = (d.frame + 1) + '/' + d.total;
-      document.getElementById('viewAnnCount').textContent = d.ann_count + '个标注';
-      imgEl.onload = function() {
-        canvas.width = imgEl.offsetWidth;
-        canvas.height = imgEl.offsetHeight;
-        canvas.style.width = imgEl.offsetWidth + 'px';
-        canvas.style.height = imgEl.offsetHeight + 'px';
-      };
-    });
-}
-
-function viewPrev() { loadViewFrame(viewFrameIdx - 1); }
-function viewNext() { loadViewFrame(viewFrameIdx + 1); }
-
-function toggleViewPlay() {
-  if (viewPlaying) {
-    clearInterval(viewPlayTimer);
-    viewPlayTimer = null;
-    viewPlaying = false;
-    document.getElementById('viewPlayBtn').textContent = '▶播放';
+  }).then(r => r.json()).then(d => {
+    if (d.error) { log('错误: ' + d.error); return; }
+    log(d.msg + ', FIRST_ID=' + d.FIRST_ID);
+    loadFrame(state.currentFrame);
+  });
+};
+document.getElementById('promptBtn').onclick = () => {
+  if (state.promptBboxes.length === 0) {
+    const canvas = document.getElementById('mainCanvas');
+    canvas.onclick = async (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / state.zoom;
+      const y = (e.clientY - rect.top) / state.zoom;
+      const w = 100, h = 100;
+      state.promptBboxes.push([x - w/2, y - h/2, x + w/2, y + h/2]);
+      document.getElementById('promptBboxList').innerHTML = state.promptBboxes.map((b,i) => '<div class="prompt-bbox-item">bbox' + i + ': ' + Math.round(b[0]) + ',' + Math.round(b[1]) + '</div>').join('');
+      document.getElementById('runBidirectionalBtn').disabled = false;
+      drawCanvas();
+      log('已添加prompt bbox，位置: ' + Math.round(x) + ',' + Math.round(y));
+      canvas.onclick = null;
+    };
+    log('请点击画布添加bbox');
   } else {
-    viewPlaying = true;
-    document.getElementById('viewPlayBtn').textContent = '■暂停';
-    viewPlayTimer = setInterval(() => { loadViewFrame(viewFrameIdx + 1); }, 500);
+    state.promptBboxes = [];
+    document.getElementById('promptBboxList').innerHTML = '';
+    document.getElementById('runBidirectionalBtn').disabled = true;
+    drawCanvas();
+    log('已清除prompt bboxes');
   }
-}
-
-function viewTogglePrompt() {
-  if (!promptMode) {
-    promptMode = true;
-    promptBoxes = [];
-    document.getElementById('viewPromptBtn').textContent = '执行提示帧';
-    document.getElementById('viewPromptBtn').style.background = '#00CC00';
-    alert('提示帧模式：在图片上拖动画框，完成后点"执行提示帧"');
-  } else {
-    const iou = parseFloat(document.getElementById('viewIou').value || '0.5');
-    const mergeIou = parseFloat(document.getElementById('viewMergeIou').value || '0.5');
-    const items = document.getElementById('viewItems').value || '';
-    fetch('/api/video_prompt_frame', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({dir: viewDir, frame_idx: viewFrameIdx, boxes: promptBoxes, iou: iou, merge_iou: mergeIou, items: items})
-    }).then(r => r.json()).then(d => {
-      if (d.error) { alert(d.error); }
-      else { alert('提示帧双向标注完成'); loadViewFrame(viewFrameIdx); }
-      promptMode = false;
-      promptBoxes = [];
-      document.getElementById('viewPromptBtn').textContent = '提示帧';
-      document.getElementById('viewPromptBtn').style.background = '';
-    });
-  }
-}
-
-function viewDeleteTrace() {
-  const tid = parseInt(document.getElementById('viewDeleteInput').value);
-  if (!tid) { alert('请输入trace_id'); return; }
-  fetch('/api/video_delete_trace', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({dir: viewDir, trace_id: tid})
-  }).then(r => r.json()).then(d => {
-    alert('已删除 trace_id=' + tid);
-    loadViewFrame(viewFrameIdx);
+};
+document.getElementById('backwardBtn').onclick = () => loadFrame(state.currentFrame - 1);
+document.getElementById('forwardBtn').onclick = () => loadFrame(state.currentFrame + 1);
+document.getElementById('backwardFastBtn').onclick = async () => {
+  for (let i = state.currentFrame - 1; i >= 0 && i >= state.currentFrame - 30; i--) await loadFrame(i);
+};
+document.getElementById('forwardFastBtn').onclick = async () => {
+  for (let i = state.currentFrame + 1; i < state.totalFrames && i <= state.currentFrame + 30; i++) await loadFrame(i);
+};
+document.getElementById('zoomSlider').oninput = (e) => {
+  state.zoom = e.target.value / 100;
+  document.getElementById('zoomLabel').textContent = e.target.value + '%';
+  if (document.getElementById('videoImg').src) loadFrame(state.currentFrame);
+};
+document.getElementById('confSlider').oninput = (e) => {
+  state.conf = e.target.value / 100;
+  document.getElementById('confLabel').textContent = e.target.value + '%';
+};
+document.getElementById('decBtn').onclick = () => {
+  if (state.nextTrackId > 0) { state.nextTrackId--; document.getElementById('assignDisplay').textContent = state.nextTrackId; }
+};
+document.getElementById('incBtn').onclick = () => {
+  state.nextTrackId++; document.getElementById('assignDisplay').textContent = state.nextTrackId;
+};
+document.getElementById('clearTraceBtn').onclick = () => {
+  state.traceList = []; renderTraceList();
+  fetch('/api/save_trace_id_changes', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mappings:[]})});
+  log('已清空ID映射');
+  loadFrame(state.currentFrame);
+};
+document.getElementById('modifyTraceBtn').onclick = () => {
+  const sel = document.querySelector('.trace-item.selected');
+  if (!sel) return;
+  const newVal = prompt('修改映射:', sel.textContent);
+  if (!newVal) return;
+  sel.textContent = 'ID: ' + newVal;
+  state.traceList = Array.from(document.querySelectorAll('.trace-item')).map(e => e.textContent);
+  fetch('/api/save_trace_id_changes', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mappings:state.traceList})});
+  log('已修改映射: ' + newVal);
+};
+document.getElementById('deleteTraceBtn').onclick = () => {
+  const sel = document.querySelector('.trace-item.selected');
+  if (!sel) return;
+  sel.remove();
+  state.traceList = Array.from(document.querySelectorAll('.trace-item')).map(e => e.textContent);
+  fetch('/api/save_trace_id_changes', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mappings:state.traceList})});
+  log('已删除映射');
+};
+function renderTraceList() {
+  const list = document.getElementById('traceList');
+  list.innerHTML = state.traceList.map((t, i) => '<div class="trace-item' + (i === 0 ? ' selected' : '') + '">' + t + '</div>').join('');
+  list.querySelectorAll('.trace-item').forEach(el => {
+    el.onclick = () => { list.querySelectorAll('.trace-item').forEach(e => e.classList.remove('selected')); el.classList.add('selected'); };
   });
 }
-
-function viewSetNextTid() {
-  viewNextTrackId = parseInt(document.getElementById('viewNextTid').value) || 1000000;
+for (let i = 0; i < 8; i++) {
+  const tid = 1000000 + i;
+  const row = document.createElement('div');
+  row.className = 'category-row';
+  row.innerHTML = '<label>' + tid + ':</label><input type="text" id="cat' + i + '" value="Detect">';
+  document.getElementById('categoryList').appendChild(row);
+  document.getElementById('cat' + i).onchange = (e) => {
+    state.categoryMappings[i] = e.target.value;
+  };
 }
-
-function viewPostprocess() {
-  fetch('/api/video_postprocess', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({src_dir: viewDir, conf: viewConf})
-  }).then(r => r.json()).then(d => {
-    alert('后处理完成，删除了 ' + d.removed + ' 个低置信度标注');
-    loadViewFrame(viewFrameIdx);
-  });
-}
-
-// canvas 画框（提示帧模式）
-const _viewCanvas = document.getElementById('viewCanvas');
-if (_viewCanvas) {
-  const _ctx = _viewCanvas.getContext('2d');
-  let _drw = false, _sx = 0, _sy = 0;
-  _viewCanvas.addEventListener('mousedown', e => {
-    if (!promptMode) return;
-    const r = _viewCanvas.getBoundingClientRect();
-    _sx = e.clientX - r.left; _sy = e.clientY - r.top; _drw = true;
-  });
-  _viewCanvas.addEventListener('mousemove', e => {
-    if (!_drw) return;
-    const r = _viewCanvas.getBoundingClientRect();
-    const mx = e.clientX - r.left, my = e.clientY - r.top;
-    _ctx.clearRect(0, 0, _viewCanvas.width, _viewCanvas.height);
-    _ctx.strokeStyle = '#FFFF00'; _ctx.lineWidth = 2;
-    _ctx.strokeRect(_sx, _sy, mx - _sx, my - _sy);
-  });
-  _viewCanvas.addEventListener('mouseup', e => {
-    if (!_drw) return; _drw = false;
-    const r = _viewCanvas.getBoundingClientRect();
-    const mx = e.clientX - r.left, my = e.clientY - r.top;
-    const nw = _viewCanvas.width, nh = _viewCanvas.height;
-    const imgW = document.getElementById('viewImg').naturalWidth || nw;
-    const imgH = document.getElementById('viewImg').naturalHeight || nh;
-    const x1 = Math.round(Math.min(_sx, mx) * imgW / nw);
-    const y1 = Math.round(Math.min(_sy, my) * imgH / nh);
-    const x2 = Math.round(Math.max(_sx, mx) * imgW / nw);
-    const y2 = Math.round(Math.max(_sy, my) * imgH / nh);
-    if (x2 - x1 > 5 && y2 - y1 > 5) {
-      promptBoxes.push([x1, y1, x2, y2]);
-      alert('已添加框: [' + x1 + ',' + y1 + ',' + x2 + ',' + y2 + '] 共' + promptBoxes.length + '个');
-    }
-    _ctx.clearRect(0, 0, _viewCanvas.width, _viewCanvas.height);
-  });
-  _viewCanvas.addEventListener('mouseleave', () => { if (_drw) { _drw = false; _ctx.clearRect(0,0,_viewCanvas.width,_viewCanvas.height); } });
-}
-
-// ==================== 视频保存 JS ====================
-function doVideoExport() {
-  const src = document.getElementById('saveSrcDir').value || 'temp_data';
-  fetch('/api/video_export_post', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({src_dir: src, dst_dir: 'temp_data_post'})
-  }).then(r => r.json()).then(d => {
-    alert('已导出到 temp_data_post');
-    document.getElementById('saveInputDir').value = 'temp_data_post';
-  });
-}
-
-function doVideoSave() {
-  const inputDir = document.getElementById('saveInputDir').value || 'temp_data_post';
-  const outputName = document.getElementById('saveOutputName').value || 'output.mp4';
-  const alpha = parseInt(document.getElementById('saveAlpha').value) / 100;
-  const conf = parseInt(document.getElementById('saveConf').value) / 100;
-  const cats = document.getElementById('saveCategories').value || '';
-  fetch('/api/video_save', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({input_dir: inputDir, output_name: outputName, alpha: alpha, conf: conf, categories: cats})
-  }).then(r => r.json()).then(d => {
-    if (d.error) { alert('保存失败: ' + d.error); }
-    else { alert('保存完成: ' + d.output); document.getElementById('saveResult').href = d.output; document.getElementById('saveResult').style.display = 'inline'; }
-  });
-}
-
+document.getElementById('exportBtn').onclick = async () => {
+  const res = await fetch('/api/export_to_post', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({category_mappings:state.categoryMappings})});
+  const data = await res.json();
+  if (data.error) { alert(data.error); return; }
+  log('导出完成: ' + data.msg);
+  alert(data.msg);
+};
 </script>
 </body>
 </html>

@@ -665,7 +665,7 @@ class UnifiedPanel(QMainWindow):
         category_layout.setSpacing(2)
         category_layout.addWidget(QLabel("类别名称 (trace_id → 类别):"))
         self.category_inputs = []
-        for tid in range(1000000, 1000004):
+        for tid in range(1000000, 1000008):
             row = QHBoxLayout()
             row.setSpacing(2)
             label = QLabel(f"{tid}:")
@@ -1858,7 +1858,7 @@ class UnifiedPanel(QMainWindow):
             self.save_input_dir.setText(folder)
 
     def _get_category_for_track_id(self, track_id):
-        if 1000000 <= track_id <= 1000003:
+        if 1000000 <= track_id <= 1000007:
             idx = track_id - 1000000
             name = self.category_inputs[idx].text() or "Detect"
             return (idx, name)
