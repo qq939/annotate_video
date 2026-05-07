@@ -1332,7 +1332,6 @@ class UnifiedPanel(QMainWindow):
                         with open(label_file) as f:
                             existing_anns = json.load(f)
                         print(f"[DEBUG {direction}] [帧{total_results}] 已存在标注{len(existing_anns)}条，追加新标注")
-                    existing_anns = [ann for ann in existing_anns if ann.get('track_id', 0) >= 1000000]
                     merged_anns = existing_anns + frame_anns
                     with open(label_file, 'w') as f:
                         json.dump(merged_anns, f)
