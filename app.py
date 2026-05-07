@@ -1333,11 +1333,12 @@ class UnifiedPanel(QMainWindow):
                         orig_frame_idx = frame_idx + start_frame
                     else:
                         orig_frame_idx = end_frame - 1 - frame_idx
+                    clip_frames = end_frame - start_frame
                     if orig_frame_idx >= total:
-                        print(f"[DEBUG {direction}] [帧{total_results}/{total}] ⚠️ orig_frame_idx={orig_frame_idx} >= total={total}，跳过")
+                        print(f"[DEBUG {direction}] [帧{frame_idx + 1}/{clip_frames}] ⚠️ orig_frame_idx={orig_frame_idx} >= total={total}，跳过")
                         frame_idx += 1
                         continue
-                    print(f"[DEBUG {direction}] [帧{total_results}/{total}] clip_frame={frame_idx} → 原帧{orig_frame_idx}, 新增标注数={len(frame_anns)}")
+                    print(f"[DEBUG {direction}] [帧{frame_idx + 1}/{clip_frames}] clip_frame={frame_idx} → 原帧{orig_frame_idx}, 新增标注数={len(frame_anns)}")
                     label_file = src_labels_dir / f"frame_{orig_frame_idx:06d}.json"
                     existing_anns = []
                     if label_file.exists():
