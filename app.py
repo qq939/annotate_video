@@ -134,9 +134,10 @@ class AnnotationImageWidget(QWidget):
 
 
 class AnnotationDialog(QDialog):
-    def __init__(self, video_path, parent=None):
+    def __init__(self, video_path, parent=None, scale=1.0):
         super().__init__(parent)
         self.video_path = video_path
+        self.scale = scale
         self.boxes = []
         self.color_index = [0]
         self._read_first_frame()
@@ -153,21 +154,28 @@ class AnnotationDialog(QDialog):
 
     def _setup_ui(self):
         h, w = self.frame.shape[:2]
+        if self.scale != 1.0:
+            dw = max(1, int(w * self.scale))
+            dh = max(1, int(h * self.scale))
+            self.display_frame = cv2.resize(self.frame, (dw, dh), interpolation=cv2.INTER_LINEAR)
+        else:
+            self.display_frame = self.frame
+        dh, dw = self.display_frame.shape[:2]
         self.setWindowTitle("视频标注")
-        self.setFixedSize(w, h)
-        self.setMaximumSize(w, h)
-        self.setMinimumSize(w, h)
+        self.setFixedSize(dw, dh + 36)
+        self.setMaximumSize(dw, dh + 36)
+        self.setMinimumSize(dw, dh + 36)
         self.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint)
 
         central = QWidget()
-        central.setFixedSize(w, h)
+        central.setFixedSize(dw, dh)
         central.setStyleSheet("background: #111;")
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
         header = QWidget()
-        header.setFixedSize(w, 36)
+        header.setFixedSize(dw, 36)
         header.setStyleSheet("background: rgba(0,0,0,180);")
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(8, 0, 8, 0)
@@ -200,7 +208,7 @@ class AnnotationDialog(QDialog):
 
         main_layout.addWidget(header)
 
-        self.img_widget = AnnotationImageWidget(self.frame, self.boxes, self.color_index)
+        self.img_widget = AnnotationImageWidget(self.display_frame, self.boxes, self.color_index)
         self.img_widget.setFocus()
         self.img_widget.box_added.connect(lambda: self.undo_btn.setEnabled(True))
         main_layout.addWidget(self.img_widget)
@@ -228,6 +236,9 @@ class AnnotationDialog(QDialog):
             super().keyPressEvent(event)
 
     def get_boxes(self):
+        if self.scale != 1.0:
+            inv = 1.0 / self.scale
+            return [(int(b['x1'] * inv), int(b['y1'] * inv), int(b['x2'] * inv), int(b['y2'] * inv)) for b in self.boxes]
         return [(b['x1'], b['y1'], b['x2'], b['y2']) for b in self.boxes]
 
 
@@ -333,6 +344,16 @@ class UnifiedPanel(QMainWindow):
         iou_layout.addWidget(self.items_input)
         layout.addLayout(iou_layout)
 
+        scale_layout = QHBoxLayout()
+        scale_layout.setSpacing(4)
+        scale_layout.addWidget(QLabel("缩放倍数:"))
+        self.scale_input = QLineEdit("0.5")
+        self.scale_input.setFixedWidth(50)
+        self.scale_input.setFixedHeight(22)
+        scale_layout.addWidget(self.scale_input)
+        scale_layout.addStretch()
+        layout.addLayout(scale_layout)
+
         self.annotate_btn = QPushButton("▶ 执行标注")
         self.annotate_btn.setFixedHeight(28)
         self.annotate_btn.clicked.connect(self.run_annotate)
@@ -365,7 +386,10 @@ class UnifiedPanel(QMainWindow):
             print(f"已拷贝到src: {dst_video}")
 
         src_video = str(src_dir / video_name)
-        dialog = AnnotationDialog(src_video, self)
+        scale = float(self.scale_input.text() or "0.5")
+        if scale <= 0:
+            scale = 0.5
+        dialog = AnnotationDialog(src_video, self, scale=scale)
         if dialog.exec_() != QDialog.Accepted:
             return
         boxes = dialog.get_boxes()
