@@ -806,12 +806,13 @@ class UnifiedPanel(QMainWindow):
         dec_btn.clicked.connect(self.decrement_trace_id)
         assign_layout.addWidget(dec_btn)
 
-        self.trace_id_label = QLabel(str(self.ctrl.next_track_id))
-        self.trace_id_label.setFixedHeight(28)
-        self.trace_id_label.setMinimumWidth(80)
-        self.trace_id_label.setStyleSheet("QLabel { background-color: #2c3e50; color: #ecf0f1; border-radius: 4px; padding: 0 12px; font-weight: bold; font-size: 13px; }")
-        self.trace_id_label.setAlignment(Qt.AlignCenter)
-        assign_layout.addWidget(self.trace_id_label)
+        self.trace_id_input = QLineEdit(str(self.ctrl.next_track_id))
+        self.trace_id_input.setFixedHeight(28)
+        self.trace_id_input.setFixedWidth(80)
+        self.trace_id_input.setAlignment(Qt.AlignCenter)
+        self.trace_id_input.setStyleSheet("QLineEdit { background-color: #2c3e50; color: #ecf0f1; border: 1px solid #2c3e50; border-radius: 4px; padding: 0 8px; font-weight: bold; font-size: 13px; }")
+        self.trace_id_input.textChanged.connect(self.on_trace_id_input_changed)
+        assign_layout.addWidget(self.trace_id_input)
 
         inc_btn = QPushButton("+")
         inc_btn.setFixedSize(28, 28)
@@ -1570,7 +1571,7 @@ class UnifiedPanel(QMainWindow):
                 self._apply_single_mapping_to_mid(new_id, old_id)
                 if self.ctrl.next_track_id > old_id:
                     self.ctrl.next_track_id = old_id
-                    self.trace_id_label.setText(str(self.ctrl.next_track_id))
+                    self.trace_id_input.setText(str(self.ctrl.next_track_id))
             except ValueError:
                 pass
         self.trace_id_list.takeItem(row)
@@ -1593,14 +1594,20 @@ class UnifiedPanel(QMainWindow):
             if self.viewer:
                 self.viewer.update_display()
 
+    def on_trace_id_input_changed(self, text):
+        try:
+            self.ctrl.next_track_id = int(text)
+        except ValueError:
+            pass
+
     def decrement_trace_id(self):
         if self.ctrl.next_track_id > 0:
             self.ctrl.next_track_id -= 1
-            self.trace_id_label.setText(str(self.ctrl.next_track_id))
+            self.trace_id_input.setText(str(self.ctrl.next_track_id))
 
     def increment_trace_id(self):
         self.ctrl.next_track_id += 1
-        self.trace_id_label.setText(str(self.ctrl.next_track_id))
+        self.trace_id_input.setText(str(self.ctrl.next_track_id))
 
     def modify_selected_trace_mapping(self):
         item = self.trace_id_list.currentItem()
@@ -1655,17 +1662,7 @@ class UnifiedPanel(QMainWindow):
         old_id = chosen.get('track_id', 0)
         new_id = self.ctrl.next_track_id
 
-        label_file = Path(TEMP_DATA_MID_DIR) / "labels" / f"frame_{frame_idx:06d}.json"
-        if label_file.exists():
-            with open(label_file) as f:
-                frame_anns = json.load(f)
-            chosen_track = chosen.get('track_id', 0)
-            for ann in frame_anns:
-                if ann.get('track_id', 0) == chosen_track:
-                    ann['track_id'] = new_id
-                    break
-            with open(label_file, 'w') as f:
-                json.dump(frame_anns, f)
+        self._apply_single_mapping_to_mid(old_id, new_id)
 
         self.trace_id_list.addItem(f"ID: {old_id} → {new_id}")
         self._save_trace_id_mappings()
