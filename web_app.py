@@ -433,9 +433,20 @@ def run_annotate():
                     json.dump(frame_anns, f_out)
 
                 frame_count += 1
-                pct = int(frame_count / max(total, 1) * 100)
+                debug_contours = 0
+                if masks_attr is not None and masks_attr.data is not None:
+                    mt = masks_attr.data
+                    for m in mt:
+                        mn = m.cpu().numpy() if hasattr(m, 'cpu') else np.array(m)
+                        mb = (mn > 0.5).astype(np.uint8)
+                        contours, _ = cv2.findContours(mb, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                        debug_contours += len(contours)
                 yield 'data: ' + json.dumps({
-                    'type': 'progress', 'frame': frame_count, 'total': total, 'percent': pct
+                    'type': 'progress',
+                    'frame': frame_count,
+                    'total': total,
+                    'percent': int(frame_count / max(total, 1) * 100),
+                    'msg': f'帧 {frame_count}/{total}: contours={debug_contours}, annotations={len(frame_anns)}'
                 }) + '\n\n'
 
             with open(temp_data / 'annotations.json', 'w') as f_out:

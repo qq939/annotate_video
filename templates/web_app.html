@@ -424,12 +424,16 @@ async function loadFirstFrameForDraw() {
   try {
     const res = await fetch('/api/get_video_first_frame');
     const data = await res.json();
+    if (!data.image) return;
     canvas.width = data.width || 800;
     canvas.height = data.height || 600;
     const img = new Image();
     img.onload = () => {
+      canvas.width = img.naturalWidth || data.width || 800;
+      canvas.height = img.naturalHeight || data.height || 600;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      state.firstFrameData = 'data:image/jpeg;base64,' + data.image;
     };
     img.src = 'data:image/jpeg;base64,' + data.image;
   } catch (e) { /* ignore */ }
@@ -495,13 +499,16 @@ async function runAnnotation(items) {
         if (line.startsWith('data:')) {
           try {
             const d = JSON.parse(line.slice(5));
-            if (d.progress !== undefined) {
-              $('progressFill').style.width = d.progress + '%';
-              $('progressText').textContent = d.msg || '';
-              addDebugLog(d.msg || '处理中... ' + d.progress + '%', 'progress');
+            if (d.type === 'progress' || d.percent !== undefined) {
+              const pct = d.percent !== undefined ? d.percent : (d.progress || 0);
+              $('progressFill').style.width = pct + '%';
+              const frame = d.frame !== undefined ? `帧 ${d.frame}/${d.total} ` : '';
+              const msg = d.msg || frame + pct + '%';
+              $('progressText').textContent = msg;
+              addDebugLog(msg, 'progress');
             }
-            if (d.error) {
-              addDebugLog('错误: ' + d.error, 'error');
+            if (d.type === 'error' || d.error) {
+              addDebugLog('错误: ' + (d.msg || d.error), 'error');
             }
           } catch (e) { /* ignore parse errors */ }
         }
@@ -621,6 +628,19 @@ canvas.addEventListener('contextmenu', (e) => {
 
 function redrawBbox() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (state.firstFrameData) {
+    const bgImg = new Image();
+    bgImg.src = state.firstFrameData;
+    bgImg.onload = () => {
+      ctx.drawImage(bgImg, 0, 0, canvas.width, canvas.height);
+      drawBboxOverlay();
+    };
+  } else {
+    drawBboxOverlay();
+  }
+}
+
+function drawBboxOverlay() {
   if (state.isDrawing && state.drawStartX) {
     ctx.strokeStyle = '#a6e3a1';
     ctx.lineWidth = 2;
