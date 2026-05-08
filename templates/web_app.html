@@ -181,6 +181,7 @@ body { font-family: 'Segoe UI', sans-serif; background: #1e1e2e; color: #cdd6f4;
         <div class="mapping-list" id="mappingList"></div>
         <div class="btn-col" style="margin-top:4px">
           <button class="btn btn-secondary btn-sm" id="clearMappingBtn">清空</button>
+          <button class="btn btn-warning btn-sm" id="clearGreenBtn">清空绿点</button>
           <button class="btn btn-primary btn-sm" id="modifyMappingBtn">变更</button>
           <button class="btn btn-danger btn-sm" id="deleteMappingBtn">删除</button>
           <button class="btn btn-success btn-sm" id="saveMappingBtn">保存</button>
@@ -307,6 +308,10 @@ const state = {
   isDrawing: false,
   drawStartX: 0,
   drawStartY: 0,
+  drawCurrentX: 0,
+  drawCurrentY: 0,
+  greenPoints: [],
+  firstFrameData: null,
 };
 
 const PALETTE_COLORS = ['#ff0000','#ffa500','#ffff00','#00ff00','#00ffff','#0000ff','#800080'];
@@ -583,6 +588,7 @@ async function loadFrame(idx) {
       canvas.style.height = (canvas.height * zoom) + 'px';
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      renderGreenPoints();
     };
     img.src = 'data:image/jpeg;base64,' + data.image;
   } catch (e) { setStatus('加载帧失败: ' + e.message, true); }
@@ -864,6 +870,7 @@ canvas.onclick = async (e) => {
   try {
     const af = await apiGet('/api/frame_annotations/' + state.currentFrame);
     const annotations = af.annotations || [];
+    let foundAnn = null;
     for (const ann of annotations) {
       const seg = ann.segmentation;
       if (seg && seg[0]) {
@@ -872,21 +879,29 @@ canvas.onclick = async (e) => {
           pts.push([seg[0][i], seg[0][i + 1]]);
         }
         if (isPointInPolygon(cx, cy, pts)) {
-          $('currentIdInput').value = ann.track_id || 0;
-          state.currentTraceId = ann.track_id || 0;
-          const oldId = ann.track_id;
-          const newId = state.currentTraceId;
-          const existIdx = state.traceIdChanges.findIndex(m => m.startsWith(oldId + '→'));
-          if (existIdx >= 0) state.traceIdChanges.splice(existIdx, 1);
-          if (oldId !== newId) {
-            state.traceIdChanges.push(oldId + '→' + newId);
-            renderMappings();
-          }
+          foundAnn = ann;
           break;
         }
       }
     }
-  } catch (e) { /* ignore */ }
+    if (foundAnn) {
+      const oldId = foundAnn.track_id || 0;
+      const newId = state.currentTraceId;
+      state.greenPoints.push({
+        x: cx, y: cy, frameIdx: state.currentFrame, oldTrackId: oldId, assignedId: newId
+      });
+      $('currentIdInput').value = oldId;
+      state.currentTraceId = oldId;
+      state.traceIdChanges.push(oldId + '→' + newId);
+      renderMappings();
+      renderGreenPoints();
+      addDebugLog('打绿点成功: 帧' + (state.currentFrame+1) + ' 位置(' + Math.round(cx) + ',' + Math.round(cy) + ') 原ID=' + oldId + '→' + newId, 'success');
+      await apiPost('/api/save_mappings', { mappings: state.traceIdChanges });
+      await showViewer(true);
+    } else {
+      addDebugLog('未找到标注: 帧' + (state.currentFrame+1) + ' 位置(' + Math.round(cx) + ',' + Math.round(cy) + ')', 'warning');
+    }
+  } catch (e) { addDebugLog('点击失败: ' + e.message, 'error'); }
 };
 
 function isPointInPolygon(px, py, polygon) {
@@ -961,10 +976,31 @@ function renderMappings() {
   });
 }
 
+function renderGreenPoints() {
+  for (const pt of state.greenPoints) {
+    if (pt.frameIdx === state.currentFrame) {
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, 6, 0, Math.PI * 2);
+      ctx.fillStyle = '#00ff00';
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+  }
+}
+
 $('clearMappingBtn').onclick = () => {
   state.traceIdChanges = [];
+  state.greenPoints = [];
   state.mappingSelectedIdx = -1;
   renderMappings();
+  showViewer(true);
+};
+
+$('clearGreenBtn').onclick = () => {
+  state.greenPoints = [];
+  setStatus('已清空所有绿点');
 };
 
 $('modifyMappingBtn').onclick = () => {
