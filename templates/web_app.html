@@ -867,12 +867,11 @@ canvas.addEventListener('click', async (e) => {
   addDebugLog('canvas click triggered', 'info');
   if (state.isDrawing) { addDebugLog('跳过: 正在绘制bbox', 'warning'); return; }
   if (canvas.width === 0) { addDebugLog('跳过: canvas未初始化', 'warning'); return; }
+  
   const r = canvas.getBoundingClientRect();
-  const scaleX = canvas.width / r.width;
-  const scaleY = canvas.height / r.height;
-  const cx = (e.clientX - r.left) * scaleX;
-  const cy = (e.clientY - r.top) * scaleY;
-  addDebugLog('点击位置: (' + Math.round(cx) + ',' + Math.round(cy) + ') 帧' + (state.currentFrame+1) + ' promptMode=' + state.promptMode, 'info');
+  const cx = (e.clientX - r.left) * (canvas.width / r.width);
+  const cy = (e.clientY - r.top) * (canvas.height / r.height);
+  addDebugLog('点击: canvas(' + canvas.width + 'x' + canvas.height + ') rect(' + Math.round(r.width) + 'x' + Math.round(r.height) + ') pos(' + Math.round(cx) + ',' + Math.round(cy) + ') 帧' + (state.currentFrame+1), 'info');
 
   if (state.promptMode) {
     state.promptMode = false;

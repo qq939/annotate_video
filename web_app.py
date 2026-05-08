@@ -162,6 +162,8 @@ def _get_coco_frame_id(path):
 
 def _first_available_track_id(coco_data, base_start=10000):
     """在coco数据中找到可用的起始track_id"""
+    if not coco_data or not coco_data.get('annotations'):
+        return base_start
     occupied = set()
     for ann in coco_data.get('annotations', []):
         occupied.add((ann.get('track_id', 0) // 10000) * 10000)
@@ -169,7 +171,7 @@ def _first_available_track_id(coco_data, base_start=10000):
     for o in opts:
         if (o // 10000) * 10000 not in occupied:
             return o
-    return max(opts)
+    return opts[-1] if opts else base_start
 
 
 # ==================== 页面路由 ====================
