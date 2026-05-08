@@ -116,6 +116,8 @@ body { font-family: 'Segoe UI', sans-serif; background: #1e1e2e; color: #cdd6f4;
       <div class="row" style="margin-top:4px">
         <label>查找:</label>
         <input type="text" id="itemsInput" placeholder="逗号分隔,如: person,car" style="flex:1;min-width:0;">
+        <button class="btn btn-warning btn-sm" id="undoBboxBtn">撤销</button>
+        <span id="bboxCount" style="font-size:11px;color:#a6adc8;"></span>
       </div>
       <div class="slider-row" style="margin-top:4px">
         <label>缩放:</label>
@@ -577,6 +579,8 @@ function updateFrameInfo() {
 }
 
 // ==================== Canvas Drawing (Annotate on Right Panel) ====================
+$('undoBboxBtn').onclick = () => undoLastBbox();
+
 canvas.addEventListener('mousedown', (e) => {
   if (state.annotationRunning || !state.videoName || canvas.width === 0) return;
   const r = canvas.getBoundingClientRect();
@@ -613,18 +617,29 @@ canvas.addEventListener('mouseup', (e) => {
   const y2 = Math.max(state.drawStartY, endY);
   if (x2 - x1 > 10 && y2 - y1 > 10) {
     state.promptBboxes.push([x1, y1, x2, y2]);
+    updateBboxCount();
     setStatus('已添加边界框 (' + state.promptBboxes.length + ')', false);
   }
 });
 
 canvas.addEventListener('contextmenu', (e) => {
   e.preventDefault();
+  undoLastBbox();
+});
+
+function undoLastBbox() {
   if (state.promptBboxes.length > 0) {
     state.promptBboxes.pop();
+    updateBboxCount();
     redrawBbox();
-    setStatus('已删除最后一个边界框', false);
+    setStatus('已撤销最后一个边界框', false);
   }
-});
+}
+
+function updateBboxCount() {
+  const el = $('bboxCount');
+  if (el) el.textContent = '已画 ' + state.promptBboxes.length + ' 个框';
+}
 
 function redrawBbox() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
