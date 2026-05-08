@@ -651,12 +651,6 @@ canvas.addEventListener('contextmenu', (e) => {
   undoLastBbox();
 });
 
-canvas.addEventListener('click', (e) => {
-  if (e.shiftKey && state.promptBboxes.length > 0) {
-    undoLastBbox();
-  }
-});
-
 function undoLastBbox() {
   if (state.promptBboxes.length > 0) {
     state.promptBboxes.pop();
@@ -841,13 +835,14 @@ $('bidirectionalBtn').onclick = async () => {
 
 // ==================== Canvas Click / Trace ID ====================
 canvas.onclick = async (e) => {
-  if (state.isDrawing) return;
-  if (canvas.width === 0) return;
+  if (state.isDrawing) { addDebugLog('跳过: 正在绘制bbox', 'warning'); return; }
+  if (canvas.width === 0) { addDebugLog('跳过: canvas未初始化', 'warning'); return; }
   const r = canvas.getBoundingClientRect();
   const scaleX = canvas.width / r.width;
   const scaleY = canvas.height / r.height;
   const cx = (e.clientX - r.left) * scaleX;
   const cy = (e.clientY - r.top) * scaleY;
+  addDebugLog('点击位置: (' + Math.round(cx) + ',' + Math.round(cy) + ') 帧' + (state.currentFrame+1) + ' promptMode=' + state.promptMode, 'info');
 
   if (state.promptMode) {
     state.promptMode = false;

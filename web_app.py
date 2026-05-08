@@ -1224,8 +1224,8 @@ def get_frame_annotations(idx):
     if lp.exists():
         with open(lp) as f:
             anns = json.load(f)
-        return jsonify(anns)
-    return jsonify([])
+        return jsonify({'annotations': anns})
+    return jsonify({'annotations': []})
 
 
 if __name__ == '__main__':
