@@ -646,6 +646,12 @@ canvas.addEventListener('contextmenu', (e) => {
   undoLastBbox();
 });
 
+canvas.addEventListener('click', (e) => {
+  if (e.shiftKey && state.promptBboxes.length > 0) {
+    undoLastBbox();
+  }
+});
+
 function undoLastBbox() {
   if (state.promptBboxes.length > 0) {
     state.promptBboxes.pop();
@@ -703,6 +709,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'ArrowLeft') { stopPlayback(); loadFrame(state.currentFrame - 1); }
   if (e.key === 'ArrowRight') { stopPlayback(); loadFrame(state.currentFrame + 1); }
   if (e.key === ' ') { e.preventDefault(); togglePlay(); }
+  if (e.key === 'c' || e.key === 'C') { undoLastBbox(); }
 });
 
 // ==================== Playback Controls ====================
