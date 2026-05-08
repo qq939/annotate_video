@@ -295,6 +295,7 @@ const state = {
   annotations: [],
   traceIdChanges: [],
   currentTraceId: 1000000,
+  nextTrackId: 1000000,
   promptBboxes: [],
   annotationRunning: false,
   isPlaying: false,
@@ -880,7 +881,7 @@ canvas.addEventListener('click', async (e) => {
     try {
       const data = await apiPost('/api/prompt_frame', {
         prompt_frame_idx: state.currentFrame,
-        bboxes: [[cx - 50, cy - 50, cx + 50, cy + 50]],
+        bboxes: [[cx - 50, cy - 50, cx + 50, cx + 50]],
         items: $('itemsInput').value,
         iou: parseFloat($('iouInput').value),
         merge_iou: parseFloat($('mergeIouInput').value),
@@ -910,26 +911,31 @@ canvas.addEventListener('click', async (e) => {
       }
     }
     if (foundAnn) {
-      addDebugLog('找到标注: track_id=' + foundAnn.track_id + ' currentTraceId=' + state.currentTraceId, 'info');
       const oldId = foundAnn.track_id || 0;
-      const newId = state.currentTraceId;
+      const newId = state.nextTrackId;
+      addDebugLog('找到标注: oldId=' + oldId + ', newId=' + newId + ', nextTrackId=' + state.nextTrackId, 'info');
+      
       state.greenPoints.push({
         x: cx, y: cy, frameIdx: state.currentFrame, oldTrackId: oldId, assignedId: newId
       });
-      addDebugLog('打绿点: oldId=' + oldId + ' newId=' + newId, 'info');
-      $('currentIdInput').value = oldId;
-      state.currentTraceId = oldId;
+      
       state.traceIdChanges.push(oldId + '→' + newId);
+      state.nextTrackId += 1;
+      $('currentIdInput').value = newId;
+      
+      addDebugLog('打绿点成功: 帧' + (state.currentFrame+1) + ' (' + Math.round(cx) + ',' + Math.round(cy) + ') ' + oldId + '→' + newId, 'success');
       addDebugLog('traceIdChanges: ' + JSON.stringify(state.traceIdChanges), 'info');
+      
       renderMappings();
       renderGreenPoints();
-      addDebugLog('打绿点成功: 帧' + (state.currentFrame+1) + ' 位置(' + Math.round(cx) + ',' + Math.round(cy) + ') 原ID=' + oldId + '→' + newId, 'success');
+      
       const saveResult = await apiPost('/api/save_mappings', { mappings: state.traceIdChanges });
       addDebugLog('保存结果: ' + JSON.stringify(saveResult), 'success');
+      
       await showViewer(true);
       addDebugLog('刷新视图完成', 'info');
     } else {
-      addDebugLog('未找到标注: 帧' + (state.currentFrame+1) + ' 位置(' + Math.round(cx) + ',' + Math.round(cy) + ')', 'warning');
+      addDebugLog('未找到标注: 帧' + (state.currentFrame+1) + ' (' + Math.round(cx) + ',' + Math.round(cy) + ')', 'warning');
     }
   } catch (e) { addDebugLog('点击失败: ' + e.message, 'error'); }
 });
