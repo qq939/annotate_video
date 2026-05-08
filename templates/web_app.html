@@ -578,11 +578,14 @@ async function loadFrame(idx) {
 
   try {
     const conf = parseInt($('confSlider').value) / 100;
+    addDebugLog('loadFrame: /api/get_frame/' + idx + '?conf=' + conf, 'info');
     const data = await apiGet('/api/get_frame/' + idx + '?conf=' + conf);
+    addDebugLog('loadFrame返回: width=' + data.width + ' height=' + data.height + ' image长度=' + (data.image ? data.image.length : 0), 'info');
     canvas.width = data.width || 800;
     canvas.height = data.height || 600;
     const img = new Image();
     img.onload = () => {
+      addDebugLog('图片加载成功: ' + img.naturalWidth + 'x' + img.naturalHeight, 'info');
       const zoom = parseInt($('zoomSlider').value) / 100;
       canvas.style.width = (canvas.width * zoom) + 'px';
       canvas.style.height = (canvas.height * zoom) + 'px';
@@ -590,8 +593,11 @@ async function loadFrame(idx) {
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       renderGreenPoints();
     };
+    img.onerror = () => {
+      addDebugLog('图片加载失败', 'error');
+    };
     img.src = 'data:image/jpeg;base64,' + data.image;
-  } catch (e) { setStatus('加载帧失败: ' + e.message, true); }
+  } catch (e) { setStatus('加载帧失败: ' + e.message, true); addDebugLog('loadFrame错误: ' + e.message, 'error'); }
 }
 
 function updateFrameInfo() {
@@ -655,7 +661,7 @@ canvas.addEventListener('mouseup', (e) => {
   const x2 = Math.max(state.drawStartX, endX);
   const y2 = Math.max(state.drawStartY, endY);
   if (x2 - x1 > 10 && y2 - y1 > 10) {
-    state.promptBboxes.push([x1, y1, x2, y2);
+    state.promptBboxes.push([x1, y1, x2, y2]);
     updateBboxCount();
     setStatus('已添加边界框 (' + state.promptBboxes.length + ')', false);
   }
