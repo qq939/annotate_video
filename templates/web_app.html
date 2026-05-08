@@ -133,7 +133,7 @@ body { font-family: 'Segoe UI', sans-serif; background: #1e1e2e; color: #cdd6f4;
     </div>
 
     <!-- Section 2: 预览 -->
-    <div class="panel-section" id="viewerSection" style="display:none;">
+    <div class="panel-section" id="viewerSection">
       <h3><span class="section-title">2.</span> 预览</h3>
       <div class="row">
         <label>数据:</label>
@@ -414,7 +414,6 @@ $('selectVideoBtn').onclick = async () => {
     state.currentFrame = 0;
     $('annotateBtn').disabled = false;
     $('exportBtn').disabled = false;
-    $('viewerSection').style.display = 'block';
     $('saveSection').style.display = 'block';
     $('bidirectionalSection').style.display = 'block';
     updateFrameInfo();
