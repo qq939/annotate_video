@@ -605,8 +605,13 @@ function updateFrameInfo() {
 // ==================== Canvas Drawing (Annotate on Right Panel) ====================
 $('undoBboxBtn').onclick = () => undoLastBbox();
 
+let isDragging = false;
+let dragStarted = false;
+
 canvas.addEventListener('mousedown', (e) => {
   if (state.annotationRunning || canvas.width === 0) return;
+  isDragging = true;
+  dragStarted = false;
   const r = canvas.getBoundingClientRect();
   const scaleX = canvas.width / r.width;
   const scaleY = canvas.height / r.height;
@@ -614,35 +619,31 @@ canvas.addEventListener('mousedown', (e) => {
   state.drawStartY = (e.clientY - r.top) * scaleY;
   state.drawCurrentX = state.drawStartX;
   state.drawCurrentY = state.drawStartY;
-  state.isDrawing = false;
 });
 
-let mouseMoved = false;
 canvas.addEventListener('mousemove', (e) => {
-  if (canvas.width === 0) return;
+  if (!isDragging || canvas.width === 0) return;
   const r = canvas.getBoundingClientRect();
   const scaleX = canvas.width / r.width;
   const scaleY = canvas.height / r.height;
-  const dx = (e.clientX - r.left) * scaleX - state.drawStartX;
-  const dy = (e.clientY - r.top) * scaleY - state.drawStartY;
-  if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
-    mouseMoved = true;
-    state.isDrawing = true;
-  }
   state.drawCurrentX = (e.clientX - r.left) * scaleX;
   state.drawCurrentY = (e.clientY - r.top) * scaleY;
-  if (state.isDrawing) {
+  const dx = state.drawCurrentX - state.drawStartX;
+  const dy = state.drawCurrentY - state.drawStartY;
+  if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+    dragStarted = true;
+    state.isDrawing = true;
     requestAnimationFrame(redrawBbox);
   }
 });
 
 canvas.addEventListener('mouseup', (e) => {
-  if (!mouseMoved || canvas.width === 0) {
-    mouseMoved = false;
+  isDragging = false;
+  if (!dragStarted) {
     state.isDrawing = false;
     return;
   }
-  mouseMoved = false;
+  dragStarted = false;
   state.isDrawing = false;
   const r = canvas.getBoundingClientRect();
   const scaleX = canvas.width / r.width;
@@ -654,11 +655,17 @@ canvas.addEventListener('mouseup', (e) => {
   const x2 = Math.max(state.drawStartX, endX);
   const y2 = Math.max(state.drawStartY, endY);
   if (x2 - x1 > 10 && y2 - y1 > 10) {
-    state.promptBboxes.push([x1, y1, x2, y2]);
+    state.promptBboxes.push([x1, y1, x2, y2);
     updateBboxCount();
     setStatus('已添加边界框 (' + state.promptBboxes.length + ')', false);
   }
   redrawBbox();
+});
+
+canvas.addEventListener('mouseleave', () => {
+  isDragging = false;
+  dragStarted = false;
+  state.isDrawing = false;
 });
 
 canvas.addEventListener('contextmenu', (e) => {
