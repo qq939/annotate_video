@@ -606,7 +606,7 @@ function updateFrameInfo() {
 $('undoBboxBtn').onclick = () => undoLastBbox();
 
 canvas.addEventListener('mousedown', (e) => {
-  if (state.annotationRunning || !state.videoName || canvas.width === 0) return;
+  if (state.annotationRunning || canvas.width === 0) return;
   const r = canvas.getBoundingClientRect();
   const scaleX = canvas.width / r.width;
   const scaleY = canvas.height / r.height;
@@ -614,21 +614,35 @@ canvas.addEventListener('mousedown', (e) => {
   state.drawStartY = (e.clientY - r.top) * scaleY;
   state.drawCurrentX = state.drawStartX;
   state.drawCurrentY = state.drawStartY;
-  state.isDrawing = true;
+  state.isDrawing = false;
 });
 
+let mouseMoved = false;
 canvas.addEventListener('mousemove', (e) => {
-  if (!state.isDrawing || canvas.width === 0) return;
+  if (canvas.width === 0) return;
   const r = canvas.getBoundingClientRect();
   const scaleX = canvas.width / r.width;
   const scaleY = canvas.height / r.height;
+  const dx = (e.clientX - r.left) * scaleX - state.drawStartX;
+  const dy = (e.clientY - r.top) * scaleY - state.drawStartY;
+  if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+    mouseMoved = true;
+    state.isDrawing = true;
+  }
   state.drawCurrentX = (e.clientX - r.left) * scaleX;
   state.drawCurrentY = (e.clientY - r.top) * scaleY;
-  requestAnimationFrame(redrawBbox);
+  if (state.isDrawing) {
+    requestAnimationFrame(redrawBbox);
+  }
 });
 
 canvas.addEventListener('mouseup', (e) => {
-  if (!state.isDrawing) return;
+  if (!mouseMoved || canvas.width === 0) {
+    mouseMoved = false;
+    state.isDrawing = false;
+    return;
+  }
+  mouseMoved = false;
   state.isDrawing = false;
   const r = canvas.getBoundingClientRect();
   const scaleX = canvas.width / r.width;
@@ -644,6 +658,7 @@ canvas.addEventListener('mouseup', (e) => {
     updateBboxCount();
     setStatus('已添加边界框 (' + state.promptBboxes.length + ')', false);
   }
+  redrawBbox();
 });
 
 canvas.addEventListener('contextmenu', (e) => {
@@ -834,7 +849,8 @@ $('bidirectionalBtn').onclick = async () => {
 };
 
 // ==================== Canvas Click / Trace ID ====================
-canvas.onclick = async (e) => {
+canvas.addEventListener('click', async (e) => {
+  addDebugLog('canvas click triggered', 'info');
   if (state.isDrawing) { addDebugLog('跳过: 正在绘制bbox', 'warning'); return; }
   if (canvas.width === 0) { addDebugLog('跳过: canvas未初始化', 'warning'); return; }
   const r = canvas.getBoundingClientRect();
@@ -864,6 +880,7 @@ canvas.onclick = async (e) => {
 
   try {
     const af = await apiGet('/api/frame_annotations/' + state.currentFrame);
+    addDebugLog('frame_annotations返回: ' + JSON.stringify(af).substring(0, 200), 'info');
     const annotations = af.annotations || [];
     let foundAnn = null;
     for (const ann of annotations) {
@@ -880,24 +897,29 @@ canvas.onclick = async (e) => {
       }
     }
     if (foundAnn) {
+      addDebugLog('找到标注: track_id=' + foundAnn.track_id + ' currentTraceId=' + state.currentTraceId, 'info');
       const oldId = foundAnn.track_id || 0;
       const newId = state.currentTraceId;
       state.greenPoints.push({
         x: cx, y: cy, frameIdx: state.currentFrame, oldTrackId: oldId, assignedId: newId
       });
+      addDebugLog('打绿点: oldId=' + oldId + ' newId=' + newId, 'info');
       $('currentIdInput').value = oldId;
       state.currentTraceId = oldId;
       state.traceIdChanges.push(oldId + '→' + newId);
+      addDebugLog('traceIdChanges: ' + JSON.stringify(state.traceIdChanges), 'info');
       renderMappings();
       renderGreenPoints();
       addDebugLog('打绿点成功: 帧' + (state.currentFrame+1) + ' 位置(' + Math.round(cx) + ',' + Math.round(cy) + ') 原ID=' + oldId + '→' + newId, 'success');
-      await apiPost('/api/save_mappings', { mappings: state.traceIdChanges });
+      const saveResult = await apiPost('/api/save_mappings', { mappings: state.traceIdChanges });
+      addDebugLog('保存结果: ' + JSON.stringify(saveResult), 'success');
       await showViewer(true);
+      addDebugLog('刷新视图完成', 'info');
     } else {
       addDebugLog('未找到标注: 帧' + (state.currentFrame+1) + ' 位置(' + Math.round(cx) + ',' + Math.round(cy) + ')', 'warning');
     }
   } catch (e) { addDebugLog('点击失败: ' + e.message, 'error'); }
-};
+});
 
 function isPointInPolygon(px, py, polygon) {
   let inside = false;
