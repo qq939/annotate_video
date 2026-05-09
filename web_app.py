@@ -859,7 +859,7 @@ def prompt_frame():
         first_id = _first_available_track_id(coco, 1000000)
 
         from annotate_video import merge_masks_in_frame
-        pred_args = {'source': str(sf_path), 'stream': True}
+        pred_args = {'source': str(sf_path)}
         if bboxes:
             pred_args['bboxes'] = bboxes
             pred_args['labels'] = [1] * len(bboxes)

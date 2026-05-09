@@ -154,18 +154,15 @@ body { font-family: 'Segoe UI', sans-serif; background: #1e1e2e; color: #cdd6f4;
 
       <!-- Playback Controls -->
       <div class="playback-row" style="margin-top:6px;overflow-x:auto;">
-        <button class="btn btn-secondary play-btn" id="backwardFastBtn">倒播</button>
-        <button class="btn btn-secondary play-btn" id="backwardBtn">倒帧</button>
         <div class="checkbox-row">
           <label><input type="checkbox" id="backwardCb" checked> 后向</label>
         </div>
         <button class="btn btn-orange play-btn" id="promptBtn">提示帧</button>
         <span class="frame-label" id="frameLabel">1/1</span>
+        <button class="btn btn-warning btn-sm" id="promptFrameBtn">执行提示帧</button>
         <div class="checkbox-row">
           <label><input type="checkbox" id="forwardCb" checked> 前向</label>
         </div>
-        <button class="btn btn-secondary play-btn" id="forwardBtn">正帧</button>
-        <button class="btn btn-secondary play-btn" id="forwardFastBtn">正播</button>
       </div>
 
       <!-- Delete Trace -->
