@@ -1,16 +1,76 @@
 #!/usr/bin/env python3
-"""app_utils.py - app.py和web_app.py共用的业务逻辑"""
+"""app_utils.py - app.py和post_annotate.py共用的业务逻辑模块"""
 
 import cv2
 import numpy as np
 import json
+import shutil
+import torch
 from pathlib import Path
+
+
+# ==================== 目录常量 ====================
+TEMP_DATA_DIR = Path("temp_data")
+TEMP_DATA_MID_DIR = Path("temp_data_mid")
+TEMP_DATA_POST_DIR = Path("temp_data_post")
+
+
+# ==================== SAM相关 ====================
+_SAM3_SEMANTIC_PATCHED = False
+
+def patch_sam3_video_semantic():
+    """打补丁SAM3VideoSemanticPredictor支持bboxes提示"""
+    global _SAM3_SEMANTIC_PATCHED
+    if _SAM3_SEMANTIC_PATCHED:
+        return
+    _SAM3_SEMANTIC_PATCHED = True
+    
+    from ultralytics.utils import ops as ultralytics_ops
+    from ultralytics.models.sam import SAM3VideoSemanticPredictor
+    _orig = SAM3VideoSemanticPredictor.add_prompt
+
+    def _new_add_prompt(self, frame_idx, text=None, bboxes=None, labels=None, inference_state=None):
+        if bboxes is None:
+            return _orig(self, frame_idx, text, bboxes, labels, inference_state)
+        inference_state = inference_state or self.inference_state
+        text_batch = [text] if isinstance(text, str) else (list(text) if text else [])
+        n = len(text_batch)
+        inference_state["text_prompt"] = text if text else None
+        text_ids = torch.arange(n, device=self.device, dtype=torch.long)
+        inference_state["text_ids"] = text_ids
+        if text is not None and self.model.names != text:
+            self.model.set_classes(text=text)
+        _raw = torch.as_tensor(bboxes, dtype=self.torch_dtype, device=self.device)
+        _raw = _raw[None] if _raw.ndim == 1 else _raw
+        _raw = ultralytics_ops.xyxy2xywh(_raw)
+        _raw[:, 0::2] /= self.batch[1][0].shape[1]
+        _raw[:, 1::2] /= self.batch[1][0].shape[0]
+        nb = len(_raw)
+        _lbl_arr = np.ones(nb) if labels is None else np.array(labels)
+        _lbl = torch.as_tensor(_lbl_arr, dtype=torch.int32, device=self.device)
+        _raw = _raw.view(-1, 1, 4)
+        _lbl = _lbl.view(-1, 1)
+        if n > 1:
+            _raw = _raw.repeat(1, n, 1)
+            _lbl = _lbl.repeat(1, n)
+        geometric_prompt = self._get_dummy_prompt(num_prompts=n)
+        for i in range(len(_raw)):
+            geometric_prompt.append_boxes(_raw[[i]], _lbl[[i]])
+        inference_state["per_frame_geometric_prompt"][frame_idx] = geometric_prompt
+        return frame_idx, self._run_single_frame_inference(frame_idx, reverse=False, inference_state=inference_state)
+
+    SAM3VideoSemanticPredictor.add_prompt = _new_add_prompt
+
+
+def get_device():
+    """获取设备类型"""
+    from annotate_video import get_device as _get_device
+    return _get_device()
 
 
 def get_sam_overrides(device='auto', conf=0.25, model_path=None):
     """获取SAM预测器的overrides参数"""
     if device == 'auto':
-        import torch
         device = 'mps' if torch.backends.mps.is_available() else ('cuda' if torch.cuda.is_available() else 'cpu')
     
     half = device == 'cuda'
@@ -29,7 +89,8 @@ def get_sam_overrides(device='auto', conf=0.25, model_path=None):
     return overrides, device
 
 
-def _first_available_track_id(coco_data, base_start=10000):
+# ==================== track_id管理 ====================
+def first_available_track_id(coco_data, base_start=10000):
     """在coco数据中找到可用的起始track_id"""
     if not coco_data or not coco_data.get('annotations'):
         return base_start
@@ -43,20 +104,91 @@ def _first_available_track_id(coco_data, base_start=10000):
     return opts[-1] if opts else base_start
 
 
-def run_prompt_frame(frame_path, bboxes=None, find_list=None, overrides=None, first_id=1000000):
-    """对单帧执行提示标注，返回标注列表
+def apply_single_mapping_to_mid(from_id, to_id, temp_mid_dir=None):
+    """将单个track_id映射应用到temp_data_mid"""
+    temp_mid = Path(temp_mid_dir) if temp_mid_dir else TEMP_DATA_MID_DIR
+    labels_dir = temp_mid / "labels"
+    annotations_file = temp_mid / "annotations.json"
+    if not labels_dir.exists():
+        return 0
+    
+    count = 0
+    for label_file in sorted(labels_dir.glob("frame_*.json")):
+        with open(label_file) as f:
+            frame_anns = json.load(f)
+        changed = False
+        for ann in frame_anns:
+            if ann.get('track_id') == from_id:
+                ann['track_id'] = to_id
+                changed = True
+        if changed:
+            with open(label_file, 'w') as f:
+                json.dump(frame_anns, f)
+            count += 1
+    
+    if annotations_file.exists():
+        with open(annotations_file) as f:
+            coco = json.load(f)
+        for ann in coco.get('annotations', []):
+            if ann.get('track_id') == from_id:
+                ann['track_id'] = to_id
+        with open(annotations_file, 'w') as f:
+            json.dump(coco, f)
+    
+    return count
+
+
+def apply_trace_id_mappings(mappings, temp_mid_dir=None):
+    """将track_id映射列表应用到temp_data_mid
     
     Args:
-        frame_path: 帧图片路径
-        bboxes: 边界框列表 [[x1,y1,x2,y2], ...]
-        find_list: 文本提示列表
-        overrides: SAM预测器参数
-        first_id: 起始track_id
+        mappings: [(old_id, new_id), ...] 列表
     
     Returns:
-        (annotations, first_id): 标注列表和新first_id
+        影响的帧数
     """
-    from annotate_video import merge_masks_in_frame, _patch_sam3_video_semantic
+    temp_mid = Path(temp_mid_dir) if temp_mid_dir else TEMP_DATA_MID_DIR
+    labels_dir = temp_mid / "labels"
+    annotations_file = temp_mid / "annotations.json"
+    
+    if not mappings or not labels_dir.exists():
+        return 0
+    
+    converted_count = 0
+    for label_file in sorted(labels_dir.glob("frame_*.json")):
+        with open(label_file) as f:
+            frame_anns = json.load(f)
+        changed = False
+        for ann in frame_anns:
+            for old_id, new_id in mappings:
+                if ann.get('track_id') == old_id:
+                    ann['track_id'] = new_id
+                    changed = True
+        if changed:
+            with open(label_file, 'w') as f:
+                json.dump(frame_anns, f)
+            converted_count += 1
+    
+    if annotations_file.exists():
+        with open(annotations_file) as f:
+            coco = json.load(f)
+        changed = False
+        for ann in coco.get('annotations', []):
+            for old_id, new_id in mappings:
+                if ann.get('track_id') == old_id:
+                    ann['track_id'] = new_id
+                    changed = True
+        if changed:
+            with open(annotations_file, 'w') as f:
+                json.dump(coco, f)
+    
+    return converted_count
+
+
+# ==================== 提示帧/双向标注 ====================
+def run_prompt_frame(frame_path, bboxes=None, find_list=None, overrides=None, first_id=1000000):
+    """对单帧执行提示标注，返回标注列表"""
+    from annotate_video import merge_masks_in_frame
     
     if overrides is None:
         overrides, _ = get_sam_overrides()
@@ -72,11 +204,12 @@ def run_prompt_frame(frame_path, bboxes=None, find_list=None, overrides=None, fi
         from ultralytics.models.sam import SAM3SemanticPredictor
         predictor = SAM3SemanticPredictor(overrides=overrides)
         pred_args = {'source': str(frame_path), 'bboxes': bboxes, 'labels': [1] * len(bboxes)}
+        if find_list:
+            pred_args['text'] = find_list
         results = predictor(**pred_args)
     elif use_semantic:
-        from annotate_video import _patch_sam3_video_semantic
+        patch_sam3_video_semantic()
         from ultralytics.models.sam import SAM3VideoSemanticPredictor
-        _patch_sam3_video_semantic()
         predictor = SAM3VideoSemanticPredictor(overrides=overrides)
         clip_path = str(frame_path) + '_clip.mp4'
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
@@ -130,7 +263,7 @@ def run_prompt_frame(frame_path, bboxes=None, find_list=None, overrides=None, fi
             cm, cb = merge_masks_in_frame(cm, cb, 0.5)
             for idx, (m, b) in enumerate(zip(cm, cb)):
                 track_id = first_id + idx
-                conf_val = float(confs[idx]) if confs is not None and idx < len(confs) else float(m.max()) if hasattr(m, 'max') else 1.0
+                conf_val = float(confs[idx]) if confs is not None and idx < len(confs) else 1.0
                 ann = {
                     'id': idx + 1,
                     'track_id': track_id,
@@ -147,15 +280,76 @@ def run_prompt_frame(frame_path, bboxes=None, find_list=None, overrides=None, fi
     return annotations, first_id + len(annotations)
 
 
-def save_frame_annotations(frame_idx, annotations, labels_dir, annotations_file):
-    """保存帧标注到文件
+# ==================== 删除track_id相关 ====================
+def find_annotations_containing_point(x, y, annotations, conf_threshold=0.5):
+    """在标注列表中查找包含点击位置的所有标注"""
+    containing = []
+    for ann in annotations:
+        conf = ann.get('confidence', 1.0)
+        if conf < conf_threshold:
+            continue
+        polygon = ann.get('segmentation')
+        if not polygon:
+            continue
+        pts = np.array(polygon[0], dtype=np.int32).reshape(-1, 2)
+        if len(pts) < 3:
+            continue
+        if cv2.pointPolygonTest(pts, (float(x), float(y)), False) >= 0:
+            containing.append(ann)
+    return containing
+
+
+def mark_track_ids_deleted(track_ids, temp_data_dir=None):
+    """将指定track_id标记为删除(改为9999)
     
     Args:
-        frame_idx: 帧索引
-        annotations: 标注列表
-        labels_dir: 标签目录
-        annotations_file: annotations.json路径
+        track_ids: 要删除的track_id列表
+        temp_data_dir: 数据目录，默认为TEMP_DATA_MID_DIR
+    
+    Returns:
+        影响的帧数
     """
+    temp_dir = Path(temp_data_dir) if temp_data_dir else TEMP_DATA_MID_DIR
+    labels_dir = temp_dir / "labels"
+    annotations_file = temp_dir / "annotations.json"
+    
+    if not labels_dir.exists():
+        return 0
+    
+    track_ids_set = set(track_ids)
+    count = 0
+    
+    for label_file in sorted(labels_dir.glob("frame_*.json")):
+        with open(label_file) as f:
+            frame_anns = json.load(f)
+        changed = False
+        for ann in frame_anns:
+            if ann.get('track_id') in track_ids_set:
+                ann['track_id'] = 9999
+                changed = True
+        if changed:
+            with open(label_file, 'w') as f:
+                json.dump(frame_anns, f)
+            count += 1
+    
+    if annotations_file.exists():
+        with open(annotations_file) as f:
+            coco = json.load(f)
+        changed = False
+        for ann in coco.get('annotations', []):
+            if ann.get('track_id') in track_ids_set:
+                ann['track_id'] = 9999
+                changed = True
+        if changed:
+            with open(annotations_file, 'w') as f:
+                json.dump(coco, f)
+    
+    return count
+
+
+# ==================== 保存标注 ====================
+def save_frame_annotations(frame_idx, annotations, labels_dir, annotations_file):
+    """保存帧标注到文件"""
     if not annotations:
         return
     
@@ -168,15 +362,144 @@ def save_frame_annotations(frame_idx, annotations, labels_dir, annotations_file)
         with open(lf) as f:
             existing = json.load(f)
     
+    for ann in annotations:
+        ann['image_id'] = frame_idx
+    
     existing.extend(annotations)
     with open(lf, 'w') as f:
         json.dump(existing, f)
     
-    for ann in annotations:
-        ann['image_id'] = frame_idx
+    if annotations_file and Path(annotations_file).exists():
+        with open(annotations_file, 'r') as f:
+            coco = json.load(f)
+        coco['annotations'].extend(annotations)
+        with open(annotations_file, 'w') as f:
+            json.dump(coco, f)
+
+
+def load_frame_annotations(frame_idx, labels_dir):
+    """加载指定帧的标注"""
+    labels_dir = Path(labels_dir)
+    lf = labels_dir / f"frame_{frame_idx:06d}.json"
+    if lf.exists():
+        with open(lf) as f:
+            return json.load(f)
+    return []
+
+
+# ==================== 复制目录 ====================
+def copy_temp_data(src_dir, dst_dir):
+    """复制temp_data到目标目录"""
+    src_dir = Path(src_dir)
+    dst_dir = Path(dst_dir)
     
-    with open(annotations_file, 'r') as f:
+    if dst_dir.exists():
+        shutil.rmtree(dst_dir)
+    shutil.copytree(src_dir, dst_dir)
+
+
+# ==================== 导出相关 ====================
+def get_category_for_track_id(track_id, category_mappings=None):
+    """根据track_id获取类别名称"""
+    if category_mappings is None:
+        category_mappings = ['Detect'] * 8
+    
+    if track_id >= 1000000:
+        return category_mappings[0] if category_mappings else 'Detect'
+    
+    categories = {
+        1: 'Pedestrian', 2: 'Cyclist', 3: 'Car',
+        4: 'Van', 5: 'Truck', 6: 'Tram', 7: 'Tricycle', 8: 'Other'
+    }
+    return categories.get(track_id, category_mappings[-1] if category_mappings else 'Detect')
+
+
+def export_to_temp_data_post(cat_maps=None, del_track_id_list=None, temp_mid_dir=None):
+    """导出到temp_data_post
+    
+    Args:
+        cat_maps: 类别映射列表
+        del_track_id_list: 要删除的track_id列表
+        temp_mid_dir: 源目录，默认为TEMP_DATA_MID_DIR
+    """
+    temp_mid = Path(temp_mid_dir) if temp_mid_dir else TEMP_DATA_MID_DIR
+    if cat_maps is None:
+        cat_maps = ['Detect'] * 8
+    
+    af = temp_mid / "annotations.json"
+    if not af.exists():
+        return False, "annotations.json不存在"
+    
+    with open(af) as f:
         coco = json.load(f)
-    coco['annotations'].extend(annotations)
-    with open(annotations_file, 'w') as f:
+    
+    out = TEMP_DATA_POST_DIR
+    if out.exists():
+        shutil.rmtree(out)
+    out.mkdir(parents=True)
+    old = out / "labels"
+    ofram = out / "frames"
+    old.mkdir(parents=True)
+    ofram.mkdir(parents=True)
+    
+    ld = temp_mid / "labels"
+    fd = temp_mid / "frames"
+    
+    deleted = set(del_track_id_list) if del_track_id_list else set()
+    deleted.add(9999)
+    
+    exported_count = 0
+    for frame_file in sorted(fd.glob("frame_*.jpg")):
+        shutil.copy2(frame_file, ofram / frame_file.name)
+    
+    for label_file in sorted(ld.glob("frame_*.json")):
+        with open(label_file) as f:
+            fa = json.load(f)
+        
+        filtered = [a for a in fa if a.get('track_id', 0) not in deleted and a.get('track_id', 0) < 1000000]
+        
+        for ann in filtered:
+            ann['category_id'] = cat_maps.index(get_category_for_track_id(ann.get('track_id', 0), cat_maps)) + 1
+        
+        with open(old / label_file.name, 'w') as f:
+            json.dump(filtered, f)
+        exported_count += len(filtered)
+    
+    coco['annotations'] = [a for a in coco.get('annotations', []) 
+                           if a.get('track_id', 0) not in deleted and a.get('track_id', 0) < 1000000]
+    for ann in coco['annotations']:
+        ann['category_id'] = cat_maps.index(get_category_for_track_id(ann.get('track_id', 0), cat_maps)) + 1
+    
+    with open(out / "annotations.json", 'w') as f:
         json.dump(coco, f)
+    
+    return True, f"导出完成，{exported_count}条标注"
+
+
+# ==================== 视频处理 ====================
+def extract_video_clip_from_frames(frames_dir, start_idx, total_frames, output_path, fps=30):
+    """从帧目录提取视频片段"""
+    frames_dir = Path(frames_dir)
+    output_path = Path(output_path)
+    
+    sample = cv2.imread(str(frames_dir / f"frame_{start_idx:06d}.jpg"))
+    if sample is None:
+        return False, f"无法读取起始帧: frame_{start_idx:06d}.jpg"
+    
+    height, width = sample.shape[:2]
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
+    
+    frame_count = 0
+    for i in range(start_idx, total_frames):
+        frame_path = frames_dir / f"frame_{i:06d}.jpg"
+        if not frame_path.exists():
+            break
+        frame = cv2.imread(str(frame_path))
+        if frame is None:
+            break
+        out.write(frame)
+        frame_count += 1
+    
+    out.release()
+    return True, f"视频片段已提取: {output_path} ({frame_count}帧)"
