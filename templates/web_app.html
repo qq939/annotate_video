@@ -295,7 +295,6 @@ const state = {
   annotations: [],
   traceIdChanges: [],
   currentTraceId: 1000000,
-  nextTrackId: 1000000,
   promptBboxes: [],
   annotationRunning: false,
   isPlaying: false,
@@ -911,20 +910,14 @@ canvas.addEventListener('click', async (e) => {
     }
     if (foundAnn) {
       const oldId = foundAnn.track_id || 0;
-      const newId = state.nextTrackId;
-      addDebugLog('找到标注: oldId=' + oldId + ', newId=' + newId + ', nextTrackId=' + state.nextTrackId, 'info');
+      const newId = state.currentTraceId;
+      addDebugLog('找到标注: oldId=' + oldId + ', newId=' + newId + ', currentTraceId=' + state.currentTraceId, 'info');
       
       state.greenPoints.push({
         x: cx, y: cy, frameIdx: state.currentFrame, oldTrackId: oldId, assignedId: newId
       });
       
       state.traceIdChanges.push(oldId + '→' + newId);
-      state.nextTrackId += 1;
-      $('currentIdInput').value = newId;
-      
-      addDebugLog('打绿点成功: 帧' + (state.currentFrame+1) + ' (' + Math.round(cx) + ',' + Math.round(cy) + ') ' + oldId + '→' + newId, 'success');
-      addDebugLog('traceIdChanges: ' + JSON.stringify(state.traceIdChanges), 'info');
-      
       renderMappings();
       renderGreenPoints();
       
