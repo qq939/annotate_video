@@ -811,7 +811,8 @@ def prompt_frame():
     find_list = [s.strip() for s in items_text.split(',') if s.strip()]
 
     try:
-        import torch
+        from app_utils import get_sam_overrides, run_prompt_frame, save_frame_annotations, _first_available_track_id
+        
         mf = TEMP_DATA_MID_DIR / "frames"
         ml_dir = TEMP_DATA_MID_DIR / "labels"
         ma = TEMP_DATA_MID_DIR / "annotations.json"
@@ -820,127 +821,22 @@ def prompt_frame():
         if not sf_path.exists():
             return jsonify({'error': f'提示帧 {prompt_idx} 不存在'}), 400
 
-        sf = cv2.imread(str(sf_path))
-        h, w = sf.shape[:2]
-
-        device = 'mps' if torch.backends.mps.is_available() else ('cuda' if torch.cuda.is_available() else 'cpu')
-        half = device == 'cuda'
-        overrides = {
-            'conf': 0.25, 'task': "segment", 'mode': "predict",
-            'model': SAM_MODEL_PATH, 'device': device, 'half': half, 'save': False, 'verbose': False
-        }
-        if device == 'cuda':
-            overrides['batch'] = 1
-            overrides['stream_buffer'] = False
-        elif device == 'mps':
-            overrides['half'] = True
-            overrides['amp'] = True
-            overrides['stream_buffer'] = True
-
-        use_semantic = bool(find_list)
-        if bboxes and not use_semantic:
-            from ultralytics.models.sam import SAM3SemanticPredictor
-            predictor = SAM3SemanticPredictor(overrides=overrides)
-            pred_args = {'source': str(sf_path), 'bboxes': bboxes, 'labels': [1] * len(bboxes)}
-            if find_list:
-                pred_args['text'] = find_list
-            results = predictor(**pred_args)
-        elif use_semantic:
-            _patch_sam3_video_semantic()
-            from ultralytics.models.sam import SAM3VideoSemanticPredictor
-            predictor = SAM3VideoSemanticPredictor(overrides=overrides)
-            clip_path = str(sf_path) + '_clip.mp4'
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            out = cv2.VideoWriter(clip_path, fourcc, 30, (w, h))
-            out.write(sf)
-            out.release()
-            pred_args = {'source': clip_path, 'stream': True}
-            if bboxes:
-                pred_args['bboxes'] = bboxes
-                pred_args['labels'] = [1] * len(bboxes)
-            pred_args['text'] = find_list
-            results = predictor(**pred_args)
-        else:
-            from ultralytics.models.sam import SAM3Predictor
-            predictor = SAM3Predictor(overrides=overrides)
-            pred_args = {'source': str(sf_path)}
-            results = predictor(**pred_args)
-
-        # 查找可用track_id
+        overrides, device = get_sam_overrides(device='auto', model_path=SAM_MODEL_PATH)
+        
         if ma.exists():
             with open(ma) as f:
                 coco = json.load(f)
         else:
             coco = {'info': {}, 'images': [], 'annotations': [], 'categories': []}
-
+        
         first_id = _first_available_track_id(coco, 1000000)
-
-        from annotate_video import merge_masks_in_frame
-
-        all_anns = []
-        for r in results:
-            masks_attr = getattr(r, 'masks', None)
-            if masks_attr is not None and masks_attr.data is not None:
-                mt = masks_attr.data
-                confs = None
-                boxes_attr = getattr(r, 'boxes', None)
-                if boxes_attr is not None and hasattr(boxes_attr, 'conf'):
-                    confs = boxes_attr.conf.cpu().numpy()
-                cm, cb = [], []
-                for m in mt:
-                    mn = m.cpu().numpy() if hasattr(m, 'cpu') else np.array(m)
-                    if mn.shape[-2:] != (h, w):
-                        mn = cv2.resize(mn.astype(np.float32), (w, h))
-                    mb = (mn > 0.5).astype(np.uint8)
-                    contours, _ = cv2.findContours(mb, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                    for cnt in contours:
-                        if len(cnt) >= 3:
-                            poly = cnt.squeeze().flatten().tolist()
-                            xs, ys = poly[0::2], poly[1::2]
-                            x1, x2 = min(xs), max(xs)
-                            y1, y2 = min(ys), max(ys)
-                            bbox = [float(x1), float(y1), float(x2 - x1), float(y2 - y1)]
-                            area = cv2.contourArea(cnt)
-                            if area > 0:
-                                cm.append(mb)
-                                cb.append(bbox)
-                if cm:
-                    cm, cb = merge_masks_in_frame(cm, cb, 0.5)
-                    for idx, (m, b) in enumerate(zip(cm, cb)):
-                        track_id = first_id + idx
-                        conf_val = float(confs[idx]) if confs is not None and idx < len(confs) else float(m.max()) if hasattr(m, 'max') else 1.0
-                        mb = (m > 0.5).astype(np.uint8) if m.dtype != np.uint8 else m
-                        ann = {
-                            'id': len(coco.get('annotations', [])) + idx + 1,
-                            'track_id': track_id,
-                            'image_id': prompt_idx,
-                            'category_id': track_id,
-                            'bbox': b,
-                            'area': float(cv2.contourArea(mb)),
-                            'segmentation': [poly],
-                            'iscrowd': 0,
-                            'confidence': conf_val
-                        }
-                        all_anns.append(ann)
-
-        # 写入coco
-        for ann in all_anns:
-            coco['annotations'].append(ann)
-        with open(ma, 'w') as f:
-            json.dump(coco, f)
-
-        # 写入帧标签
-        if all_anns:
-            lf = ml_dir / f"frame_{prompt_idx:06d}.json"
-            existing = []
-            if lf.exists():
-                with open(lf) as f:
-                    existing = json.load(f)
-            existing.extend(all_anns)
-            with open(lf, 'w') as f:
-                json.dump(existing, f)
-
-        return jsonify({'msg': f'提示帧完成，新增{len(all_anns)}条', 'count': len(all_anns), 'FIRST_ID': first_id})
+        
+        annotations, new_first_id = run_prompt_frame(sf_path, bboxes, find_list, overrides, first_id)
+        
+        if annotations:
+            save_frame_annotations(prompt_idx, annotations, ml_dir, ma)
+        
+        return jsonify({'msg': f'提示帧完成，新增{len(annotations)}条', 'count': len(annotations), 'FIRST_ID': first_id})
     except Exception as e:
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
