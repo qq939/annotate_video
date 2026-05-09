@@ -572,6 +572,8 @@ def get_video_info_route():
 
 @app.route('/api/bidirectional', methods=['POST'])
 def bidirectional():
+    from app_utils import run_bidirectional_inject, first_available_track_id, TEMP_DATA_MID_DIR
+    
     data = request.json
     prompt_idx = data.get('prompt_frame_idx', 0)
     bboxes = data.get('bboxes', [])
@@ -581,195 +583,35 @@ def bidirectional():
     merge_iou = float(data.get('merge_iou', 0.5))
 
     try:
-        import torch
-        mf = TEMP_DATA_MID_DIR / "frames"
-        ml_dir = TEMP_DATA_MID_DIR / "labels"
         ma = TEMP_DATA_MID_DIR / "annotations.json"
-
-        device = 'mps' if torch.backends.mps.is_available() else ('cuda' if torch.cuda.is_available() else 'cpu')
-        half = device == 'cuda'
-        overrides = {
-            'conf': 0.25, 'task': "segment", 'mode': "predict",
-            'model': SAM_MODEL_PATH, 'device': device, 'half': half, 'save': False, 'verbose': False
-        }
-        if device == 'cuda':
-            overrides['batch'] = 1
-            overrides['stream_buffer'] = False
-        elif device == 'mps':
-            overrides['half'] = True
-            overrides['amp'] = True
-            overrides['stream_buffer'] = True
-
-        sf = cv2.imread(str(mf / "frame_000000.jpg"))
-        h, w = sf.shape[:2]
-
-        # 查找可用起始track_id
-        occupied = set()
-        if ma.exists():
-            with open(ma) as f:
-                coco = json.load(f)
-            for ann in coco.get('annotations', []):
-                occupied.add((ann.get('track_id', 0) // 10000) * 10000)
-        opts = list(range(10000, 501000, 10000))
-        avail = [o for o in opts if (o // 10000) * 10000 not in occupied]
-        if not avail:
-            return jsonify({'error': '所有track_id选项都已被占用'}), 400
-        first_id = avail[0]
-
-        from annotate_video import merge_masks_in_frame, TrackManager
-        mgr = TrackManager(iou_threshold=iou)
-        mgr.next_track_id = first_id
-
-        total = len(list(mf.glob('*.jpg')))
-        all_new_anns = []
-
-        if forward_en and prompt_idx + 1 < total:
-            result = _process_clip(mf, ml_dir, ma, predictor_overrides=overrides, mgr=mgr,
-                                   merge_iou=merge_iou, start=prompt_idx + 1, end=total,
-                                   fwd=True, bboxes=bboxes, h=h, w=w)
-            all_new_anns.extend(result)
-
-        if backward_en and prompt_idx > 0:
-            result = _process_clip(mf, ml_dir, ma, predictor_overrides=overrides, mgr=mgr,
-                                   merge_iou=merge_iou, start=0, end=prompt_idx,
-                                   fwd=False, bboxes=bboxes, h=h, w=w)
-            all_new_anns.extend(result)
-
         if ma.exists():
             with open(ma) as f:
                 coco = json.load(f)
         else:
             coco = {'info': {}, 'images': [], 'annotations': [], 'categories': []}
-
-        max_aid = max([a['id'] for a in coco.get('annotations', [])], default=0)
-        for ann in all_new_anns:
-            max_aid += 1
-            ann['id'] = max_aid
-            ann['category_id'] = ann['track_id']
-            coco['annotations'].append(ann)
-
-        with open(ma, 'w') as f:
-            json.dump(coco, f)
-
-        # 同时写入对应帧的标签文件
-        for ann in all_new_anns:
-            img_id = ann.get('image_id', 0)
-            lf = ml_dir / f"frame_{img_id:06d}.json"
-            existing = []
-            if lf.exists():
-                with open(lf) as f:
-                    existing = json.load(f)
-            existing.append(ann)
-            with open(lf, 'w') as f:
-                json.dump(existing, f)
-
-        return jsonify({'msg': f'双向标注完成，新增{len(all_new_anns)}条', 'FIRST_ID': first_id})
+        
+        first_id = first_available_track_id(coco, 1000000)
+        total = len(list((TEMP_DATA_MID_DIR / "frames").glob('*.jpg')))
+        
+        success, msg = run_bidirectional_inject(
+            prompt_idx=prompt_idx,
+            total_frames=total,
+            bboxes=bboxes,
+            forward_enabled=forward_en,
+            backward_enabled=backward_en,
+            iou_threshold=iou,
+            merge_iou_threshold=merge_iou,
+            first_id=first_id,
+            temp_mid_dir=TEMP_DATA_MID_DIR
+        )
+        
+        if success:
+            return jsonify({'msg': msg, 'FIRST_ID': first_id})
+        else:
+            return jsonify({'error': msg}), 400
     except Exception as e:
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-
-
-def _process_clip(mf, ml_dir, ma, predictor_overrides, mgr, merge_iou,
-                  start, end, fwd, bboxes, h, w):
-    """处理一段视频片段，返回新增的annotations列表"""
-    tp = Path("temp_clip")
-    if tp.exists():
-        shutil.rmtree(tp)
-    tp.mkdir(exist_ok=True)
-    fc = end - start
-
-    try:
-        if fwd:
-            for i in range(start, end):
-                shutil.copy2(mf / f"frame_{i:06d}.jpg", tp / f"frame_{i - start:06d}.jpg")
-        else:
-            for ri, i in enumerate(range(end - 1, start - 1, -1)):
-                shutil.copy2(mf / f"frame_{i:06d}.jpg", tp / f"frame_{ri:06d}.jpg")
-
-        cp = str(tp / "clip.mp4")
-        vw = cv2.VideoWriter(cp, cv2.VideoWriter_fourcc(*'mp4v'), 30, (w, h))
-        for i in range(fc):
-            vw.write(cv2.imread(str(tp / f"frame_{i:06d}.jpg")))
-        vw.release()
-
-        from ultralytics.models.sam import SAM3VideoPredictor
-        predictor = SAM3VideoPredictor(overrides=predictor_overrides)
-
-        from annotate_video import merge_masks_in_frame
-        pred_args = {'source': cp, 'stream': True}
-        if bboxes:
-            pred_args['bboxes'] = bboxes
-            pred_args['labels'] = [1] * len(bboxes)
-        results = predictor(**pred_args)
-
-        all_new_anns = []
-        aid = mgr.next_track_id
-
-        for r in results:
-            orig = getattr(r, 'orig_img', None) or np.zeros((h, w, 3), dtype=np.uint8)
-            if len(orig.shape) == 2:
-                orig = cv2.cvtColor(orig, cv2.COLOR_GRAY2BGR)
-            elif orig.shape[2] == 4:
-                orig = cv2.cvtColor(orig, cv2.COLOR_BGRA2BGR)
-
-            masks_attr = getattr(r, 'masks', None)
-            if masks_attr is not None and masks_attr.data is not None:
-                mt = masks_attr.data
-                confs = None
-                boxes_attr = getattr(r, 'boxes', None)
-                if boxes_attr is not None and hasattr(boxes_attr, 'conf'):
-                    confs = boxes_attr.conf.cpu().numpy()
-                cm, cb = [], []
-                for m in mt:
-                    mn = m.cpu().numpy() if hasattr(m, 'cpu') else np.array(m)
-                    if mn.shape[-2:] != (h, w):
-                        mn = cv2.resize(mn.astype(np.float32), (w, h))
-                    mb = (mn > 0.5).astype(np.uint8)
-                    contours, _ = cv2.findContours(mb, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                    for cnt in contours:
-                        if len(cnt) >= 3:
-                            poly = cnt.squeeze().flatten().tolist()
-                            xs, ys = poly[0::2], poly[1::2]
-                            x1, x2 = min(xs), max(xs)
-                            y1, y2 = min(ys), max(ys)
-                            bbox = [float(x1), float(y1), float(x2 - x1), float(y2 - y1)]
-                            area = cv2.contourArea(cnt)
-                            if area > 0:
-                                cm.append(mb)
-                                cb.append(bbox)
-                if cm:
-                    cm, cb = merge_masks_in_frame(cm, cb, merge_iou)
-                    tids = mgr.update(cm, cb, 0)
-                    for idx, (m, b) in enumerate(zip(cm, cb)):
-                        mb = (m > 0.5).astype(np.uint8)
-                        contours, _ = cv2.findContours(mb, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                        for cnt in contours:
-                            if len(cnt) >= 3:
-                                poly = cnt.squeeze().flatten().tolist()
-                                area = cv2.contourArea(cnt)
-                                tid = tids[idx] if idx < len(tids) else aid
-                                conf_val = float(confs[idx]) if confs is not None and idx < len(confs) else float(m.max())
-                                ann = {
-                                    'id': aid, 'track_id': tid, 'image_id': 0,
-                                    'bbox': b, 'area': float(area),
-                                    'segmentation': [poly], 'iscrowd': 0,
-                                    'confidence': conf_val
-                                }
-                                all_new_anns.append(ann)
-                                aid += 1
-
-        # 将image_id映射回原始帧号
-        for ann in all_new_anns:
-            raw_idx = ann['image_id']
-            if fwd:
-                ann['image_id'] = start + raw_idx
-            else:
-                ann['image_id'] = end - 1 - raw_idx
-
-        return all_new_anns
-    finally:
-        if tp.exists():
-            shutil.rmtree(tp, ignore_errors=True)
 
 
 # ==================== 提示帧标注（单帧） ====================
@@ -777,7 +619,8 @@ def _process_clip(mf, ml_dir, ma, predictor_overrides, mgr, merge_iou,
 
 @app.route('/api/prompt_frame', methods=['POST'])
 def prompt_frame():
-    """对指定帧执行单帧提示标注（使用bbox或文本）"""
+    from app_utils import run_prompt_frame, save_frame_annotations, first_available_track_id, TEMP_DATA_MID_DIR
+    
     data = request.json
     prompt_idx = data.get('prompt_frame_idx', 0)
     bboxes = data.get('bboxes', [])
@@ -785,8 +628,6 @@ def prompt_frame():
     find_list = [s.strip() for s in items_text.split(',') if s.strip()]
 
     try:
-        from app_utils import get_sam_overrides, run_prompt_frame, save_frame_annotations, first_available_track_id
-        
         mf = TEMP_DATA_MID_DIR / "frames"
         ml_dir = TEMP_DATA_MID_DIR / "labels"
         ma = TEMP_DATA_MID_DIR / "annotations.json"
@@ -795,8 +636,6 @@ def prompt_frame():
         if not sf_path.exists():
             return jsonify({'error': f'提示帧 {prompt_idx} 不存在'}), 400
 
-        overrides, device = get_sam_overrides(device='auto', model_path=SAM_MODEL_PATH)
-        
         if ma.exists():
             with open(ma) as f:
                 coco = json.load(f)
@@ -805,6 +644,8 @@ def prompt_frame():
         
         first_id = first_available_track_id(coco, 1000000)
         
+        from app_utils import get_sam_overrides
+        overrides, device = get_sam_overrides(device='auto', model_path=SAM_MODEL_PATH)
         annotations, new_first_id = run_prompt_frame(sf_path, bboxes, find_list, overrides, first_id)
         
         if annotations:
