@@ -561,7 +561,9 @@ $('showViewerBtn').onclick = () => {
 
 async function showViewer(refresh) {
   try {
-    if (refresh) await apiPost('/api/show_viewer', {});
+    if (refresh) {
+      await apiPost('/api/show_viewer', { trace_id_changes: state.traceIdChanges });
+    }
     const info = await apiGet('/api/get_video_info');
     state.totalFrames = info.total;
     updateFrameInfo();
@@ -864,14 +866,12 @@ $('bidirectionalBtn').onclick = async () => {
 
 // ==================== Canvas Click / Trace ID ====================
 canvas.addEventListener('click', async (e) => {
-  addDebugLog('canvas click triggered', 'info');
-  if (state.isDrawing) { addDebugLog('跳过: 正在绘制bbox', 'warning'); return; }
-  if (canvas.width === 0) { addDebugLog('跳过: canvas未初始化', 'warning'); return; }
+  if (state.isDrawing) return;
+  if (canvas.width === 0) return;
   
-  const r = canvas.getBoundingClientRect();
-  const cx = (e.clientX - r.left) * (canvas.width / r.width);
-  const cy = (e.clientY - r.top) * (canvas.height / r.height);
-  addDebugLog('点击: canvas(' + canvas.width + 'x' + canvas.height + ') rect(' + Math.round(r.width) + 'x' + Math.round(r.height) + ') pos(' + Math.round(cx) + ',' + Math.round(cy) + ') 帧' + (state.currentFrame+1), 'info');
+  const cx = e.offsetX * (canvas.width / canvas.offsetWidth);
+  const cy = e.offsetY * (canvas.height / canvas.offsetHeight);
+  addDebugLog('点击: canvas(' + canvas.width + 'x' + canvas.height + ') offset(' + e.offsetX + ',' + e.offsetY + ') -> video(' + Math.round(cx) + ',' + Math.round(cy) + ') 帧' + (state.currentFrame+1), 'info');
 
   if (state.promptMode) {
     state.promptMode = false;
