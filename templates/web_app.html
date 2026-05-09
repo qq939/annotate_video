@@ -323,14 +323,30 @@ const ctx = canvas.getContext('2d');
 function $(id) { return document.getElementById(id); }
 
 let debugLogs = [];
+let debugLogPath = null;
+
+async function logToFile(msg) {
+  if (!debugLogPath) {
+    try {
+      const r = await fetch('/api/debug_log');
+      const d = await r.json();
+      debugLogPath = d.path;
+    } catch(e) { return; }
+  }
+  fetch('/api/debug_log', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action:'append', msg})});
+}
+
 function addDebugLog(msg, type) {
   const time = new Date().toLocaleTimeString();
-  debugLogs.push({ time, msg, type });
+  const logLine = '[' + time + '] ' + msg;
+  debugLogs.push({time, msg, type});
+  if (debugLogs.length > 5000) debugLogs.shift();
+  logToFile(logLine);
   const content = $('debugContent');
   if (content) {
     const line = document.createElement('div');
     line.className = 'debug-line ' + (type || '');
-    line.textContent = '[' + time + '] ' + msg;
+    line.textContent = logLine;
     content.appendChild(line);
     content.scrollTop = content.scrollHeight;
   }

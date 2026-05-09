@@ -574,7 +574,7 @@ def get_frame(idx):
                 cv2.rectangle(res, (x, y), (x + w, y + h), color, 1)
 
     _, buf = cv2.imencode('.jpg', res, [cv2.IMWRITE_JPEG_QUALITY, 85])
-    return jsonify({'image': base64.b64encode(buf).decode(), 'frame': idx, 'annotations': frame_anns})
+    return jsonify({'image': base64.b64encode(buf).decode(), 'frame': idx, 'width': width, 'height': height, 'annotations': frame_anns})
 
 
 @app.route('/api/get_video_info')
@@ -1228,6 +1228,27 @@ def get_frame_annotations(idx):
             anns = json.load(f)
         return jsonify({'annotations': anns})
     return jsonify({'annotations': []})
+
+
+@app.route('/api/debug_log', methods=['GET', 'POST'])
+def debug_log():
+    global state
+    log_file = TEMP_DATA_MID_DIR / "debug.log"
+    if request.method == 'GET':
+        if not log_file.exists():
+            log_file.write_text('')
+        return jsonify({'path': str(log_file)})
+    else:
+        data = request.json
+        action = data.get('action', '')
+        if action == 'append':
+            msg = data.get('msg', '') + '\n'
+            with open(log_file, 'a') as f:
+                f.write(msg)
+            import os
+            if log_file.exists() and log_file.stat().st_size > 10 * 1024 * 1024:
+                log_file.write_text('')
+        return jsonify({'ok': True})
 
 
 if __name__ == '__main__':
