@@ -809,11 +809,13 @@ $('promptBtn').onclick = async () => {
     $('promptBtn').style.background = '#ff8c00';
     $('promptBtn').textContent = '执行提示帧';
     setStatus('提示帧模式：请在右侧画布绘制边界框后点击本按钮', false);
+    addDebugLog('提示帧模式：请绘制边界框', 'info');
   } else {
     state.promptMode = false;
     $('promptBtn').style.background = '#ffa500';
     $('promptBtn').textContent = '提示帧';
     const idx = state.currentFrame;
+    addDebugLog('执行提示帧: 帧=' + idx + ', bboxes=' + JSON.stringify(state.promptBboxes), 'info');
     try {
       const data = await apiPost('/api/prompt_frame', {
         prompt_frame_idx: idx,
@@ -822,10 +824,15 @@ $('promptBtn').onclick = async () => {
         iou: parseFloat($('iouInput').value),
         merge_iou: parseFloat($('mergeIouInput').value),
       });
+      addDebugLog('提示帧结果: ' + JSON.stringify(data), 'success');
       setStatus('提示帧完成: ' + (data.msg || ''));
       state.promptBboxes = [];
+      state.firstFrameData = null;
       await showViewer(true);
-    } catch (e) { setStatus('提示帧失败: ' + e.message, true); }
+    } catch (e) { 
+      addDebugLog('提示帧失败: ' + e.message, 'error');
+      setStatus('提示帧失败: ' + e.message, true); 
+    }
   }
 };
 
