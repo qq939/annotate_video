@@ -1005,10 +1005,15 @@ function renderMappings() {
 }
 
 function renderGreenPoints() {
+  const zoom = parseInt($('zoomSlider').value) / 100;
+  const displayW = canvas.width * zoom;
+  const displayH = canvas.height * zoom;
   for (const pt of state.greenPoints) {
     if (pt.frameIdx === state.currentFrame) {
+      const dx = (pt.x / canvas.width) * displayW;
+      const dy = (pt.y / canvas.height) * displayH;
       ctx.beginPath();
-      ctx.arc(pt.x, pt.y, 6, 0, Math.PI * 2);
+      ctx.arc(dx, dy, 6, 0, Math.PI * 2);
       ctx.fillStyle = '#00ff00';
       ctx.fill();
       ctx.strokeStyle = '#ffffff';
