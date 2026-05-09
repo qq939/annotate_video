@@ -264,24 +264,33 @@ def run_prompt_frame(frame_path, bboxes=None, find_list=None, overrides=None, fi
             for idx, (m, b) in enumerate(zip(cm, cb)):
                 track_id = first_id + idx
                 conf_val = float(confs[idx]) if confs is not None and idx < len(confs) else 1.0
+                
+                m_uint8 = None
                 if m.dtype == np.uint8:
                     m_uint8 = m
                 elif m.max() <= 1:
                     m_uint8 = (m * 255).astype(np.uint8)
                 else:
                     m_uint8 = m.astype(np.uint8)
-                ann = {
-                    'id': idx + 1,
-                    'track_id': track_id,
-                    'image_id': 0,
-                    'category_id': track_id,
-                    'bbox': b,
-                    'area': float(cv2.contourArea(m_uint8)),
-                    'segmentation': [poly],
-                    'iscrowd': 0,
-                    'confidence': conf_val
-                }
-                annotations.append(ann)
+                
+                contours, _ = cv2.findContours(m_uint8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                for cnt in contours:
+                    if len(cnt) >= 3:
+                        area = cv2.contourArea(cnt)
+                        if area > 0:
+                            ann = {
+                                'id': idx + 1,
+                                'track_id': track_id,
+                                'image_id': 0,
+                                'category_id': track_id,
+                                'bbox': b,
+                                'area': float(area),
+                                'segmentation': [cnt.squeeze().flatten().tolist()],
+                                'iscrowd': 0,
+                                'confidence': conf_val
+                            }
+                            annotations.append(ann)
+                            break
     
     return annotations, first_id + len(annotations)
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Web标注工具 - 完整移植app.py功能，左控制面板+右可视化面板"""
+"""Web标注工具 - 只保留路由和UI，业务逻辑在app_utils.py"""
 
 import os
 import sys
@@ -18,7 +18,7 @@ from flask import Flask, render_template, request, jsonify, Response
 app = Flask(__name__, template_folder='templates')
 app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024 * 1024
 
-# --- 全局路径 ---
+# --- 路径常量 ---
 TEMP_DATA_DIR = Path("temp_data")
 TEMP_DATA_MID_DIR = Path("temp_data_mid")
 TEMP_DATA_POST_DIR = Path("temp_data_post")
@@ -30,249 +30,49 @@ for _d in [TEMP_DATA_DIR, TEMP_DATA_MID_DIR, TEMP_DATA_POST_DIR, SRC_VIDEO_DIR, 
     _d.mkdir(parents=True, exist_ok=True)
 
 # --- 颜色常量 ---
-WARM_COLORS = [
-    (180, 130, 255), (200, 100, 220), (255, 50, 200), (255, 0, 180),
-    (220, 0, 150), (180, 0, 120), (139, 0, 100), (100, 0, 80)
-]
-COLD_COLORS = [
-    (100, 150, 255), (100, 200, 255), (150, 200, 255), (100, 255, 200),
-    (150, 100, 255), (100, 200, 200), (150, 150, 255), (100, 180, 255)
-]
-BOX_COLORS = [
-    (255, 0, 0), (0, 255, 0), (0, 0, 255),
-    (255, 255, 0), (255, 0, 255), (0, 255, 255),
-    (255, 128, 0), (128, 0, 255),
-]
 PALETTE_COLORS = [
-    (0, 0, 255),     # 红 (BGR)
-    (0, 165, 255),   # 橙 (BGR)
-    (0, 255, 255),   # 黄 (BGR)
-    (0, 255, 0),     # 绿 (BGR)
-    (255, 255, 0),   # 青 (BGR)
-    (255, 0, 0),     # 蓝 (BGR)
-    (128, 0, 128),   # 紫 (BGR)
+    (0, 0, 255), (0, 165, 255), (0, 255, 255), (0, 255, 0),
+    (255, 255, 0), (255, 0, 255), (0, 128, 255), (255, 128, 0),
+    (128, 0, 255), (0, 255, 128), (255, 0, 128), (128, 255, 0),
+    (0, 128, 128), (128, 0, 128), (128, 128, 0), (64, 64, 255),
 ]
+BOX_COLORS = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (255, 0, 255), (0, 255, 255)]
 
 # --- 全局状态 ---
-_SAM3_SEMANTIC_PATCHED = False
-state = {
-    'current_frame': 0,
-    'total_frames': 0,
-    'video_info': None,
-    'fences': [],
-    'fence_mode': False,
-    'mappings': [],
-    'next_track_id': 1000000,
-    'deleted_ids': set(),
-    'selected_color': 0,
-    'palette_colors': PALETTE_COLORS,
-}
+state = {'total_frames': 0, 'video_name': '', 'mappings': [], 'fence_mode': False, 'fences': []}
 
 
-def get_color_for_track_id(track_id):
-    if track_id >= 1000000:
-        return WARM_COLORS[(track_id - 1000000) % len(WARM_COLORS)]
-    return COLD_COLORS[track_id % len(COLD_COLORS)]
+def get_color_for_track_id(tid):
+    """根据track_id获取颜色（工具函数）"""
+    if tid >= 1000000:
+        return PALETTE_COLORS[0]
+    idx = (tid % (len(PALETTE_COLORS) - 1)) + 1
+    return PALETTE_COLORS[idx % len(PALETTE_COLORS)]
 
 
-def _patch_sam3_video_semantic():
-    global _SAM3_SEMANTIC_PATCHED
-    if _SAM3_SEMANTIC_PATCHED:
-        return
-    _SAM3_SEMANTIC_PATCHED = True
-    import torch
-    from ultralytics.utils import ops as ultralytics_ops
-    from ultralytics.models.sam import SAM3VideoSemanticPredictor
-    _orig = SAM3VideoSemanticPredictor.add_prompt
-
-    def _new_add_prompt(self, frame_idx, text=None, bboxes=None, labels=None, inference_state=None):
-        if bboxes is None:
-            return _orig(self, frame_idx, text, bboxes, labels, inference_state)
-        inference_state = inference_state or self.inference_state
-        text_batch = [text] if isinstance(text, str) else (list(text) if text else [])
-        n = len(text_batch)
-        inference_state["text_prompt"] = text if text else None
-        text_ids = torch.arange(n, device=self.device, dtype=torch.long)
-        inference_state["text_ids"] = text_ids
-        if text is not None and self.model.names != text:
-            self.model.set_classes(text=text)
-        _raw = torch.as_tensor(bboxes, dtype=self.torch_dtype, device=self.device)
-        _raw = _raw[None] if _raw.ndim == 1 else _raw
-        _raw = ultralytics_ops.xyxy2xywh(_raw)
-        _raw[:, 0::2] /= self.batch[1][0].shape[1]
-        _raw[:, 1::2] /= self.batch[1][0].shape[0]
-        nb = len(_raw)
-        if labels is None:
-            _lbl_arr = np.ones(nb)
-        else:
-            _lbl_arr = np.array(labels)
-        _lbl = torch.as_tensor(_lbl_arr, dtype=torch.int32, device=self.device)
-        _raw = _raw.view(-1, 1, 4)
-        _lbl = _lbl.view(-1, 1)
-        if n > 1:
-            _raw = _raw.repeat(1, n, 1)
-            _lbl = _lbl.repeat(1, n)
-        geometric_prompt = self._get_dummy_prompt(num_prompts=n)
-        for i in range(len(_raw)):
-            geometric_prompt.append_boxes(_raw[[i]], _lbl[[i]])
-        inference_state["per_frame_geometric_prompt"][frame_idx] = geometric_prompt
-        out = self._run_single_frame_inference(frame_idx, reverse=False, inference_state=inference_state)
-        return frame_idx, out
-
-    SAM3VideoSemanticPredictor.add_prompt = _new_add_prompt
-
-
-def _get_extract_dir(video_path):
-    """获取与视频同名的提取帧目录"""
-    return SRC_VIDEO_DIR / Path(video_path).stem
-
-
-def _extract_video_to_frames(video_path, extract_dir=None):
-    """将视频拆帧到指定目录，返回 (帧数, 宽, 高, fps)"""
-    if extract_dir is None:
-        extract_dir = _get_extract_dir(video_path)
-    if extract_dir.exists():
-        shutil.rmtree(extract_dir)
-    extract_dir.mkdir(parents=True, exist_ok=True)
-
-    cap = cv2.VideoCapture(video_path)
-    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-    idx = 0
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-        cv2.imwrite(str(extract_dir / f"frame_{idx:06d}.jpg"), frame)
-        idx += 1
-    cap.release()
-    return total, width, height, fps
-
-
-def _get_coco_frame_id(path):
-    """从 frame_000000.jpg 路径提取帧序号"""
-    try:
-        return int(Path(path).stem.split('_')[1])
-    except (IndexError, ValueError):
-        return 0
-
-
-def _first_available_track_id(coco_data, base_start=10000):
-    """在coco数据中找到可用的起始track_id"""
-    if not coco_data or not coco_data.get('annotations'):
-        return base_start
-    occupied = set()
-    for ann in coco_data.get('annotations', []):
-        occupied.add((ann.get('track_id', 0) // 10000) * 10000)
-    opts = list(range(base_start, 501000, 10000))
-    for o in opts:
-        if (o // 10000) * 10000 not in occupied:
-            return o
-    return opts[-1] if opts else base_start
-
-
-# ==================== 页面路由 ====================
-
-
+# ==================== UI路由 ====================
 @app.route('/')
 def index():
     return render_template('web_app.html')
 
 
-# ==================== 视频上传 ====================
-
-
-@app.route('/api/upload_video', methods=['POST'])
-def upload_video():
-    if 'video' not in request.files:
-        return jsonify({'error': '没有文件'}), 400
-    f = request.files['video']
-    if not f.filename:
-        return jsonify({'error': '没有选择文件'}), 400
-
-    fname = Path(f.filename).name
-    dst = SRC_VIDEO_DIR / fname
-    if dst.exists():
-        dst.unlink()
-    f.save(str(dst))
-
-    cap = cv2.VideoCapture(str(dst))
-    ret, frame = cap.read()
-    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    cap.release()
-    if not ret:
-        return jsonify({'error': '无法读取视频'}), 400
-
-    state['video_info'] = {
-        'filename': fname,
-        'width': width,
-        'height': height,
-        'total': total,
-        'fps': fps,
-    }
-    state['total_frames'] = total
-
-    return jsonify({
-        'filename': fname,
-        'width': width,
-        'height': height,
-        'total': total,
-        'fps': fps,
-    })
-
-
-@app.route('/api/get_video_first_frame')
-def get_video_first_frame():
-    """获取上传视频的第一帧（用于标注模态框预览）"""
-    info = state.get('video_info')
-    if not info or not info.get('filename'):
-        return jsonify({'error': '没有视频'}), 400
-
-    src = SRC_VIDEO_DIR / info['filename']
-    if not src.exists():
-        return jsonify({'error': '视频文件不存在'}), 404
-
-    import base64 as b64
-    cap = cv2.VideoCapture(str(src))
-    ret, frame = cap.read()
-    cap.release()
-    if not ret:
-        return jsonify({'error': '无法读取视频首帧'}), 400
-
-    # 缩放到600宽显示
-    h, w = frame.shape[:2]
-    scale = 600 / w if w > 600 else 1.0
-    if scale < 1.0:
-        new_w, new_h = int(w * scale), int(h * scale)
-        frame = cv2.resize(frame, (new_w, new_h))
-
-    _, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-    return jsonify({'image': b64.b64encode(buf).decode(), 'width': frame.shape[1], 'height': frame.shape[0]})
-
-
-# ==================== 执行标注 (SSE) ====================
-
-
-@app.route('/api/run_annotate', methods=['POST'])
-def run_annotate():
-    data = request.json
+# ==================== 视频标注（SSE实时流） ====================
+@app.route('/api/start_annotate', methods=['POST'])
+def start_annotate():
+    """SSE方式执行视频标注"""
+    data = request.json or {}
     video_name = data.get('video_name', '')
-    merge_iou = float(data.get('merge_iou', 0.5))
-    iou = float(data.get('iou', 0.5))
-    items_text = data.get('items', '')
     bboxes = data.get('bboxes', [])
+    items_text = data.get('items', '')
     find_list = [s.strip() for s in items_text.split(',') if s.strip()]
+    iou = float(data.get('iou', 0.5))
+    merge_iou = float(data.get('merge_iou', 0.5))
 
     def generate():
         yield 'data: ' + json.dumps({'type': 'start', 'msg': '开始处理...'}) + '\n\n'
         try:
-            import torch
+            from app_utils import get_sam_overrides, patch_sam3_video_semantic, TEMP_DATA_DIR
+            
             src_video = str(SRC_VIDEO_DIR / video_name)
             temp_data = TEMP_DATA_DIR
             if temp_data.exists():
@@ -285,42 +85,18 @@ def run_annotate():
 
             cap = cv2.VideoCapture(src_video)
             fourcc_int = int(cap.get(cv2.CAP_PROP_FOURCC))
-            fourcc_str = ''.join([
-                chr((fourcc_int >> 24) & 0xFF),
-                chr((fourcc_int >> 16) & 0xFF),
-                chr((fourcc_int >> 8) & 0xFF),
-                chr(fourcc_int & 0xFF)
-            ])
+            fourcc_str = ''.join([chr((fourcc_int >> 24) & 0xFF), chr((fourcc_int >> 16) & 0xFF), chr((fourcc_int >> 8) & 0xFF), chr(fourcc_int & 0xFF)])
             fps = cap.get(cv2.CAP_PROP_FPS)
             width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-            # 如果用户绘制了bbox，需要把视频拷贝到1src/下（与app.py一致）
-            src_dst = SRC_VIDEO_DIR / "input_source.mp4"
             cap.release()
-            if bboxes or find_list:
-                shutil.copy2(src_video, str(src_dst))
 
-            device = 'mps' if torch.backends.mps.is_available() else ('cuda' if torch.cuda.is_available() else 'cpu')
-            half = device == 'cuda'
-            overrides = {
-                'conf': 0.25, 'task': "segment", 'mode': "predict",
-                'model': SAM_MODEL_PATH, 'device': device, 'half': half, 'save': False, 'verbose': False
-            }
-            if device == 'cuda':
-                overrides['batch'] = 1
-                overrides['stream_buffer'] = False
-            elif device == 'mps':
-                overrides['half'] = True
-                overrides['amp'] = True
-                overrides['stream_buffer'] = True
-
-            yield 'data: ' + json.dumps({'type': 'progress', 'msg': '加载模型...'}) + '\n\n'
-
+            overrides, device = get_sam_overrides(device='auto', model_path=SAM_MODEL_PATH)
             use_semantic = bool(find_list)
+            
             if use_semantic:
                 try:
-                    _patch_sam3_video_semantic()
+                    patch_sam3_video_semantic()
                     from ultralytics.models.sam import SAM3VideoSemanticPredictor
                     predictor = SAM3VideoSemanticPredictor(overrides=overrides)
                 except Exception:
@@ -332,7 +108,8 @@ def run_annotate():
                 predictor = SAM3VideoPredictor(overrides=overrides)
 
             if bboxes:
-                # 有bbox时用视频路径 + bboxes作为提示
+                src_dst = SRC_VIDEO_DIR / "input_source.mp4"
+                shutil.copy2(src_video, str(src_dst))
                 source = str(src_dst)
                 predictor_args = {'source': source, 'stream': True, 'bboxes': bboxes, 'labels': [1] * len(bboxes)}
             else:
@@ -340,6 +117,8 @@ def run_annotate():
                 predictor_args = {'source': source, 'stream': True}
                 if find_list:
                     predictor_args['text'] = find_list
+
+            yield 'data: ' + json.dumps({'type': 'progress', 'msg': '加载模型...'}) + '\n\n'
 
             from annotate_video import merge_masks_in_frame, TrackManager
             track_manager = TrackManager(iou_threshold=iou)
@@ -349,14 +128,7 @@ def run_annotate():
             total = int(cap_cnt.get(cv2.CAP_PROP_FRAME_COUNT))
             cap_cnt.release()
 
-            coco_data = {
-                'info': {
-                    'fps': fps, 'width': width, 'height': height,
-                    'fourcc': fourcc_str, 'FIND': find_list
-                },
-                'images': [], 'annotations': [], 'categories': []
-            }
-
+            coco_data = {'info': {'fps': fps, 'width': width, 'height': height, 'fourcc': fourcc_str, 'FIND': find_list}, 'images': [], 'annotations': [], 'categories': []}
             results = predictor(**predictor_args)
 
             frame_count = 0
@@ -375,11 +147,7 @@ def run_annotate():
                     orig_img = cv2.cvtColor(orig_img, cv2.COLOR_BGRA2BGR)
 
                 cv2.imwrite(str(frames_dir / f"frame_{frame_count:06d}.jpg"), orig_img)
-                coco_data['images'].append({
-                    'id': frame_count,
-                    'file_name': f"frame_{frame_count:06d}.jpg",
-                    'width': width, 'height': height
-                })
+                coco_data['images'].append({'id': frame_count, 'file_name': f"frame_{frame_count:06d}.jpg", 'width': width, 'height': height})
 
                 frame_anns = []
                 masks_attr = getattr(r, 'masks', None)
@@ -422,11 +190,7 @@ def run_annotate():
                                     area = cv2.contourArea(cnt)
                                     tid = tids[idx] if idx < len(tids) else ann_id_counter[0]
                                     conf = float(confs[idx]) if confs is not None and idx < len(confs) else float(m.max())
-                                    ann = {
-                                        'id': ann_id_counter[0], 'track_id': tid, 'image_id': frame_count,
-                                        'category_id': tid, 'bbox': b, 'area': float(area),
-                                        'segmentation': [poly], 'iscrowd': 0, 'confidence': conf
-                                    }
+                                    ann = {'id': ann_id_counter[0], 'track_id': tid, 'image_id': frame_count, 'category_id': tid, 'bbox': b, 'area': float(area), 'segmentation': [poly], 'iscrowd': 0, 'confidence': conf}
                                     coco_data['annotations'].append(ann)
                                     frame_anns.append(ann)
                                     ann_id_counter[0] += 1
@@ -443,13 +207,7 @@ def run_annotate():
                         mb = (mn > 0.5).astype(np.uint8)
                         contours, _ = cv2.findContours(mb, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                         debug_contours += len(contours)
-                yield 'data: ' + json.dumps({
-                    'type': 'progress',
-                    'frame': frame_count,
-                    'total': total,
-                    'percent': int(frame_count / max(total, 1) * 100),
-                    'msg': f'帧 {frame_count}/{total}: contours={debug_contours}, annotations={len(frame_anns)}'
-                }) + '\n\n'
+                yield 'data: ' + json.dumps({'type': 'progress', 'frame': frame_count, 'total': total, 'percent': int(frame_count / max(total, 1) * 100), 'msg': f'帧 {frame_count}/{total}: contours={debug_contours}, annotations={len(frame_anns)}'}) + '\n\n'
 
             with open(temp_data / 'annotations.json', 'w') as f_out:
                 json.dump(coco_data, f_out)
@@ -464,54 +222,37 @@ def run_annotate():
 
 
 # ==================== 查看器 ====================
-
-
 @app.route('/api/show_viewer', methods=['POST'])
 def show_viewer():
     """将temp_data拷贝到temp_data_mid，应用trace_id变更"""
-    temp_data = TEMP_DATA_DIR
-    if not temp_data.exists():
+    from app_utils import copy_temp_data, apply_trace_id_mappings, TEMP_DATA_DIR, TEMP_DATA_MID_DIR
+    
+    if not TEMP_DATA_DIR.exists():
         return jsonify({'error': 'temp_data 不存在'}), 400
-
-    if TEMP_DATA_MID_DIR.exists():
-        shutil.rmtree(TEMP_DATA_MID_DIR)
-    shutil.copytree(temp_data, TEMP_DATA_MID_DIR)
 
     data = request.json or {}
     mappings = data.get('trace_id_changes', [])
+    
+    copy_temp_data(TEMP_DATA_DIR, TEMP_DATA_MID_DIR)
+    
     if mappings:
-        _apply_mappings(mappings)
+        ml = []
+        for m in mappings:
+            parts = m.replace("ID:", "").split("→")
+            if len(parts) == 2:
+                try:
+                    ml.append((int(parts[0].strip()), int(parts[1].strip())))
+                except Exception:
+                    pass
+        if ml:
+            apply_trace_id_mappings(ml)
         state['mappings'] = mappings
 
     frames = sorted((TEMP_DATA_MID_DIR / 'frames').glob('*.jpg'))
     return jsonify({'frames': len(frames), 'total': len(frames)})
 
 
-def _apply_mappings(mappings):
-    """将trace_id变更应用到temp_data_mid的标签和annotations.json"""
-    from app_utils import apply_trace_id_mappings, TEMP_DATA_MID_DIR
-    
-    mappings_file = TEMP_DATA_MID_DIR / "trace_id_changes.json"
-    mappings_file.parent.mkdir(parents=True, exist_ok=True)
-    with open(mappings_file, 'w') as f:
-        json.dump(mappings, f)
-
-    ml = []
-    for m in mappings:
-        parts = m.replace("ID:", "").split("→")
-        if len(parts) == 2:
-            try:
-                ml.append((int(parts[0].strip()), int(parts[1].strip())))
-            except Exception:
-                pass
-
-    if ml:
-        apply_trace_id_mappings(ml)
-
-
 # ==================== 帧渲染 ====================
-
-
 @app.route('/api/get_frame/<int:idx>')
 def get_frame(idx):
     fd = TEMP_DATA_MID_DIR / "frames"
@@ -561,15 +302,10 @@ def get_video_info_route():
     frames = sorted((TEMP_DATA_MID_DIR / 'frames').glob('*.jpg'))
     with open(af) as f:
         coco = json.load(f)
-    return jsonify({
-        'total': len(frames),
-        'annotations': coco.get('annotations', [])
-    })
+    return jsonify({'total': len(frames), 'annotations': coco.get('annotations', [])})
 
 
 # ==================== 双向标注 ====================
-
-
 @app.route('/api/bidirectional', methods=['POST'])
 def bidirectional():
     from app_utils import run_bidirectional_inject, first_available_track_id, TEMP_DATA_MID_DIR
@@ -593,33 +329,18 @@ def bidirectional():
         first_id = first_available_track_id(coco, 1000000)
         total = len(list((TEMP_DATA_MID_DIR / "frames").glob('*.jpg')))
         
-        success, msg = run_bidirectional_inject(
-            prompt_idx=prompt_idx,
-            total_frames=total,
-            bboxes=bboxes,
-            forward_enabled=forward_en,
-            backward_enabled=backward_en,
-            iou_threshold=iou,
-            merge_iou_threshold=merge_iou,
-            first_id=first_id,
-            temp_mid_dir=TEMP_DATA_MID_DIR
-        )
+        success, msg = run_bidirectional_inject(prompt_idx=prompt_idx, total_frames=total, bboxes=bboxes, forward_enabled=forward_en, backward_enabled=backward_en, iou_threshold=iou, merge_iou_threshold=merge_iou, first_id=first_id, temp_mid_dir=TEMP_DATA_MID_DIR)
         
-        if success:
-            return jsonify({'msg': msg, 'FIRST_ID': first_id})
-        else:
-            return jsonify({'error': msg}), 400
+        return jsonify({'msg': msg, 'FIRST_ID': first_id}) if success else jsonify({'error': msg}), 400
     except Exception as e:
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 
 # ==================== 提示帧标注（单帧） ====================
-
-
 @app.route('/api/prompt_frame', methods=['POST'])
 def prompt_frame():
-    from app_utils import run_prompt_frame, save_frame_annotations, first_available_track_id, TEMP_DATA_MID_DIR
+    from app_utils import run_prompt_frame, save_frame_annotations, first_available_track_id, get_sam_overrides, TEMP_DATA_MID_DIR
     
     data = request.json
     prompt_idx = data.get('prompt_frame_idx', 0)
@@ -643,8 +364,6 @@ def prompt_frame():
             coco = {'info': {}, 'images': [], 'annotations': [], 'categories': []}
         
         first_id = first_available_track_id(coco, 1000000)
-        
-        from app_utils import get_sam_overrides
         overrides, device = get_sam_overrides(device='auto', model_path=SAM_MODEL_PATH)
         annotations, new_first_id = run_prompt_frame(sf_path, bboxes, find_list, overrides, first_id)
         
@@ -658,12 +377,9 @@ def prompt_frame():
 
 
 # ==================== 导出 ====================
-
-
 @app.route('/api/export', methods=['POST'])
 def export_route():
-    """导出标注到temp_data_post，带类别映射和track_id过滤(track_id>999998)"""
-    from app_utils import export_to_temp_data_post
+    from app_utils import export_to_temp_data_post, TEMP_DATA_MID_DIR
     
     data = request.json or {}
     cat_maps = data.get('category_mappings', ['Detect'] * 8)
@@ -676,19 +392,37 @@ def export_route():
 
 
 # ==================== Trace ID 管理 ====================
-
-
 @app.route('/api/save_mappings', methods=['POST'])
 def save_mappings():
+    from app_utils import apply_trace_id_mappings, TEMP_DATA_MID_DIR
+    
     data = request.json
     mappings = data.get('mappings', [])
-    _apply_mappings(mappings)
+    
+    mappings_file = TEMP_DATA_MID_DIR / "trace_id_changes.json"
+    mappings_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(mappings_file, 'w') as f:
+        json.dump(mappings, f)
+
+    ml = []
+    for m in mappings:
+        parts = m.replace("ID:", "").split("→")
+        if len(parts) == 2:
+            try:
+                ml.append((int(parts[0].strip()), int(parts[1].strip())))
+            except Exception:
+                pass
+    if ml:
+        apply_trace_id_mappings(ml)
+    
     state['mappings'] = mappings
     return jsonify({'msg': '已保存'})
 
 
 @app.route('/api/load_mappings')
 def load_mappings():
+    from app_utils import TEMP_DATA_MID_DIR
+    
     mf = TEMP_DATA_MID_DIR / "trace_id_changes.json"
     if mf.exists():
         with open(mf) as f:
@@ -698,7 +432,6 @@ def load_mappings():
 
 @app.route('/api/delete_track_id', methods=['POST'])
 def delete_track_id():
-    """删除指定track_id的标注：将标签中的track_id改为9999"""
     from app_utils import mark_track_ids_deleted
     
     data = request.json
@@ -711,11 +444,10 @@ def delete_track_id():
 
 
 # ==================== 保存视频 + OBS上传 ====================
-
-
 @app.route('/api/save_video', methods=['POST'])
 def save_video():
-    """从temp_data_post生成标注视频并上传OBS"""
+    from app_utils import TEMP_DATA_POST_DIR, DST_VIDEO_DIR
+    
     data = request.json or {}
     alpha = float(data.get('alpha', 0.5))
     color_index = int(data.get('color_index', 0))
@@ -768,7 +500,6 @@ def save_video():
                 if not bbox:
                     continue
 
-                # 使用调色板颜色：所选颜色用于主标注，其他用palette
                 tid = ann.get('track_id', 0)
                 if tid == 1000000:
                     color = PALETTE_COLORS[color_index]
@@ -784,10 +515,9 @@ def save_video():
                     cv2.fillPoly(overlay, [pts], color)
                     cv2.polylines(overlay, [pts], True, (255, 255, 255), 2)
 
-                x, y, w, h = [int(v) for v in bbox]
-                cv2.rectangle(overlay, (x, y), (x + w, y + h), color, 2)
-                cv2.putText(overlay, f"{cat} {conf:.2f}", (x, y - 5),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+                x, y, bw, bh = [int(v) for v in bbox]
+                cv2.rectangle(overlay, (x, y), (x + bw, y + bh), color, 2)
+                cv2.putText(overlay, f"{cat} {conf:.2f}", (x, y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
 
             cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
 
@@ -795,36 +525,20 @@ def save_video():
 
     out.release()
 
-    # 上传到OBS
     upload_result = ""
     try:
-        result = subprocess.run(
-            ['curl', '--upload-file', str(output_path), 'http://obs.dimond.top/dst.mp4'],
-            capture_output=True, text=True, timeout=120
-        )
-        if result.returncode == 0:
-            upload_result = "上传成功"
-        else:
-            upload_result = f"上传失败: {result.stderr[:200]}"
+        result = subprocess.run(['curl', '--upload-file', str(output_path), 'http://obs.dimond.top/dst.mp4'], capture_output=True, text=True, timeout=120)
+        upload_result = "上传成功" if result.returncode == 0 else f"上传失败: {result.stderr[:200]}"
     except Exception as e:
         upload_result = f"上传失败: {str(e)}"
 
-    return jsonify({
-        'msg': f'视频已保存: {output_path}',
-        'path': str(output_path),
-        'upload': upload_result
-    })
+    return jsonify({'msg': f'视频已保存: {output_path}', 'path': str(output_path), 'upload': upload_result})
 
 
-# ==================== 围栏 (Fence) 管理 ====================
-
-
+# ==================== 围栏管理 ====================
 @app.route('/api/fence/state', methods=['GET'])
 def get_fence_state():
-    return jsonify({
-        'active': state.get('fence_mode', False),
-        'fences': state.get('fences', [])
-    })
+    return jsonify({'active': state.get('fence_mode', False), 'fences': state.get('fences', [])})
 
 
 @app.route('/api/fence/toggle', methods=['POST'])
@@ -854,25 +568,23 @@ def add_fence_point():
     return jsonify({'fences': fences})
 
 
-# ==================== 获取帧上的标注(用于点击检测) ====================
-
-
+# ==================== 获取帧标注（用于点击检测） ====================
 @app.route('/api/frame_annotations/<int:idx>')
 def get_frame_annotations(idx):
+    from app_utils import load_frame_annotations, TEMP_DATA_MID_DIR
+    
     ld = TEMP_DATA_MID_DIR / "labels"
-    lp = ld / f"frame_{idx:06d}.json"
-    if lp.exists():
-        with open(lp) as f:
-            anns = json.load(f)
-        return jsonify({'annotations': anns})
-    return jsonify({'annotations': []})
+    anns = load_frame_annotations(idx, ld)
+    return jsonify({'annotations': anns})
 
 
+# ==================== Debug日志 ====================
 @app.route('/api/debug_log', methods=['GET', 'POST'])
 def debug_log():
     logs_dir = Path("logs")
     logs_dir.mkdir(exist_ok=True)
     log_file = logs_dir / "debug.log"
+    
     if request.method == 'GET':
         if not log_file.exists():
             log_file.write_text('')
