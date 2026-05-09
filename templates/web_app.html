@@ -606,12 +606,12 @@ async function loadFrame(idx) {
     }
     canvas.width = data.width || 800;
     canvas.height = data.height || 600;
+    const zoom = parseInt($('zoomSlider').value) / 100;
+    canvas.style.width = (canvas.width * zoom) + 'px';
+    canvas.style.height = (canvas.height * zoom) + 'px';
     const img = new Image();
     img.onload = () => {
       addDebugLog('图片加载成功: ' + img.naturalWidth + 'x' + img.naturalHeight, 'info');
-      const zoom = parseInt($('zoomSlider').value) / 100;
-      canvas.style.width = (canvas.width * zoom) + 'px';
-      canvas.style.height = (canvas.height * zoom) + 'px';
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       renderGreenPoints();

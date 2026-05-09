@@ -934,3 +934,147 @@ def process_annotation_stream(source, predictor_args, iou=0.5, merge_iou=0.5, he
             yield_func(frame_count, total, f'帧 {frame_count}/{total}: contours={debug_contours}, annotations={len(frame_anns)}')
     
     return coco_data, frame_count
+
+
+def run_video_annotate(src_video, bboxes, find_list, overrides, use_semantic, iou, merge_iou, src_video_dir, temp_data_dir, yield_func=None):
+    """执行视频标注（SSE版，从app.py的annotate endpoint移植）
+    
+    Returns:
+        (coco_data, frame_count)
+    """
+    from annotate_video import merge_masks_in_frame, TrackManager
+    
+    if temp_data_dir.exists():
+        shutil.rmtree(temp_data_dir)
+    temp_data_dir.mkdir(parents=True, exist_ok=True)
+    frames_dir = temp_data_dir / "frames"
+    labels_dir = temp_data_dir / "labels"
+    frames_dir.mkdir(exist_ok=True)
+    labels_dir.mkdir(exist_ok=True)
+
+    cap = cv2.VideoCapture(src_video)
+    fourcc_int = int(cap.get(cv2.CAP_PROP_FOURCC))
+    fourcc_str = ''.join([chr((fourcc_int >> 24) & 0xFF), chr((fourcc_int >> 16) & 0xFF), chr((fourcc_int >> 8) & 0xFF), chr(fourcc_int & 0xFF)])
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    cap.release()
+
+    if use_semantic:
+        try:
+            patch_sam3_video_semantic()
+            from ultralytics.models.sam import SAM3VideoSemanticPredictor
+            predictor = SAM3VideoSemanticPredictor(overrides=overrides)
+        except Exception:
+            from ultralytics.models.sam import SAM3VideoPredictor
+            predictor = SAM3VideoPredictor(overrides=overrides)
+            use_semantic = False
+    else:
+        from ultralytics.models.sam import SAM3VideoPredictor
+        predictor = SAM3VideoPredictor(overrides=overrides)
+
+    if bboxes:
+        src_dst = src_video_dir / "input_source.mp4"
+        shutil.copy2(src_video, str(src_dst))
+        source = str(src_dst)
+        predictor_args = {'source': source, 'stream': True, 'bboxes': bboxes, 'labels': [1] * len(bboxes)}
+    else:
+        source = src_video
+        predictor_args = {'source': source, 'stream': True}
+        if find_list:
+            predictor_args['text'] = find_list
+
+    track_manager = TrackManager(iou_threshold=iou)
+    ann_id_counter = [0]
+
+    cap_cnt = cv2.VideoCapture(source)
+    total = int(cap_cnt.get(cv2.CAP_PROP_FRAME_COUNT))
+    cap_cnt.release()
+
+    coco_data = {'info': {'fps': fps, 'width': width, 'height': height, 'fourcc': fourcc_str, 'FIND': find_list}, 'images': [], 'annotations': [], 'categories': []}
+    results = predictor(**predictor_args)
+
+    frame_count = 0
+    for r in results:
+        orig_img = getattr(r, 'orig_img', None)
+        if orig_img is None:
+            ct = cv2.VideoCapture(source)
+            ct.set(cv2.CAP_PROP_POS_FRAMES, frame_count)
+            _, orig_img = ct.read()
+            ct.release()
+        if orig_img is None:
+            orig_img = np.zeros((height, width, 3), dtype=np.uint8)
+        elif len(orig_img.shape) == 2:
+            orig_img = cv2.cvtColor(orig_img, cv2.COLOR_GRAY2BGR)
+        elif orig_img.shape[2] == 4:
+            orig_img = cv2.cvtColor(orig_img, cv2.COLOR_BGRA2BGR)
+
+        cv2.imwrite(str(frames_dir / f"frame_{frame_count:06d}.jpg"), orig_img)
+        coco_data['images'].append({'id': frame_count, 'file_name': f"frame_{frame_count:06d}.jpg", 'width': width, 'height': height})
+
+        frame_anns = []
+        masks_attr = getattr(r, 'masks', None)
+        if masks_attr is not None and masks_attr.data is not None:
+            mt = masks_attr.data
+            confs = None
+            boxes_attr = getattr(r, 'boxes', None)
+            if boxes_attr is not None and hasattr(boxes_attr, 'conf'):
+                confs = boxes_attr.conf.cpu().numpy()
+
+            curr_masks = []
+            curr_boxes = []
+            for m in mt:
+                mn = m.cpu().numpy() if hasattr(m, 'cpu') else np.array(m)
+                if mn.shape[-2:] != (height, width):
+                    mn = cv2.resize(mn.astype(np.float32), (width, height))
+                mb = (mn > 0.5).astype(np.uint8)
+                contours, _ = cv2.findContours(mb, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                for cnt in contours:
+                    if len(cnt) >= 3:
+                        poly = cnt.squeeze().flatten().tolist()
+                        xs, ys = poly[0::2], poly[1::2]
+                        x1, x2 = min(xs), max(xs)
+                        y1, y2 = min(ys), max(ys)
+                        bbox = [float(x1), float(y1), float(x2 - x1), float(y2 - y1)]
+                        area = cv2.contourArea(cnt)
+                        if area > 0:
+                            curr_masks.append(mb)
+                            curr_boxes.append(bbox)
+
+            if curr_masks:
+                curr_masks, curr_boxes = merge_masks_in_frame(curr_masks, curr_boxes, merge_iou)
+                tids = track_manager.update(curr_masks, curr_boxes, frame_count)
+                for idx, (m, b) in enumerate(zip(curr_masks, curr_boxes)):
+                    mb = (m > 0.5).astype(np.uint8)
+                    contours, _ = cv2.findContours(mb, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                    for cnt in contours:
+                        if len(cnt) >= 3:
+                            poly = cnt.squeeze().flatten().tolist()
+                            area = cv2.contourArea(cnt)
+                            tid = tids[idx] if idx < len(tids) else ann_id_counter[0]
+                            conf = float(confs[idx]) if confs is not None and idx < len(confs) else float(m.max())
+                            ann = {'id': ann_id_counter[0], 'track_id': tid, 'image_id': frame_count, 'category_id': tid, 'bbox': b, 'area': float(area), 'segmentation': [poly], 'iscrowd': 0, 'confidence': conf}
+                            coco_data['annotations'].append(ann)
+                            frame_anns.append(ann)
+                            ann_id_counter[0] += 1
+
+        with open(labels_dir / f"frame_{frame_count:06d}.json", 'w') as f_out:
+            json.dump(frame_anns, f_out)
+
+        frame_count += 1
+        debug_contours = 0
+        if masks_attr is not None and masks_attr.data is not None:
+            mt = masks_attr.data
+            for m in mt:
+                mn = m.cpu().numpy() if hasattr(m, 'cpu') else np.array(m)
+                mb = (mn > 0.5).astype(np.uint8)
+                contours, _ = cv2.findContours(mb, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                debug_contours += len(contours)
+        
+        if yield_func:
+            yield_func(frame_count, total, f'帧 {frame_count}/{total}: contours={debug_contours}, annotations={len(frame_anns)}')
+
+    with open(temp_data_dir / 'annotations.json', 'w') as f_out:
+        json.dump(coco_data, f_out)
+
+    return coco_data, frame_count
