@@ -908,14 +908,15 @@ def prompt_frame():
                     cm, cb = merge_masks_in_frame(cm, cb, 0.5)
                     for idx, (m, b) in enumerate(zip(cm, cb)):
                         track_id = first_id + idx
-                        conf_val = float(confs[idx]) if confs is not None and idx < len(confs) else float(m.max())
+                        conf_val = float(confs[idx]) if confs is not None and idx < len(confs) else float(m.max()) if hasattr(m, 'max') else 1.0
+                        mb = (m > 0.5).astype(np.uint8) if m.dtype != np.uint8 else m
                         ann = {
                             'id': len(coco.get('annotations', [])) + idx + 1,
                             'track_id': track_id,
                             'image_id': prompt_idx,
                             'category_id': track_id,
                             'bbox': b,
-                            'area': float(cv2.contourArea(m.astype(np.uint8))),
+                            'area': float(cv2.contourArea(mb)),
                             'segmentation': [poly],
                             'iscrowd': 0,
                             'confidence': conf_val
