@@ -489,6 +489,8 @@ def show_viewer():
 
 def _apply_mappings(mappings):
     """将trace_id变更应用到temp_data_mid的标签和annotations.json"""
+    from app_utils import apply_trace_id_mappings, TEMP_DATA_MID_DIR
+    
     mappings_file = TEMP_DATA_MID_DIR / "trace_id_changes.json"
     mappings_file.parent.mkdir(parents=True, exist_ok=True)
     with open(mappings_file, 'w') as f:
@@ -503,36 +505,8 @@ def _apply_mappings(mappings):
             except Exception:
                 pass
 
-    if not ml:
-        return
-
-    ld = TEMP_DATA_MID_DIR / "labels"
-    for lf in sorted(ld.glob("frame_*.json")):
-        with open(lf) as f:
-            fa = json.load(f)
-        changed = False
-        for a in fa:
-            for o, n in ml:
-                if a.get('track_id') == o:
-                    a['track_id'] = n
-                    changed = True
-        if changed:
-            with open(lf, 'w') as f:
-                json.dump(fa, f)
-
-    af = TEMP_DATA_MID_DIR / "annotations.json"
-    if af.exists():
-        with open(af) as f:
-            coco = json.load(f)
-        changed = False
-        for a in coco.get('annotations', []):
-            for o, n in ml:
-                if a.get('track_id') == o:
-                    a['track_id'] = n
-                    changed = True
-        if changed:
-            with open(af, 'w') as f:
-                json.dump(coco, f)
+    if ml:
+        apply_trace_id_mappings(ml)
 
 
 # ==================== 帧渲染 ====================
@@ -811,7 +785,7 @@ def prompt_frame():
     find_list = [s.strip() for s in items_text.split(',') if s.strip()]
 
     try:
-        from app_utils import get_sam_overrides, run_prompt_frame, save_frame_annotations, _first_available_track_id
+        from app_utils import get_sam_overrides, run_prompt_frame, save_frame_annotations, first_available_track_id
         
         mf = TEMP_DATA_MID_DIR / "frames"
         ml_dir = TEMP_DATA_MID_DIR / "labels"
@@ -829,7 +803,7 @@ def prompt_frame():
         else:
             coco = {'info': {}, 'images': [], 'annotations': [], 'categories': []}
         
-        first_id = _first_available_track_id(coco, 1000000)
+        first_id = first_available_track_id(coco, 1000000)
         
         annotations, new_first_id = run_prompt_frame(sf_path, bboxes, find_list, overrides, first_id)
         
@@ -848,72 +822,16 @@ def prompt_frame():
 @app.route('/api/export', methods=['POST'])
 def export_route():
     """导出标注到temp_data_post，带类别映射和track_id过滤(track_id>999998)"""
+    from app_utils import export_to_temp_data_post
+    
     data = request.json or {}
     cat_maps = data.get('category_mappings', ['Detect'] * 8)
 
     if not TEMP_DATA_MID_DIR.exists():
         return jsonify({'error': 'temp_data_mid 不存在'}), 400
 
-    af = TEMP_DATA_MID_DIR / "annotations.json"
-    with open(af) as f:
-        coco = json.load(f)
-
-    total = len(coco.get('images', []))
-    out = TEMP_DATA_POST_DIR
-    if out.exists():
-        shutil.rmtree(out)
-    out.mkdir(parents=True)
-    old = out / "labels"
-    ofram = out / "frames"
-    old.mkdir(parents=True)
-    ofram.mkdir(parents=True)
-
-    ld = TEMP_DATA_MID_DIR / "labels"
-    fd = TEMP_DATA_MID_DIR / "frames"
-
-    for i in range(total):
-        if (fd / f"frame_{i:06d}.jpg").exists():
-            shutil.copy2(fd / f"frame_{i:06d}.jpg", ofram / f"frame_{i:06d}.jpg")
-        lp = ld / f"frame_{i:06d}.json"
-        olp = old / f"frame_{i:06d}.json"
-        if lp.exists():
-            with open(lp) as f:
-                anns = json.load(f)
-            fa = []
-            for ann in anns:
-                tid = ann.get('track_id', 0)
-                if tid >= 999999:
-                    idx = tid - 1000000
-                    if 0 <= idx <= 7:
-                        ann['category'] = cat_maps[idx] if idx < len(cat_maps) else 'Detect'
-                        ann['category_id'] = idx
-                    else:
-                        ann['category'] = 'Detect'
-                        ann['category_id'] = tid - 1000000
-                    fa.append(ann)
-            with open(olp, 'w') as f:
-                json.dump(fa, f)
-
-    # 写入导出后的coco
-    export_annotations = []
-    for ann in coco.get('annotations', []):
-        tid = ann.get('track_id', 0)
-        if tid >= 999999:
-            idx = tid - 1000000
-            if 0 <= idx <= 7:
-                ann['category'] = cat_maps[idx] if idx < len(cat_maps) else 'Detect'
-                ann['category_id'] = idx
-            else:
-                ann['category'] = 'Detect'
-                ann['category_id'] = tid - 1000000
-            export_annotations.append(ann)
-    coco['annotations'] = export_annotations
-    if 'categories' not in coco:
-        coco['categories'] = []
-    with open(out / 'annotations.json', 'w') as f:
-        json.dump(coco, f)
-
-    return jsonify({'msg': f'导出完成，{total}帧'})
+    success, msg = export_to_temp_data_post(cat_maps)
+    return jsonify({'msg': msg})
 
 
 # ==================== Trace ID 管理 ====================
@@ -940,40 +858,14 @@ def load_mappings():
 @app.route('/api/delete_track_id', methods=['POST'])
 def delete_track_id():
     """删除指定track_id的标注：将标签中的track_id改为9999"""
+    from app_utils import mark_track_ids_deleted
+    
     data = request.json
     track_id = int(data.get('track_id', 0))
     if track_id <= 0:
         return jsonify({'error': '无效track_id'}), 400
 
-    ld = TEMP_DATA_MID_DIR / "labels"
-    count = 0
-    for lf in sorted(ld.glob("frame_*.json")):
-        with open(lf) as f:
-            fa = json.load(f)
-        changed = False
-        for a in fa:
-            if a.get('track_id') == track_id:
-                a['track_id'] = 9999
-                changed = True
-        if changed:
-            with open(lf, 'w') as f:
-                json.dump(fa, f)
-            count += 1
-
-    # 也更新annotations.json
-    af = TEMP_DATA_MID_DIR / "annotations.json"
-    if af.exists():
-        with open(af) as f:
-            coco = json.load(f)
-        changed = False
-        for a in coco.get('annotations', []):
-            if a.get('track_id') == track_id:
-                a['track_id'] = 9999
-                changed = True
-        if changed:
-            with open(af, 'w') as f:
-                json.dump(coco, f)
-
+    count = mark_track_ids_deleted([track_id])
     return jsonify({'msg': f'已删除 track_id={track_id}，影响 {count} 帧'})
 
 
