@@ -509,3 +509,241 @@ def extract_video_clip_from_frames(frames_dir, start_idx, total_frames, output_p
     
     out.release()
     return True, f"视频片段已提取: {output_path} ({frame_count}帧)"
+
+
+# ==================== 双向标注 ====================
+def process_clip_for_bidirectional(start_frame, end_frame, forward, prompt_bboxes, 
+                                   mid_frames_dir, src_labels_dir, temp_inject_dir,
+                                   predictor, width, height, first_id,
+                                   iou_threshold=0.5, merge_iou_threshold=0.5):
+    """处理视频片段进行双向标注（从app.py的process_clip复制）"""
+    from annotate_video import merge_masks_in_frame, TrackManager
+    
+    direction = "向前" if forward else "向后"
+    print(f"\n[DEBUG {direction}] === 进入 process_clip ===")
+    print(f"[DEBUG {direction}] start_frame={start_frame}, end_frame={end_frame}, 总帧数={end_frame - start_frame}")
+
+    if start_frame >= end_frame:
+        print(f"[DEBUG {direction}] start_frame >= end_frame, 直接返回空列表")
+        return [], 0
+
+    temp_frames = temp_inject_dir / ("forward" if forward else "backward")
+    temp_frames.mkdir(parents=True, exist_ok=True)
+
+    frame_count = end_frame - start_frame
+    print(f"[DEBUG {direction}] 正在复制 {frame_count} 帧到临时目录...")
+    
+    if forward:
+        for i in range(start_frame, end_frame):
+            src = mid_frames_dir / f"frame_{i:06d}.jpg"
+            dst = temp_frames / f"frame_{i - start_frame:06d}.jpg"
+            if src.exists():
+                shutil.copy2(src, dst)
+            else:
+                print(f"[DEBUG {direction}] ⚠️ 帧文件不存在: {src}")
+    else:
+        for rev_idx, i in enumerate(range(end_frame - 1, start_frame - 1, -1)):
+            src = mid_frames_dir / f"frame_{i:06d}.jpg"
+            dst = temp_frames / f"frame_{rev_idx:06d}.jpg"
+            if src.exists():
+                shutil.copy2(src, dst)
+            else:
+                print(f"[DEBUG {direction}] ⚠️ 帧文件不存在: {src}")
+    print(f"[DEBUG {direction}] ✓ 帧复制完成: {frame_count} 帧")
+
+    clip_path = str(temp_frames / "clip.mp4")
+    print(f"[DEBUG {direction}] 正在生成视频片段: {clip_path}")
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    fps_cap = 30
+    out = cv2.VideoWriter(clip_path, fourcc, fps_cap, (width, height))
+    frames_written = 0
+    
+    if forward:
+        for i in range(start_frame, end_frame):
+            frame = cv2.imread(str(mid_frames_dir / f"frame_{i:06d}.jpg"))
+            if frame is not None:
+                out.write(frame)
+                frames_written += 1
+    else:
+        for rev_idx, i in enumerate(range(end_frame - 1, start_frame - 1, -1)):
+            frame = cv2.imread(str(mid_frames_dir / f"frame_{i:06d}.jpg"))
+            if frame is not None:
+                out.write(frame)
+                frames_written += 1
+    out.release()
+    print(f"[DEBUG {direction}] ✓ 视频片段生成完成: {frames_written} 帧")
+
+    print(f"[DEBUG {direction}] 正在加载 SAM3VideoPredictor 处理...")
+    print(f"[DEBUG {direction}] prompt_bboxes={prompt_bboxes}")
+    
+    if prompt_bboxes:
+        results = predictor(source=clip_path, stream=True, bboxes=prompt_bboxes, labels=[1]*len(prompt_bboxes))
+    else:
+        results = predictor(source=clip_path, stream=True)
+        print(f"[DEBUG {direction}] ⚠️ prompt_bboxes为空，无法进行SAM3VideoPredictor分割！")
+    
+    manager = TrackManager(iou_threshold=iou_threshold)
+    manager.next_track_id = first_id
+    ann_id = first_id
+
+    result_anns = []
+    frame_idx = 0
+    total = end_frame
+
+    print(f"[DEBUG {direction}] 开始遍历 predictor 结果...")
+    for r in results:
+        orig_img = r.orig_img if hasattr(r, 'orig_img') and r.orig_img is not None else None
+        if orig_img is None:
+            cap_t = cv2.VideoCapture(clip_path)
+            cap_t.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+            ret_t, orig_img = cap_t.read()
+            cap_t.release()
+            if not ret_t:
+                orig_img = np.zeros((height, width, 3), dtype=np.uint8)
+        else:
+            if len(orig_img.shape) == 2:
+                orig_img = cv2.cvtColor(orig_img, cv2.COLOR_GRAY2BGR)
+            elif orig_img.shape[2] == 4:
+                orig_img = cv2.cvtColor(orig_img, cv2.COLOR_BGRA2BGR)
+        cv2.imwrite(str(temp_frames / f"frame_{frame_idx:06d}.jpg"), orig_img)
+
+        frame_anns = []
+        has_masks = hasattr(r, 'masks') and r.masks is not None
+
+        if has_masks:
+            masks_tensor = r.masks.data
+            if masks_tensor is not None and len(masks_tensor) > 0:
+                confs = None
+                if hasattr(r, 'boxes') and r.boxes is not None and hasattr(r.boxes, 'conf'):
+                    confs = r.boxes.conf.cpu().numpy()
+
+                cur_masks = []
+                cur_bboxes = []
+                for mask in masks_tensor:
+                    mask_np = mask.cpu().numpy() if hasattr(mask, 'numpy') else np.array(mask)
+                    mask_binary = (mask_np > 0.5).astype(np.uint8)
+                    contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                    for cnt in contours:
+                        if len(cnt) >= 3:
+                            poly = cnt.squeeze().flatten().tolist()
+                            xs, ys = poly[0::2], poly[1::2]
+                            x1, x2 = min(xs), max(xs)
+                            y1, y2 = min(ys), max(ys)
+                            bb = [float(x1), float(y1), float(x2 - x1), float(y2 - y1)]
+                            area = cv2.contourArea(cnt)
+                            if area > 0:
+                                cur_masks.append(mask_binary)
+                                cur_bboxes.append(bb)
+
+                if cur_masks:
+                    cur_masks, cur_bboxes = merge_masks_in_frame(cur_masks, cur_bboxes, merge_iou_threshold)
+                    track_ids = manager.update(cur_masks, cur_bboxes, frame_idx)
+
+                    for idx, (m, bb) in enumerate(zip(cur_masks, cur_bboxes)):
+                        m_bin = (m > 0.5).astype(np.uint8)
+                        cnts2, _ = cv2.findContours(m_bin, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                        for cnt2 in cnts2:
+                            if len(cnt2) >= 3:
+                                poly2 = cnt2.squeeze().flatten().tolist()
+                                area2 = cv2.contourArea(cnt2)
+                                tid = track_ids[idx] if idx < len(track_ids) else ann_id
+                                conf = float(confs[idx]) if confs is not None and idx < len(confs) else 1.0
+                                if forward:
+                                    img_id = frame_idx + start_frame
+                                else:
+                                    img_id = end_frame - 1 - frame_idx
+                                ann = {
+                                    'id': ann_id, 'track_id': tid, 'image_id': img_id,
+                                    'category_id': tid, 'bbox': bb, 'area': float(area2),
+                                    'segmentation': [poly2], 'iscrowd': 0, 'confidence': conf,
+                                    'category': 'Detect'
+                                }
+                                result_anns.append(ann)
+                                frame_anns.append(ann)
+                                ann_id += 1
+
+        if forward:
+            orig_frame_idx = frame_idx + start_frame
+        else:
+            orig_frame_idx = end_frame - 1 - frame_idx
+        
+        if orig_frame_idx >= total:
+            frame_idx += 1
+            continue
+        
+        label_file = src_labels_dir / f"frame_{orig_frame_idx:06d}.json"
+        existing_anns = []
+        if label_file.exists():
+            with open(label_file) as f:
+                existing_anns = json.load(f)
+        merged_anns = existing_anns + frame_anns
+        with open(label_file, 'w') as f:
+            json.dump(merged_anns, f)
+        
+        frame_idx += 1
+
+    print(f"[DEBUG {direction}] === process_clip 完成 ===")
+    return result_anns, ann_id
+
+
+def run_bidirectional_inject(prompt_idx, total_frames, bboxes, forward_enabled=True, backward_enabled=True,
+                              iou_threshold=0.5, merge_iou_threshold=0.5, first_id=1000000,
+                              temp_mid_dir=None):
+    """执行双向标注（从app.py的do_bidirectional_inject复制）"""
+    from annotate_video import get_device, SAM_MODEL_PATH
+    from pathlib import Path as P
+    
+    temp_mid = P(temp_mid_dir) if temp_mid_dir else TEMP_DATA_MID_DIR
+    mid_frames_dir = temp_mid / "frames"
+    mid_labels_dir = temp_mid / "labels"
+    mid_annotations_file = temp_mid / "annotations.json"
+    
+    device, device_type = get_device()
+    half = device_type == 'cuda'
+    overrides = {
+        'conf': 0.25, 'task': "segment", 'mode': "predict",
+        'model': SAM_MODEL_PATH, 'device': device, 'half': half, 
+        'save': False, 'verbose': False
+    }
+    if device_type == 'cuda':
+        overrides['batch'] = 1
+        overrides['stream_buffer'] = False
+    elif device_type == 'mps':
+        overrides['half'] = True
+        overrides['amp'] = True
+        overrides['stream_buffer'] = True
+
+    from ultralytics.models.sam import SAM3VideoPredictor
+    predictor = SAM3VideoPredictor(overrides=overrides)
+
+    sample_frame = cv2.imread(str(mid_frames_dir / f"frame_{0:06d}.jpg"))
+    if sample_frame is None:
+        return False, "无法读取帧"
+    height, width = sample_frame.shape[:2]
+
+    print(f"=== 双向标注开始 === 提示帧: {prompt_idx}, 总帧数: {total_frames}, 前向={forward_enabled}, 后向={backward_enabled}, FIRST_ID={first_id}")
+
+    temp_inject = P("temp_inject")
+    temp_inject.mkdir(exist_ok=True)
+
+    forward_anns = []
+    backward_anns = []
+
+    if forward_enabled:
+        forward_anns, new_first_id = process_clip_for_bidirectional(
+            prompt_idx, total_frames, True, bboxes,
+            mid_frames_dir, mid_labels_dir, temp_inject,
+            predictor, width, height, first_id,
+            iou_threshold, merge_iou_threshold
+        )
+        first_id = new_first_id
+
+    if backward_enabled:
+        backward_anns, _ = process_clip_for_bidirectional(
+            0, prompt_idx, False, bboxes,
+            mid_frames_dir, mid_labels_dir, temp_inject,
+            predictor, width, height, first_id,
+            iou_threshold, merge_iou_threshold
+        )
+
+    return True, f"双向标注完成，前向{len(forward_anns)}条，后向{len(backward_anns)}条"
