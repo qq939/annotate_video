@@ -838,18 +838,33 @@ def prompt_frame():
             overrides['stream_buffer'] = True
 
         use_semantic = bool(find_list)
-        if use_semantic:
-            try:
-                _patch_sam3_video_semantic()
-                from ultralytics.models.sam import SAM3VideoSemanticPredictor
-                predictor = SAM3VideoSemanticPredictor(overrides=overrides)
-            except Exception:
-                from ultralytics.models.sam import SAM3VideoPredictor
-                predictor = SAM3VideoPredictor(overrides=overrides)
-                use_semantic = False
+        if bboxes and not use_semantic:
+            from ultralytics.models.sam import SAM3SemanticPredictor
+            predictor = SAM3SemanticPredictor(overrides=overrides)
+            pred_args = {'source': str(sf_path), 'bboxes': bboxes, 'labels': [1] * len(bboxes)}
+            if find_list:
+                pred_args['text'] = find_list
+            results = predictor(**pred_args)
+        elif use_semantic:
+            _patch_sam3_video_semantic()
+            from ultralytics.models.sam import SAM3VideoSemanticPredictor
+            predictor = SAM3VideoSemanticPredictor(overrides=overrides)
+            clip_path = str(sf_path) + '_clip.mp4'
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            out = cv2.VideoWriter(clip_path, fourcc, 30, (w, h))
+            out.write(sf)
+            out.release()
+            pred_args = {'source': clip_path, 'stream': True}
+            if bboxes:
+                pred_args['bboxes'] = bboxes
+                pred_args['labels'] = [1] * len(bboxes)
+            pred_args['text'] = find_list
+            results = predictor(**pred_args)
         else:
-            from ultralytics.models.sam import SAM3VideoPredictor
-            predictor = SAM3VideoPredictor(overrides=overrides)
+            from ultralytics.models.sam import SAM3Predictor
+            predictor = SAM3Predictor(overrides=overrides)
+            pred_args = {'source': str(sf_path)}
+            results = predictor(**pred_args)
 
         # 查找可用track_id
         if ma.exists():
@@ -860,15 +875,6 @@ def prompt_frame():
 
         first_id = _first_available_track_id(coco, 1000000)
 
-        from annotate_video import merge_masks_in_frame
-        pred_args = {'source': str(sf_path)}
-        if bboxes:
-            pred_args['bboxes'] = bboxes
-            pred_args['labels'] = [1] * len(bboxes)
-        if find_list:
-            pred_args['text'] = find_list
-
-        results = predictor(**pred_args)
         from annotate_video import merge_masks_in_frame
 
         all_anns = []
