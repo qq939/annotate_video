@@ -600,6 +600,10 @@ async function loadFrame(idx) {
     addDebugLog('loadFrame: /api/get_frame/' + idx + '?conf=' + conf, 'info');
     const data = await apiGet('/api/get_frame/' + idx + '?conf=' + conf);
     addDebugLog('loadFrame返回: width=' + data.width + ' height=' + data.height + ' image长度=' + (data.image ? data.image.length : 0), 'info');
+    if (!data.image) {
+      addDebugLog('loadFrame错误: 无图片数据', 'error');
+      return;
+    }
     canvas.width = data.width || 800;
     canvas.height = data.height || 600;
     const img = new Image();
@@ -914,7 +918,7 @@ canvas.addEventListener('click', async (e) => {
     const af = await apiGet('/api/frame_annotations/' + state.currentFrame);
     addDebugLog('frame_annotations返回: ' + JSON.stringify(af).substring(0, 200), 'info');
     const annotations = af.annotations || [];
-    let foundAnn = null;
+    let foundAnns = [];
     for (const ann of annotations) {
       const seg = ann.segmentation;
       if (seg && seg[0]) {
@@ -923,29 +927,42 @@ canvas.addEventListener('click', async (e) => {
           pts.push([seg[0][i], seg[0][i + 1]]);
         }
         if (isPointInPolygon(cx, cy, pts)) {
-          foundAnn = ann;
-          break;
+          foundAnns.push(ann);
         }
       }
     }
-    if (foundAnn) {
-      const oldId = foundAnn.track_id || 0;
-      const newId = state.currentTraceId;
-      addDebugLog('找到标注: oldId=' + oldId + ', newId=' + newId + ', currentTraceId=' + state.currentTraceId, 'info');
-      
-      state.greenPoints.push({
-        x: cx, y: cy, frameIdx: state.currentFrame, oldTrackId: oldId, assignedId: newId
-      });
-      
-      state.traceIdChanges.push(oldId + '→' + newId);
-      renderMappings();
-      renderGreenPoints();
-      
-      const saveResult = await apiPost('/api/save_mappings', { mappings: state.traceIdChanges });
-      addDebugLog('保存结果: ' + JSON.stringify(saveResult), 'success');
-      
-      await showViewer(true);
-      addDebugLog('刷新视图完成', 'info');
+    if (foundAnns.length > 0) {
+      let foundAnn = foundAnns[0];
+      if (foundAnns.length > 1) {
+        addDebugLog('找到' + foundAnns.length + '个重叠标注，显示选择框', 'info');
+        const options = foundAnns.map((a, i) => 'ID:' + (a.track_id || 0) + ' #' + (i+1)).join('\n');
+        const choice = prompt('找到' + foundAnns.length + '个重叠标注，请选择 (0-' + (foundAnns.length-1) + '):\n' + options + '\n输入序号:');
+        if (choice !== null) {
+          const idx = parseInt(choice);
+          if (idx >= 0 && idx < foundAnns.length) {
+            foundAnn = foundAnns[idx];
+          }
+        }
+      }
+      if (foundAnn) {
+        const oldId = foundAnn.track_id || 0;
+        const newId = state.currentTraceId;
+        addDebugLog('找到标注: oldId=' + oldId + ', newId=' + newId + ', currentTraceId=' + state.currentTraceId, 'info');
+        
+        state.greenPoints.push({
+          x: cx, y: cy, frameIdx: state.currentFrame, oldTrackId: oldId, assignedId: newId
+        });
+        
+        state.traceIdChanges.push(oldId + '→' + newId);
+        renderMappings();
+        renderGreenPoints();
+        
+        const saveResult = await apiPost('/api/save_mappings', { mappings: state.traceIdChanges });
+        addDebugLog('保存结果: ' + JSON.stringify(saveResult), 'success');
+        
+        await showViewer(true);
+        addDebugLog('刷新视图完成', 'info');
+      }
     } else {
       addDebugLog('未找到标注: 帧' + (state.currentFrame+1) + ' (' + Math.round(cx) + ',' + Math.round(cy) + ')', 'warning');
     }
