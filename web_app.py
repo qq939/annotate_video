@@ -547,7 +547,10 @@ def get_frame(idx):
         return jsonify({'error': '帧不存在'}), 404
 
     frame = cv2.imread(str(fp))
+    if frame is None:
+        return jsonify({'error': '无法读取帧'}), 500
     res = frame.copy()
+    h, w = frame.shape[:2]
     lp = ld / f"frame_{idx:06d}.json"
     frame_anns = []
     if lp.exists():
@@ -567,14 +570,13 @@ def get_frame(idx):
                     cx = int(M['m10'] / M['m00'])
                     cy = int(M['m01'] / M['m00'])
                     cv2.putText(res, str(tid), (cx, cy), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
-            # 也绘制bbox
             bbox = a.get('bbox')
             if bbox:
-                x, y, w, h = [int(v) for v in bbox]
-                cv2.rectangle(res, (x, y), (x + w, y + h), color, 1)
+                x, y, bw, bh = [int(v) for v in bbox]
+                cv2.rectangle(res, (x, y), (x + bw, y + bh), color, 1)
 
     _, buf = cv2.imencode('.jpg', res, [cv2.IMWRITE_JPEG_QUALITY, 85])
-    return jsonify({'image': base64.b64encode(buf).decode(), 'frame': idx, 'width': width, 'height': height, 'annotations': frame_anns})
+    return jsonify({'image': base64.b64encode(buf).decode(), 'frame': idx, 'width': w, 'height': h, 'annotations': frame_anns})
 
 
 @app.route('/api/get_video_info')
