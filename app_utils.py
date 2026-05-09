@@ -264,13 +264,19 @@ def run_prompt_frame(frame_path, bboxes=None, find_list=None, overrides=None, fi
             for idx, (m, b) in enumerate(zip(cm, cb)):
                 track_id = first_id + idx
                 conf_val = float(confs[idx]) if confs is not None and idx < len(confs) else 1.0
+                if m.dtype == np.uint8:
+                    m_uint8 = m
+                elif m.max() <= 1:
+                    m_uint8 = (m * 255).astype(np.uint8)
+                else:
+                    m_uint8 = m.astype(np.uint8)
                 ann = {
                     'id': idx + 1,
                     'track_id': track_id,
                     'image_id': 0,
                     'category_id': track_id,
                     'bbox': b,
-                    'area': float(cv2.contourArea(m)),
+                    'area': float(cv2.contourArea(m_uint8)),
                     'segmentation': [poly],
                     'iscrowd': 0,
                     'confidence': conf_val
