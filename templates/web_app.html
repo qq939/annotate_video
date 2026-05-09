@@ -868,9 +868,12 @@ canvas.addEventListener('click', async (e) => {
   if (state.isDrawing) return;
   if (canvas.width === 0) return;
   
-  const cx = e.offsetX * (canvas.width / canvas.offsetWidth);
-  const cy = e.offsetY * (canvas.height / canvas.offsetHeight);
-  addDebugLog('点击: canvas(' + canvas.width + 'x' + canvas.height + ') offset(' + e.offsetX + ',' + e.offsetY + ') -> video(' + Math.round(cx) + ',' + Math.round(cy) + ') 帧' + (state.currentFrame+1), 'info');
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const cx = (e.clientX - rect.left) * scaleX;
+  const cy = (e.clientY - rect.top) * scaleY;
+  addDebugLog('点击: rect(' + Math.round(rect.left) + ',' + Math.round(rect.top) + ') size(' + Math.round(rect.width) + 'x' + Math.round(rect.height) + ') canvas(' + canvas.width + 'x' + canvas.height + ') scale(' + scaleX.toFixed(2) + ',' + scaleY.toFixed(2) + ') -> (' + Math.round(cx) + ',' + Math.round(cy) + ')', 'info');
 
   if (state.promptMode) {
     state.promptMode = false;
@@ -1005,9 +1008,9 @@ function renderMappings() {
 }
 
 function renderGreenPoints() {
-  const zoom = parseInt($('zoomSlider').value) / 100;
-  const displayW = canvas.width * zoom;
-  const displayH = canvas.height * zoom;
+  const rect = canvas.getBoundingClientRect();
+  const displayW = rect.width;
+  const displayH = rect.height;
   for (const pt of state.greenPoints) {
     if (pt.frameIdx === state.currentFrame) {
       const dx = (pt.x / canvas.width) * displayW;
