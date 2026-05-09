@@ -1234,8 +1234,9 @@ def get_frame_annotations(idx):
 
 @app.route('/api/debug_log', methods=['GET', 'POST'])
 def debug_log():
-    global state
-    log_file = TEMP_DATA_MID_DIR / "debug.log"
+    logs_dir = Path("logs")
+    logs_dir.mkdir(exist_ok=True)
+    log_file = logs_dir / "debug.log"
     if request.method == 'GET':
         if not log_file.exists():
             log_file.write_text('')
@@ -1247,7 +1248,6 @@ def debug_log():
             msg = data.get('msg', '') + '\n'
             with open(log_file, 'a') as f:
                 f.write(msg)
-            import os
             if log_file.exists() and log_file.stat().st_size > 10 * 1024 * 1024:
                 log_file.write_text('')
         return jsonify({'ok': True})
