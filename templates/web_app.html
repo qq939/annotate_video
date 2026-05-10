@@ -38,6 +38,8 @@ body { font-family: 'Segoe UI', sans-serif; background: #1e1e2e; color: #cdd6f4;
 .progress-text { font-size: 11px; color: #a6adc8; text-align: center; margin-top: 2px; display: none; }
 .canvas-wrapper { flex: 1; display: flex; justify-content: center; align-items: center; overflow: auto; padding: 10px; position: relative; }
 .canvas-wrapper canvas { display: block; flex: 0 0 auto; border-radius: 4px; background: #000; }
+.annotate-action-bar { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 8px; background: #181825; border-top: 1px solid #313244; flex-wrap: wrap; }
+.annotate-action-bar .bbox-count { font-size: 12px; color: #a6adc8; min-width: 72px; text-align: left; }
 .nav-bar { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 8px; background: #181825; border-top: 1px solid #313244; flex-wrap: wrap; }
 .nav-bar input[type="text"] { width: 70px; text-align: center; padding: 3px 6px; background: #313244; border: 1px solid #45475a; border-radius: 4px; color: #cdd6f4; font-size: 13px; }
 .nav-bar .frame-label { background: #333; color: #fff; border-radius: 3px; padding: 4px 12px; font-weight: bold; font-size: 12px; min-width: 70px; text-align: center; }
@@ -117,16 +119,11 @@ body { font-family: 'Segoe UI', sans-serif; background: #1e1e2e; color: #cdd6f4;
       <div class="row" style="margin-top:4px">
         <label>查找:</label>
         <input type="text" id="itemsInput" placeholder="逗号分隔,如: person,car" style="flex:1;min-width:0;">
-        <button class="btn btn-warning btn-sm" id="undoBboxBtn">撤销</button>
-        <span id="bboxCount" style="font-size:11px;color:#a6adc8;"></span>
       </div>
       <div class="slider-row" style="margin-top:4px">
         <label>缩放:</label>
         <input type="range" id="scaleSlider" min="50" max="200" value="100">
         <span class="slider-val" id="scaleLabel">100%</span>
-      </div>
-      <div class="row" style="margin-top:6px">
-        <button class="btn btn-primary btn-lg" id="annotateBtn" disabled>▶ 执行标注</button>
       </div>
       <div class="progress-bar" id="progressBar"><div class="progress-fill" id="progressFill"></div></div>
       <div class="progress-text" id="progressText"></div>
@@ -161,7 +158,6 @@ body { font-family: 'Segoe UI', sans-serif; background: #1e1e2e; color: #cdd6f4;
         </div>
         <button class="btn btn-orange play-btn" id="promptBtn">提示帧</button>
         <span class="frame-label" id="frameLabel">1/1</span>
-        <button class="btn btn-warning btn-sm" id="promptFrameBtn">执行提示帧</button>
         <div class="checkbox-row">
           <label><input type="checkbox" id="forwardCb" checked> 前向</label>
         </div>
@@ -243,7 +239,6 @@ body { font-family: 'Segoe UI', sans-serif; background: #1e1e2e; color: #cdd6f4;
       <div class="row">
         <label>提示帧:</label>
         <input type="number" id="promptFrameIdx" value="0" min="0" style="width:60px;">
-        <button class="btn btn-warning btn-sm" id="promptFrameBtn">执行提示帧</button>
       </div>
       <div class="row" style="margin-top:4px">
         <div class="checkbox-row">
@@ -262,6 +257,11 @@ body { font-family: 'Segoe UI', sans-serif; background: #1e1e2e; color: #cdd6f4;
   <div class="right-panel">
     <div class="canvas-wrapper">
       <canvas id="viewerCanvas"></canvas>
+    </div>
+    <div class="annotate-action-bar">
+      <button class="btn btn-warning btn-sm" id="undoBboxBtn">撤销框选</button>
+      <button class="btn btn-warning btn-lg" id="finishPromptBtn" disabled>完成提示帧</button>
+      <span class="bbox-count" id="bboxCount"></span>
     </div>
     <div class="nav-bar">
       <button class="btn btn-secondary btn-sm" id="prevFrameBtn">◀</button>
@@ -327,6 +327,13 @@ const ctx = canvas.getContext('2d');
 function getCanvasZoom() {
   const slider = state.canvasMode === 'viewer' ? $('zoomSlider') : $('scaleSlider');
   return parseInt((slider && slider.value) || '100') / 100;
+}
+
+function updateFinishPromptButton() {
+  const btn = $('finishPromptBtn');
+  if (!btn) return;
+  const noTarget = state.canvasMode === 'annotate' ? !state.videoName : state.totalFrames <= 0;
+  btn.disabled = state.annotationRunning || noTarget;
 }
 
 function setCanvasImage(dataUrl, width, height, zoom) {
@@ -475,7 +482,7 @@ $('selectVideoBtn').onclick = async () => {
     $('videoName').textContent = data.filename;
     state.totalFrames = data.total;
     state.currentFrame = 0;
-    $('annotateBtn').disabled = false;
+    updateFinishPromptButton();
     $('exportBtn').disabled = false;
     $('saveSection').style.display = 'block';
     $('bidirectionalSection').style.display = 'block';
@@ -504,11 +511,60 @@ async function loadFirstFrameForDraw() {
 }
 
 // ==================== Annotate ====================
-$('annotateBtn').onclick = async () => {
-  if (!state.videoName) { setStatus('请先上传视频', true); return; }
-  if (state.annotationRunning) { setStatus('标注正在执行中...', true); return; }
-  await runAnnotation($('itemsInput').value);
-};
+async function finishCurrentBboxAction() {
+  if (state.canvasMode === 'annotate' && !state.promptMode) {
+    if (!state.videoName) { setStatus('请先上传视频', true); return; }
+    if (state.annotationRunning) { setStatus('标注正在执行中...', true); return; }
+    await runAnnotation($('itemsInput').value);
+    return;
+  }
+
+  if (state.totalFrames <= 0) { setStatus('请先打开预览', true); return; }
+  const idx = parseInt($('promptFrameIdx').value || state.currentFrame) || 0;
+  if (state.promptBboxes.length === 0) { setStatus('请先绘制至少一个边界框', true); return; }
+  const forwardEn = $('forwardCb') ? $('forwardCb').checked : true;
+  const backwardEn = $('backwardCb') ? $('backwardCb').checked : true;
+  if (!forwardEn && !backwardEn) { setStatus('请至少选择前向或后向推理', true); return; }
+
+  state.annotationRunning = true;
+  updateFinishPromptButton();
+  clearDebug();
+  toggleDebug();
+  addDebugLog('开始提示帧双向推理...', 'info');
+  addDebugLog('提示帧: ' + idx + ', 前向=' + forwardEn + ', 后向=' + backwardEn, 'info');
+  addDebugLog('bboxes=' + JSON.stringify(state.promptBboxes), 'info');
+  try {
+    const data = await apiPost('/api/bidirectional', {
+      prompt_frame_idx: idx,
+      bboxes: state.promptBboxes,
+      forward_enabled: forwardEn,
+      backward_enabled: backwardEn,
+      iou: parseFloat($('iouInput').value),
+      merge_iou: parseFloat($('mergeIouInput').value),
+    });
+    const db = $('bidirectionalDebug');
+    if (db) {
+      db.style.display = 'block';
+      db.textContent = '提示帧完成: ' + (data.msg || '') + ' 初始ID: ' + (data.FIRST_ID || 'N/A');
+    }
+    state.promptMode = false;
+    $('promptBtn').style.background = '#ffa500';
+    $('promptBtn').textContent = '提示帧';
+    state.promptBboxes = [];
+    updateBboxCount();
+    addDebugLog(data.msg || '提示帧双向推理完成', 'success');
+    setStatus(data.msg || '提示帧双向推理完成');
+    await showViewer(true);
+  } catch (e) {
+    addDebugLog('提示帧双向推理失败: ' + e.message, 'error');
+    setStatus('提示帧双向推理失败: ' + e.message, true);
+  } finally {
+    state.annotationRunning = false;
+    updateFinishPromptButton();
+  }
+}
+
+$('finishPromptBtn').onclick = finishCurrentBboxAction;
 
 $('scaleSlider').oninput = () => {
   $('scaleLabel').textContent = $('scaleSlider').value + '%';
@@ -523,7 +579,7 @@ $('alphaSlider').oninput = () => { $('alphaLabel').textContent = $('alphaSlider'
 
 async function runAnnotation(items) {
   state.annotationRunning = true;
-  $('annotateBtn').disabled = true;
+  updateFinishPromptButton();
   $('progressBar').style.display = 'block';
   $('progressText').style.display = 'block';
   $('progressFill').style.width = '0%';
@@ -594,7 +650,7 @@ async function runAnnotation(items) {
     setStatus('标注失败: ' + e.message, true);
   } finally {
     state.annotationRunning = false;
-    $('annotateBtn').disabled = false;
+    updateFinishPromptButton();
     $('progressBar').style.display = 'none';
     $('progressText').style.display = 'none';
   }
@@ -606,6 +662,7 @@ $('showViewerBtn').onclick = () => showViewer(true);
 async function showAnnotateView() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   await loadFirstFrameForDraw();
+  updateFinishPromptButton();
 }
 
 $('showAnnotateBtn').onclick = () => {
@@ -637,6 +694,7 @@ async function showViewer(refresh) {
 async function loadFrame(idx) {
   if (state.totalFrames <= 0) return;
   state.canvasMode = 'viewer';
+  updateFinishPromptButton();
   idx = ((idx % state.totalFrames) + state.totalFrames) % state.totalFrames;
   state.currentFrame = idx;
   $('frameIdxInput').value = idx;
@@ -851,64 +909,21 @@ $('promptBtn').onclick = async () => {
     state.promptBboxes = [];
     updateBboxCount();
     redrawCanvas();
+    updateFinishPromptButton();
     $('promptBtn').style.background = '#ff8c00';
-    $('promptBtn').textContent = '执行提示帧';
-    setStatus('提示帧模式：请在右侧画布绘制边界框后点击本按钮', false);
+    $('promptBtn').textContent = '退出提示帧';
+    setStatus('提示帧模式：请在右侧画布绘制边界框后点击下方“完成提示帧”', false);
     addDebugLog('提示帧模式：请绘制边界框', 'info');
   } else {
-    if (state.promptBboxes.length === 0) {
-      setStatus('请先绘制至少一个边界框', true);
-      return;
-    }
     state.promptMode = false;
     $('promptBtn').style.background = '#ffa500';
     $('promptBtn').textContent = '提示帧';
-    const idx = state.currentFrame;
-    addDebugLog('执行提示帧: 帧=' + idx + ', bboxes=' + JSON.stringify(state.promptBboxes), 'info');
-    try {
-      const data = await apiPost('/api/prompt_frame', {
-        prompt_frame_idx: idx,
-        bboxes: state.promptBboxes,
-        items: $('itemsInput').value,
-        iou: parseFloat($('iouInput').value),
-        merge_iou: parseFloat($('mergeIouInput').value),
-      });
-      addDebugLog('提示帧结果: ' + JSON.stringify(data), 'success');
-      setStatus('提示帧完成: ' + (data.msg || ''));
-      state.promptBboxes = [];
-      updateBboxCount();
-      state.firstFrameData = null;
-      await showViewer(true);
-    } catch (e) { 
-      addDebugLog('提示帧失败: ' + e.message, 'error');
-      setStatus('提示帧失败: ' + e.message, true); 
-    }
+    updateFinishPromptButton();
+    setStatus('已退出提示帧模式', false);
   }
 };
 
 // ==================== Bidirectional ====================
-$('promptFrameBtn').onclick = async () => {
-  if (!state.videoName) { setStatus('请先完成标注', true); return; }
-  const idx = parseInt($('promptFrameIdx').value || state.currentFrame) || 0;
-  if (state.promptBboxes.length === 0) { setStatus('请先绘制至少一个边界框', true); return; }
-  try {
-    const data = await apiPost('/api/prompt_frame', {
-      prompt_frame_idx: idx,
-      bboxes: state.promptBboxes,
-      items: $('itemsInput').value,
-      iou: parseFloat($('iouInput').value),
-      merge_iou: parseFloat($('mergeIouInput').value),
-    });
-    const db = $('bidirectionalDebug');
-    if (db) {
-      db.style.display = 'block';
-      db.textContent = '提示帧完成: ' + (data.msg || '') + ' 初始ID: ' + (data.FIRST_ID || 'N/A');
-    }
-    setStatus(data.msg || '提示帧执行完成');
-    await showViewer(true);
-  } catch (e) { setStatus('提示帧失败: ' + e.message, true); }
-};
-
 $('bidirectionalBtn').onclick = async () => {
   if (!state.videoName) { setStatus('请先完成标注', true); return; }
   const idx = parseInt($('promptFrameIdx').value) || 0;

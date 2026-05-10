@@ -227,14 +227,18 @@ def bidirectional():
     from app_utils import run_bidirectional_inject, first_available_track_id, TEMP_DATA_MID_DIR
     
     data = request.json
-    prompt_idx = data.get('prompt_frame_idx', 0)
+    prompt_idx = int(data.get('prompt_frame_idx', 0))
     bboxes = data.get('bboxes', [])
-    forward_en = data.get('forward_enabled', True)
-    backward_en = data.get('backward_enabled', True)
+    forward_en = bool(data.get('forward_enabled', True))
+    backward_en = bool(data.get('backward_enabled', True))
     iou = float(data.get('iou', 0.5))
     merge_iou = float(data.get('merge_iou', 0.5))
 
     try:
+        if not bboxes:
+            return jsonify({'error': '请先绘制至少一个提示框'}), 400
+        if not forward_en and not backward_en:
+            return jsonify({'error': '请至少选择前向或后向推理'}), 400
         ma = TEMP_DATA_MID_DIR / "annotations.json"
         if ma.exists():
             with open(ma) as f:
@@ -244,6 +248,9 @@ def bidirectional():
         
         first_id = first_available_track_id(coco, 1000000)
         total = len(list((TEMP_DATA_MID_DIR / "frames").glob('*.jpg')))
+        if total <= 0:
+            return jsonify({'error': 'temp_data_mid 中没有可推理帧'}), 400
+        prompt_idx = max(0, min(prompt_idx, total - 1))
         
         success, msg = run_bidirectional_inject(prompt_idx=prompt_idx, total_frames=total, bboxes=bboxes, forward_enabled=forward_en, backward_enabled=backward_en, iou_threshold=iou, merge_iou_threshold=merge_iou, first_id=first_id, temp_mid_dir=TEMP_DATA_MID_DIR)
         
