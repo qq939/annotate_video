@@ -24,21 +24,28 @@ TEMP_DATA_POST_DIR = Path("temp_data_post")
 SRC_VIDEO_DIR = Path("1src")
 DST_VIDEO_DIR = Path("1dst")
 SAM_MODEL_PATH = "sam3.pt"
+DEBUG_LOG_FILE = Path("logs") / "debug.log"
 
 for _d in [TEMP_DATA_DIR, TEMP_DATA_MID_DIR, TEMP_DATA_POST_DIR, SRC_VIDEO_DIR, DST_VIDEO_DIR]:
     _d.mkdir(parents=True, exist_ok=True)
 
-PALETTE_COLORS = [(0, 0, 255), (0, 165, 255), (0, 255, 255), (0, 255, 0), (255, 255, 0), (255, 0, 255), (0, 128, 255), (255, 128, 0), (128, 0, 255), (0, 255, 128), (255, 0, 128), (128, 255, 0), (0, 128, 128), (128, 0, 128), (128, 128, 0), (64, 64, 255)]
+PALETTE_COLORS = [(0, 0, 255), (0, 165, 255), (0, 255, 255), (0, 255, 0), (255, 255, 0), (255, 0, 0), (128, 0, 128)]
 BOX_COLORS = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (255, 0, 255), (0, 255, 255)]
 
 state = {'total_frames': 0, 'video_name': '', 'mappings': [], 'fence_mode': False, 'fences': []}
 
 
+def append_debug_log(msg):
+    DEBUG_LOG_FILE.parent.mkdir(exist_ok=True)
+    with open(DEBUG_LOG_FILE, 'a') as f:
+        f.write(str(msg) + '\n')
+    if DEBUG_LOG_FILE.exists() and DEBUG_LOG_FILE.stat().st_size > 10 * 1024 * 1024:
+        DEBUG_LOG_FILE.write_text('')
+
+
 def get_color_for_track_id(tid):
-    if tid >= 1000000:
-        return PALETTE_COLORS[0]
-    idx = (tid % (len(PALETTE_COLORS) - 1)) + 1
-    return PALETTE_COLORS[idx % len(PALETTE_COLORS)]
+    from app_utils import get_viewer_color_for_track_id
+    return get_viewer_color_for_track_id(tid)
 
 
 # ==================== UI路由 ====================
@@ -203,7 +210,7 @@ def get_frame(idx):
         with open(lp) as f:
             frame_anns = json.load(f)
     conf = float(request.args.get('conf', 0) or 0)
-    res = render_frame_with_annotations(frame, frame_anns, get_color_for_track_id, conf_threshold=conf)
+    res = render_frame_with_annotations(frame, frame_anns, get_color_for_track_id, conf_threshold=conf, alpha=0.5)
     encoded = encode_frame_jpeg(res)
     return jsonify({'image': encoded['image'], 'frame': idx, 'width': w, 'height': h, 'annotations': frame_anns})
 
@@ -246,15 +253,16 @@ def bidirectional():
         else:
             coco = {'info': {}, 'images': [], 'annotations': [], 'categories': []}
         
-        first_id = first_available_track_id(coco, 1000000)
+        first_id = first_available_track_id(coco)
         total = len(list((TEMP_DATA_MID_DIR / "frames").glob('*.jpg')))
         if total <= 0:
             return jsonify({'error': 'temp_data_mid 中没有可推理帧'}), 400
         prompt_idx = max(0, min(prompt_idx, total - 1))
         
-        success, msg = run_bidirectional_inject(prompt_idx=prompt_idx, total_frames=total, bboxes=bboxes, forward_enabled=forward_en, backward_enabled=backward_en, iou_threshold=iou, merge_iou_threshold=merge_iou, first_id=first_id, temp_mid_dir=TEMP_DATA_MID_DIR)
-        
-        return jsonify({'msg': msg, 'FIRST_ID': first_id}) if success else jsonify({'error': msg}), 400
+        success, msg = run_bidirectional_inject(prompt_idx=prompt_idx, total_frames=total, bboxes=bboxes, forward_enabled=forward_en, backward_enabled=backward_en, iou_threshold=iou, merge_iou_threshold=merge_iou, first_id=first_id, temp_mid_dir=TEMP_DATA_MID_DIR, log_func=append_debug_log)
+        if success:
+            return jsonify({'msg': msg, 'FIRST_ID': first_id})
+        return jsonify({'error': msg}), 400
     except Exception as e:
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
@@ -286,7 +294,7 @@ def prompt_frame():
         else:
             coco = {'info': {}, 'images': [], 'annotations': [], 'categories': []}
         
-        first_id = first_available_track_id(coco, 1000000)
+        first_id = first_available_track_id(coco)
         overrides, device = get_sam_overrides(device='auto', model_path=SAM_MODEL_PATH)
         annotations, new_first_id = run_prompt_frame(sf_path, bboxes, find_list, overrides, first_id)
         
@@ -308,12 +316,15 @@ def export_route():
     cat_maps = data.get('category_mappings') or data.get('categories') or ['Detect'] * 8
     if not cat_maps:
         cat_maps = ['Detect'] * 8
+    conf_threshold = float(data.get('conf_threshold', 0.0))
 
     if not TEMP_DATA_MID_DIR.exists():
         return jsonify({'error': 'temp_data_mid 不存在'}), 400
 
-    success, msg = export_to_temp_data_post(cat_maps)
-    return jsonify({'msg': msg})
+    success, msg = export_to_temp_data_post(cat_maps, conf_threshold=conf_threshold)
+    if not success:
+        return jsonify({'error': msg}), 400
+    return jsonify({'msg': msg, 'path': str(TEMP_DATA_POST_DIR)})
 
 
 # ==================== Trace ID 管理 ====================
@@ -344,6 +355,19 @@ def save_mappings():
     return jsonify({'msg': '已保存'})
 
 
+@app.route('/api/revert_mapping', methods=['POST'])
+def revert_mapping():
+    from app_utils import apply_single_mapping_to_mid
+
+    data = request.json or {}
+    old_id = int(data.get('old_id', 0))
+    new_id = int(data.get('new_id', 0))
+    if old_id <= 0 or new_id <= 0:
+        return jsonify({'error': '无效映射'}), 400
+    count = apply_single_mapping_to_mid(new_id, old_id)
+    return jsonify({'msg': f'已还原 {new_id} → {old_id}，影响 {count} 帧', 'count': count})
+
+
 @app.route('/api/load_mappings')
 def load_mappings():
     from app_utils import TEMP_DATA_MID_DIR
@@ -371,7 +395,7 @@ def delete_track_id():
 # ==================== 保存视频 ====================
 @app.route('/api/save_video', methods=['POST'])
 def save_video():
-    from app_utils import TEMP_DATA_POST_DIR, DST_VIDEO_DIR
+    from app_utils import TEMP_DATA_POST_DIR, DST_VIDEO_DIR, get_save_color_for_track_id
     
     data = request.json or {}
     alpha = float(data.get('alpha', 0.5))
@@ -427,12 +451,7 @@ def save_video():
                     continue
 
                 tid = ann.get('track_id', 0)
-                if tid == 1000000:
-                    color = PALETTE_COLORS[color_index]
-                else:
-                    palette_idx = (tid % (len(PALETTE_COLORS) - 1)) + 1
-                    idx = (palette_idx + color_index) % len(PALETTE_COLORS)
-                    color = PALETTE_COLORS[idx]
+                color = get_save_color_for_track_id(tid, color_index)
                 cat = ann.get('category', category_name)
                 conf = ann.get('confidence', 1.0)
 
@@ -507,23 +526,31 @@ def get_frame_annotations(idx):
 # ==================== Debug日志 ====================
 @app.route('/api/debug_log', methods=['GET', 'POST'])
 def debug_log():
-    logs_dir = Path("logs")
-    logs_dir.mkdir(exist_ok=True)
-    log_file = logs_dir / "debug.log"
+    log_file = DEBUG_LOG_FILE
+    log_file.parent.mkdir(exist_ok=True)
     
     if request.method == 'GET':
         if not log_file.exists():
             log_file.write_text('')
-        return jsonify({'path': str(log_file)})
+        action = request.args.get('action', '')
+        if action == 'read':
+            offset = int(request.args.get('offset', 0) or 0)
+            size = log_file.stat().st_size
+            if offset > size:
+                offset = 0
+            with open(log_file, 'r') as f:
+                f.seek(offset)
+                text = f.read()
+                new_offset = f.tell()
+            return jsonify({'path': str(log_file), 'text': text, 'offset': new_offset})
+        return jsonify({'path': str(log_file), 'offset': log_file.stat().st_size})
     else:
         data = request.json
         action = data.get('action', '')
         if action == 'append':
-            msg = data.get('msg', '') + '\n'
-            with open(log_file, 'a') as f:
-                f.write(msg)
-            if log_file.exists() and log_file.stat().st_size > 10 * 1024 * 1024:
-                log_file.write_text('')
+            append_debug_log(data.get('msg', ''))
+        elif action == 'clear':
+            log_file.write_text('')
         return jsonify({'ok': True})
 
 

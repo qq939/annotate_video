@@ -36,8 +36,10 @@ body { font-family: 'Segoe UI', sans-serif; background: #1e1e2e; color: #cdd6f4;
 .progress-bar { height: 6px; background: #313244; border-radius: 3px; overflow: hidden; margin-top: 4px; display: none; }
 .progress-fill { height: 100%; background: #89b4fa; width: 0%; transition: width 0.2s; }
 .progress-text { font-size: 11px; color: #a6adc8; text-align: center; margin-top: 2px; display: none; }
-.canvas-wrapper { flex: 1; display: flex; justify-content: center; align-items: center; overflow: hidden; padding: 10px; position: relative; }
-.canvas-wrapper canvas { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 4px; }
+.canvas-wrapper { flex: 1; display: flex; justify-content: center; align-items: center; overflow: auto; padding: 10px; position: relative; }
+.canvas-wrapper canvas { display: block; flex: 0 0 auto; border-radius: 4px; background: #000; }
+.annotate-action-bar { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 8px; background: #181825; border-top: 1px solid #313244; flex-wrap: wrap; }
+.annotate-action-bar .bbox-count { font-size: 12px; color: #a6adc8; min-width: 72px; text-align: left; }
 .nav-bar { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 8px; background: #181825; border-top: 1px solid #313244; flex-wrap: wrap; }
 .nav-bar input[type="text"] { width: 70px; text-align: center; padding: 3px 6px; background: #313244; border: 1px solid #45475a; border-radius: 4px; color: #cdd6f4; font-size: 13px; }
 .nav-bar .frame-label { background: #333; color: #fff; border-radius: 3px; padding: 4px 12px; font-weight: bold; font-size: 12px; min-width: 70px; text-align: center; }
@@ -117,16 +119,11 @@ body { font-family: 'Segoe UI', sans-serif; background: #1e1e2e; color: #cdd6f4;
       <div class="row" style="margin-top:4px">
         <label>查找:</label>
         <input type="text" id="itemsInput" placeholder="逗号分隔,如: person,car" style="flex:1;min-width:0;">
-        <button class="btn btn-warning btn-sm" id="undoBboxBtn">撤销</button>
-        <span id="bboxCount" style="font-size:11px;color:#a6adc8;"></span>
       </div>
       <div class="slider-row" style="margin-top:4px">
         <label>缩放:</label>
         <input type="range" id="scaleSlider" min="50" max="200" value="100">
         <span class="slider-val" id="scaleLabel">100%</span>
-      </div>
-      <div class="row" style="margin-top:6px">
-        <button class="btn btn-primary btn-lg" id="annotateBtn" disabled>▶ 执行标注</button>
       </div>
       <div class="progress-bar" id="progressBar"><div class="progress-fill" id="progressFill"></div></div>
       <div class="progress-text" id="progressText"></div>
@@ -140,6 +137,41 @@ body { font-family: 'Segoe UI', sans-serif; background: #1e1e2e; color: #cdd6f4;
         <input type="text" id="pathInput" value="temp_data" style="flex:1;min-width:0;">
         <button class="btn btn-secondary btn-sm" id="selectDataBtn">选择</button>
         <button class="btn btn-success btn-sm" id="showViewerBtn">显示</button>
+      </div>
+      <div class="category-map" style="margin-top:6px">
+        <label style="font-size:12px;color:#a6adc8;">类别名称 (trace_id → 类别):</label>
+        <div class="row" style="margin-top:2px">
+          <label style="width:70px;">1000000:</label>
+          <input type="text" class="category-input" data-track-id="1000000" value="Detect" style="flex:1;min-width:0;">
+        </div>
+        <div class="row" style="margin-top:2px">
+          <label style="width:70px;">1000001:</label>
+          <input type="text" class="category-input" data-track-id="1000001" value="Detect" style="flex:1;min-width:0;">
+        </div>
+        <div class="row" style="margin-top:2px">
+          <label style="width:70px;">1000002:</label>
+          <input type="text" class="category-input" data-track-id="1000002" value="Detect" style="flex:1;min-width:0;">
+        </div>
+        <div class="row" style="margin-top:2px">
+          <label style="width:70px;">1000003:</label>
+          <input type="text" class="category-input" data-track-id="1000003" value="Detect" style="flex:1;min-width:0;">
+        </div>
+        <div class="row" style="margin-top:2px">
+          <label style="width:70px;">1000004:</label>
+          <input type="text" class="category-input" data-track-id="1000004" value="Detect" style="flex:1;min-width:0;">
+        </div>
+        <div class="row" style="margin-top:2px">
+          <label style="width:70px;">1000005:</label>
+          <input type="text" class="category-input" data-track-id="1000005" value="Detect" style="flex:1;min-width:0;">
+        </div>
+        <div class="row" style="margin-top:2px">
+          <label style="width:70px;">1000006:</label>
+          <input type="text" class="category-input" data-track-id="1000006" value="Detect" style="flex:1;min-width:0;">
+        </div>
+        <div class="row" style="margin-top:2px">
+          <label style="width:70px;">1000007:</label>
+          <input type="text" class="category-input" data-track-id="1000007" value="Detect" style="flex:1;min-width:0;">
+        </div>
       </div>
       <div class="slider-row" style="margin-top:4px">
         <label>缩放:</label>
@@ -161,7 +193,6 @@ body { font-family: 'Segoe UI', sans-serif; background: #1e1e2e; color: #cdd6f4;
         </div>
         <button class="btn btn-orange play-btn" id="promptBtn">提示帧</button>
         <span class="frame-label" id="frameLabel">1/1</span>
-        <button class="btn btn-warning btn-sm" id="promptFrameBtn">执行提示帧</button>
         <div class="checkbox-row">
           <label><input type="checkbox" id="forwardCb" checked> 前向</label>
         </div>
@@ -243,7 +274,6 @@ body { font-family: 'Segoe UI', sans-serif; background: #1e1e2e; color: #cdd6f4;
       <div class="row">
         <label>提示帧:</label>
         <input type="number" id="promptFrameIdx" value="0" min="0" style="width:60px;">
-        <button class="btn btn-warning btn-sm" id="promptFrameBtn">执行提示帧</button>
       </div>
       <div class="row" style="margin-top:4px">
         <div class="checkbox-row">
@@ -262,6 +292,11 @@ body { font-family: 'Segoe UI', sans-serif; background: #1e1e2e; color: #cdd6f4;
   <div class="right-panel">
     <div class="canvas-wrapper">
       <canvas id="viewerCanvas"></canvas>
+    </div>
+    <div class="annotate-action-bar">
+      <button class="btn btn-warning btn-sm" id="undoBboxBtn">撤销框选</button>
+      <button class="btn btn-warning btn-lg" id="finishPromptBtn" disabled>完成提示帧</button>
+      <span class="bbox-count" id="bboxCount"></span>
     </div>
     <div class="nav-bar">
       <button class="btn btn-secondary btn-sm" id="prevFrameBtn">◀</button>
@@ -303,6 +338,7 @@ const state = {
   playSpeed: 1000,
   playbackTimer: null,
   promptMode: false,
+  promptFrameIdx: 0,
   fenceMode: false,
   selectedColorIndex: Math.floor(Math.random() * 7),
   mappingSelectedIdx: -1,
@@ -313,6 +349,10 @@ const state = {
   drawCurrentY: 0,
   greenPoints: [],
   firstFrameData: null,
+  canvasImageData: null,
+  imageWidth: 0,
+  imageHeight: 0,
+  canvasMode: 'annotate',
 };
 
 const PALETTE_COLORS = ['#ff0000','#ffa500','#ffff00','#00ff00','#00ffff','#0000ff','#800080'];
@@ -322,8 +362,56 @@ const ctx = canvas.getContext('2d');
 
 function $(id) { return document.getElementById(id); }
 
+function updateFinishPromptButton() {
+  const btn = $('finishPromptBtn');
+  if (!btn) return;
+  const noTarget = state.canvasMode === 'annotate' ? !state.videoName : state.totalFrames <= 0;
+  btn.disabled = state.annotationRunning || noTarget;
+}
+
+function syncDirectionAvailability(promptIdx) {
+  const total = state.totalFrames || 0;
+  const idx = Math.max(0, Math.min(parseInt(promptIdx ?? state.currentFrame) || 0, Math.max(total - 1, 0)));
+  const canBackward = idx > 0;
+  const canForward = idx + 1 < total;
+  const backwardControls = [$('backwardCb'), $('backwardCheck')].filter(Boolean);
+  const forwardControls = [$('forwardCb'), $('forwardCheck')].filter(Boolean);
+  for (const el of backwardControls) el.disabled = !canBackward;
+  for (const el of forwardControls) el.disabled = !canForward;
+
+  if (!canBackward) {
+    backwardControls.forEach(el => { el.checked = false; });
+  }
+  if (!canForward) {
+    forwardControls.forEach(el => { el.checked = false; });
+  }
+  const backwardChecked = backwardControls.some(el => el.checked && !el.disabled);
+  const forwardChecked = forwardControls.some(el => el.checked && !el.disabled);
+  if (!backwardChecked && !forwardChecked) {
+    if (canForward) forwardControls.forEach(el => { el.checked = true; });
+    else if (canBackward) backwardControls.forEach(el => { el.checked = true; });
+  }
+}
+
+function setCanvasImage(dataUrl, width, height, zoom) {
+  state.canvasImageData = dataUrl;
+  state.imageWidth = width;
+  state.imageHeight = height;
+  canvas.width = width;
+  canvas.height = height;
+  canvas.style.width = Math.round(width * zoom) + 'px';
+  canvas.style.height = Math.round(height * zoom) + 'px';
+  redrawBbox();
+}
+
+function getCanvasZoom() {
+  return parseInt((state.canvasMode === 'viewer' ? $('zoomSlider').value : $('scaleSlider').value) || '100') / 100;
+}
+
 let debugLogs = [];
 let debugLogPath = null;
+let debugPollTimer = null;
+let debugLogOffset = 0;
 
 async function logToFile(msg) {
   if (!debugLogPath) {
@@ -352,6 +440,46 @@ function addDebugLog(msg, type) {
   }
 }
 
+function appendDebugPanelText(text, type) {
+  const content = $('debugContent');
+  if (!content || !text) return;
+  for (const rawLine of text.split('\n')) {
+    if (!rawLine) continue;
+    const line = document.createElement('div');
+    line.className = 'debug-line ' + (type || '');
+    line.textContent = rawLine;
+    content.appendChild(line);
+  }
+  content.scrollTop = content.scrollHeight;
+}
+
+async function startDebugPolling(resetOffset) {
+  if (resetOffset) debugLogOffset = 0;
+  if (debugPollTimer) clearInterval(debugPollTimer);
+  const poll = async () => {
+    try {
+      const r = await fetch('/api/debug_log?action=read&offset=' + debugLogOffset);
+      const d = await r.json();
+      debugLogOffset = d.offset || debugLogOffset;
+      appendDebugPanelText(d.text || '', 'info');
+    } catch (e) { /* keep polling quiet */ }
+  };
+  await poll();
+  debugPollTimer = setInterval(poll, 700);
+}
+
+function stopDebugPolling() {
+  if (debugPollTimer) {
+    clearInterval(debugPollTimer);
+    debugPollTimer = null;
+  }
+}
+
+function getCategoryMappings() {
+  const inputs = Array.from(document.querySelectorAll('.category-input'));
+  return inputs.map(inp => (inp.value || 'Detect').trim() || 'Detect');
+}
+
 function toggleDebug() {
   const panel = $('debugPanel');
   const overlay = $('debugOverlay');
@@ -366,6 +494,7 @@ function toggleDebug() {
 
 function clearDebug() {
   debugLogs = [];
+  debugLogOffset = 0;
   const content = $('debugContent');
   if (content) content.innerHTML = '';
 }
@@ -434,7 +563,7 @@ $('selectVideoBtn').onclick = async () => {
     $('videoName').textContent = data.filename;
     state.totalFrames = data.total;
     state.currentFrame = 0;
-    $('annotateBtn').disabled = false;
+    updateFinishPromptButton();
     $('exportBtn').disabled = false;
     $('saveSection').style.display = 'block';
     $('bidirectionalSection').style.display = 'block';
@@ -446,38 +575,116 @@ $('selectVideoBtn').onclick = async () => {
 
 async function loadFirstFrameForDraw() {
   try {
+    state.canvasMode = 'annotate';
     const res = await fetch('/api/get_video_first_frame');
     const data = await res.json();
     if (!data.image) return;
-    canvas.width = data.width || 800;
-    canvas.height = data.height || 600;
+    const dataUrl = 'data:image/jpeg;base64,' + data.image;
     const img = new Image();
     img.onload = () => {
-      canvas.width = img.naturalWidth || data.width || 800;
-      canvas.height = img.naturalHeight || data.height || 600;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      state.firstFrameData = 'data:image/jpeg;base64,' + data.image;
+      const w = img.naturalWidth || data.width || 800;
+      const h = img.naturalHeight || data.height || 600;
+      state.firstFrameData = dataUrl;
+      setCanvasImage(dataUrl, w, h, getCanvasZoom());
     };
-    img.src = 'data:image/jpeg;base64,' + data.image;
+    img.src = dataUrl;
   } catch (e) { /* ignore */ }
 }
 
 // ==================== Annotate ====================
-$('annotateBtn').onclick = async () => {
-  if (!state.videoName) { setStatus('请先上传视频', true); return; }
-  if (state.annotationRunning) { setStatus('标注正在执行中...', true); return; }
-  await runAnnotation($('itemsInput').value);
+async function finishCurrentBboxAction() {
+  if (state.canvasMode === 'annotate' && !state.promptMode) {
+    if (!state.videoName) { setStatus('请先上传视频', true); return; }
+    if (state.annotationRunning) { setStatus('标注正在执行中...', true); return; }
+    await runAnnotation($('itemsInput').value);
+    return;
+  }
+
+  if (state.totalFrames <= 0) { setStatus('请先打开预览', true); return; }
+  const idx = Math.max(0, Math.min(state.promptFrameIdx || state.currentFrame || 0, state.totalFrames - 1));
+  $('promptFrameIdx').value = idx;
+  syncDirectionAvailability(idx);
+  if (state.promptBboxes.length === 0) { setStatus('请先绘制至少一个边界框', true); return; }
+  const forwardEn = $('forwardCb') ? $('forwardCb').checked : true;
+  const backwardEn = $('backwardCb') ? $('backwardCb').checked : true;
+  if (!forwardEn && !backwardEn) { setStatus('请至少选择前向或后向推理', true); return; }
+
+  state.annotationRunning = true;
+  updateFinishPromptButton();
+  clearDebug();
+  toggleDebug();
+  addDebugLog('开始提示帧双向推理...', 'info');
+  addDebugLog('提示帧: ' + idx + ', 前向=' + forwardEn + ', 后向=' + backwardEn, 'info');
+  addDebugLog('bboxes=' + JSON.stringify(state.promptBboxes), 'info');
+  try {
+    const logInfo = await apiGet('/api/debug_log');
+    debugLogOffset = logInfo.offset || 0;
+    await startDebugPolling(false);
+    const data = await apiPost('/api/bidirectional', {
+      prompt_frame_idx: idx,
+      bboxes: state.promptBboxes,
+      forward_enabled: forwardEn,
+      backward_enabled: backwardEn,
+      iou: parseFloat($('iouInput').value),
+      merge_iou: parseFloat($('mergeIouInput').value),
+    });
+    const db = $('bidirectionalDebug');
+    if (db) {
+      db.style.display = 'block';
+      db.textContent = data.msg || '';
+    }
+    state.promptMode = false;
+    $('promptBtn').style.background = '#ffa500';
+    $('promptBtn').textContent = '提示帧';
+    state.promptBboxes = [];
+    updateBboxCount();
+    addDebugLog(data.msg || '提示帧双向推理完成', 'success');
+    setStatus(data.msg || '提示帧双向推理完成');
+    await showViewer(false);
+    await loadFrame(idx);
+  } catch (e) {
+    addDebugLog('提示帧双向推理失败: ' + e.message, 'error');
+    setStatus('提示帧双向推理失败: ' + e.message, true);
+  } finally {
+    stopDebugPolling();
+    await startDebugPolling(false);
+    stopDebugPolling();
+    state.annotationRunning = false;
+    updateFinishPromptButton();
+  }
+}
+
+$('finishPromptBtn').onclick = finishCurrentBboxAction;
+
+$('promptFrameIdx').onchange = () => {
+  const total = state.totalFrames || 0;
+  const idx = Math.max(0, Math.min(parseInt($('promptFrameIdx').value) || 0, Math.max(total - 1, 0)));
+  state.promptFrameIdx = idx;
+  $('promptFrameIdx').value = idx;
+  syncDirectionAvailability(idx);
 };
 
-$('scaleSlider').oninput = () => { $('scaleLabel').textContent = $('scaleSlider').value + '%'; };
+for (const [a, b] of [['forwardCb', 'forwardCheck'], ['backwardCb', 'backwardCheck']]) {
+  if ($(a) && $(b)) {
+    $(a).onchange = () => { $(b).checked = $(a).checked; syncDirectionAvailability(state.promptMode ? state.promptFrameIdx : state.currentFrame); };
+    $(b).onchange = () => { $(a).checked = $(b).checked; syncDirectionAvailability(state.promptFrameIdx); };
+  }
+}
+
+$('scaleSlider').oninput = () => {
+  $('scaleLabel').textContent = $('scaleSlider').value + '%';
+  if (state.canvasMode === 'annotate' && state.imageWidth && state.imageHeight) {
+    canvas.style.width = Math.round(state.imageWidth * getCanvasZoom()) + 'px';
+    canvas.style.height = Math.round(state.imageHeight * getCanvasZoom()) + 'px';
+  }
+};
 $('zoomSlider').oninput = () => { $('zoomLabel').textContent = $('zoomSlider').value + '%'; loadFrame(state.currentFrame); };
 $('confSlider').oninput = () => { $('confLabel').textContent = $('confSlider').value + '%'; loadFrame(state.currentFrame); };
 $('alphaSlider').oninput = () => { $('alphaLabel').textContent = $('alphaSlider').value + '%'; };
 
 async function runAnnotation(items) {
   state.annotationRunning = true;
-  $('annotateBtn').disabled = true;
+  updateFinishPromptButton();
   $('progressBar').style.display = 'block';
   $('progressText').style.display = 'block';
   $('progressFill').style.width = '0%';
@@ -548,7 +755,7 @@ async function runAnnotation(items) {
     setStatus('标注失败: ' + e.message, true);
   } finally {
     state.annotationRunning = false;
-    $('annotateBtn').disabled = false;
+    updateFinishPromptButton();
     $('progressBar').style.display = 'none';
     $('progressText').style.display = 'none';
   }
@@ -560,6 +767,7 @@ $('showViewerBtn').onclick = () => showViewer(true);
 async function showAnnotateView() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   await loadFirstFrameForDraw();
+  updateFinishPromptButton();
 }
 
 $('showAnnotateBtn').onclick = () => {
@@ -582,6 +790,7 @@ async function showViewer(refresh) {
     }
     const info = await apiGet('/api/get_video_info');
     state.totalFrames = info.total;
+    $('exportBtn').disabled = state.totalFrames <= 0;
     updateFrameInfo();
     await loadFrame(state.currentFrame || 0);
     await loadMappings();
@@ -590,10 +799,13 @@ async function showViewer(refresh) {
 
 async function loadFrame(idx) {
   if (state.totalFrames <= 0) return;
+  state.canvasMode = 'viewer';
+  updateFinishPromptButton();
   idx = ((idx % state.totalFrames) + state.totalFrames) % state.totalFrames;
   state.currentFrame = idx;
   $('frameIdxInput').value = idx;
   updateFrameInfo();
+  syncDirectionAvailability(state.promptMode ? state.promptFrameIdx : idx);
 
   try {
     const conf = parseInt($('confSlider').value) / 100;
@@ -604,22 +816,17 @@ async function loadFrame(idx) {
       addDebugLog('loadFrame错误: 无图片数据', 'error');
       return;
     }
-    canvas.width = data.width || 800;
-    canvas.height = data.height || 600;
     const zoom = parseInt($('zoomSlider').value) / 100;
-    canvas.style.width = (canvas.width * zoom) + 'px';
-    canvas.style.height = (canvas.height * zoom) + 'px';
+    const dataUrl = 'data:image/jpeg;base64,' + data.image;
     const img = new Image();
     img.onload = () => {
       addDebugLog('图片加载成功: ' + img.naturalWidth + 'x' + img.naturalHeight, 'info');
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      renderGreenPoints();
+      setCanvasImage(dataUrl, img.naturalWidth || data.width || 800, img.naturalHeight || data.height || 600, zoom);
     };
     img.onerror = () => {
       addDebugLog('图片加载失败', 'error');
     };
-    img.src = 'data:image/jpeg;base64,' + data.image;
+    img.src = dataUrl;
   } catch (e) { setStatus('加载帧失败: ' + e.message, true); addDebugLog('loadFrame错误: ' + e.message, 'error'); }
 }
 
@@ -629,6 +836,7 @@ function updateFrameInfo() {
   $('frameInfo').textContent = '/ ' + total;
   $('navFrameLabel').textContent = cur + '/' + total;
   $('frameLabel').textContent = (cur + 1) + '/' + total;
+  syncDirectionAvailability(state.promptMode ? state.promptFrameIdx : cur);
 }
 
 // ==================== Canvas Drawing (Annotate on Right Panel) ====================
@@ -718,20 +926,23 @@ function updateBboxCount() {
 
 function redrawBbox() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  if (state.firstFrameData) {
+  const bgData = state.canvasImageData || state.firstFrameData;
+  if (bgData) {
     const bgImg = new Image();
-    bgImg.src = state.firstFrameData;
     bgImg.onload = () => {
       ctx.drawImage(bgImg, 0, 0, canvas.width, canvas.height);
       drawBboxOverlay();
+      renderGreenPoints();
     };
+    bgImg.src = bgData;
   } else {
     drawBboxOverlay();
+    renderGreenPoints();
   }
 }
 
 function drawBboxOverlay() {
-  if (state.isDrawing && state.drawStartX) {
+  if (state.isDrawing) {
     ctx.strokeStyle = '#a6e3a1';
     ctx.lineWidth = 2;
     ctx.strokeRect(
@@ -806,61 +1017,32 @@ function togglePlay() {
 $('promptBtn').onclick = async () => {
   if (!state.promptMode) {
     state.promptMode = true;
+    state.promptFrameIdx = state.currentFrame;
+    $('promptFrameIdx').value = state.promptFrameIdx;
+    syncDirectionAvailability(state.promptFrameIdx);
+    state.promptBboxes = [];
+    updateBboxCount();
+    redrawBbox();
+    updateFinishPromptButton();
     $('promptBtn').style.background = '#ff8c00';
-    $('promptBtn').textContent = '执行提示帧';
-    setStatus('提示帧模式：请在右侧画布绘制边界框后点击本按钮', false);
+    $('promptBtn').textContent = '退出提示帧';
+    setStatus('提示帧模式：请在右侧画布绘制边界框后点击画面下方“完成提示帧”', false);
     addDebugLog('提示帧模式：请绘制边界框', 'info');
   } else {
     state.promptMode = false;
+    syncDirectionAvailability(state.currentFrame);
     $('promptBtn').style.background = '#ffa500';
     $('promptBtn').textContent = '提示帧';
-    const idx = state.currentFrame;
-    addDebugLog('执行提示帧: 帧=' + idx + ', bboxes=' + JSON.stringify(state.promptBboxes), 'info');
-    try {
-      const data = await apiPost('/api/prompt_frame', {
-        prompt_frame_idx: idx,
-        bboxes: state.promptBboxes,
-        items: $('itemsInput').value,
-        iou: parseFloat($('iouInput').value),
-        merge_iou: parseFloat($('mergeIouInput').value),
-      });
-      addDebugLog('提示帧结果: ' + JSON.stringify(data), 'success');
-      setStatus('提示帧完成: ' + (data.msg || ''));
-      state.promptBboxes = [];
-      state.firstFrameData = null;
-      await showViewer(true);
-    } catch (e) { 
-      addDebugLog('提示帧失败: ' + e.message, 'error');
-      setStatus('提示帧失败: ' + e.message, true); 
-    }
+    updateFinishPromptButton();
+    setStatus('已退出提示帧模式', false);
   }
 };
 
 // ==================== Bidirectional ====================
-$('promptFrameBtn').onclick = async () => {
-  if (!state.videoName) { setStatus('请先完成标注', true); return; }
-  const idx = parseInt($('promptFrameIdx').value) || 0;
-  try {
-    const data = await apiPost('/api/prompt_frame', {
-      prompt_frame_idx: idx,
-      bboxes: state.promptBboxes,
-      items: $('itemsInput').value,
-      iou: parseFloat($('iouInput').value),
-      merge_iou: parseFloat($('mergeIouInput').value),
-    });
-    const db = $('bidirectionalDebug');
-    if (db) {
-      db.style.display = 'block';
-      db.textContent = '提示帧完成: ' + (data.msg || '') + ' 初始ID: ' + (data.FIRST_ID || 'N/A');
-    }
-    setStatus(data.msg || '提示帧执行完成');
-    await showViewer(true);
-  } catch (e) { setStatus('提示帧失败: ' + e.message, true); }
-};
-
 $('bidirectionalBtn').onclick = async () => {
   if (!state.videoName) { setStatus('请先完成标注', true); return; }
-  const idx = parseInt($('promptFrameIdx').value) || 0;
+  const idx = Math.max(0, Math.min(parseInt($('promptFrameIdx').value) || 0, Math.max(state.totalFrames - 1, 0)));
+  syncDirectionAvailability(idx);
   const forwardEn = $('forwardCheck') && $('forwardCheck').checked;
   const backwardEn = $('backwardCheck') && $('backwardCheck').checked;
   clearDebug();
@@ -869,6 +1051,9 @@ $('bidirectionalBtn').onclick = async () => {
   addDebugLog('提示帧: ' + idx, 'info');
   addDebugLog('前向: ' + forwardEn + ', 后向: ' + backwardEn, 'info');
   try {
+    const logInfo = await apiGet('/api/debug_log');
+    debugLogOffset = logInfo.offset || 0;
+    await startDebugPolling(false);
     const data = await apiPost('/api/bidirectional', {
       prompt_frame_idx: idx,
       bboxes: state.promptBboxes,
@@ -884,10 +1069,15 @@ $('bidirectionalBtn').onclick = async () => {
     }
     addDebugLog(data.msg || '双向标注完成', 'success');
     setStatus(data.msg || '双向标注完成');
-    await showViewer(true);
+    await showViewer(false);
+    await loadFrame(idx);
   } catch (e) { 
     addDebugLog('双向标注失败: ' + e.message, 'error');
     setStatus('双向标注失败: ' + e.message, true); 
+  } finally {
+    stopDebugPolling();
+    await startDebugPolling(false);
+    stopDebugPolling();
   }
 };
 
@@ -960,14 +1150,14 @@ canvas.addEventListener('click', async (e) => {
           x: cx, y: cy, frameIdx: state.currentFrame, oldTrackId: oldId, assignedId: newId
         });
         
-        state.traceIdChanges.push(oldId + '→' + newId);
+        state.traceIdChanges.push('ID: ' + oldId + ' → ' + newId);
         renderMappings();
         renderGreenPoints();
         
         const saveResult = await apiPost('/api/save_mappings', { mappings: state.traceIdChanges });
         addDebugLog('保存结果: ' + JSON.stringify(saveResult), 'success');
         
-        await showViewer(true);
+        await loadFrame(state.currentFrame);
         addDebugLog('刷新视图完成', 'info');
       }
     } else {
@@ -1032,12 +1222,10 @@ function renderMappings() {
     el.innerHTML = '<div style="padding:8px;font-size:11px;color:#585b70;text-align:center;">暂无映射</div>';
   }
   el.querySelectorAll('.del-btn').forEach(btn => {
-    btn.onclick = (e) => {
+    btn.onclick = async (e) => {
       e.stopPropagation();
       const idx = parseInt(btn.dataset.idx);
-      state.traceIdChanges.splice(idx, 1);
-      state.mappingSelectedIdx = -1;
-      renderMappings();
+      await removeTraceMappingAt(idx);
     };
   });
   el.querySelectorAll('.item').forEach(item => {
@@ -1048,16 +1236,41 @@ function renderMappings() {
   });
 }
 
+function parseTraceMapping(m) {
+  const parts = (m || '').replace('ID:', '').split('→');
+  if (parts.length !== 2) return null;
+  const oldId = parseInt(parts[0].trim());
+  const newId = parseInt(parts[1].trim());
+  if (!oldId || !newId) return null;
+  return { oldId, newId };
+}
+
+async function removeTraceMappingAt(idx) {
+  if (idx < 0 || idx >= state.traceIdChanges.length) return;
+  const mapping = parseTraceMapping(state.traceIdChanges[idx]);
+  try {
+    if (mapping) {
+      await apiPost('/api/revert_mapping', { old_id: mapping.oldId, new_id: mapping.newId });
+      if (state.currentTraceId > mapping.oldId) {
+        state.currentTraceId = mapping.oldId;
+        $('currentIdInput').value = mapping.oldId;
+      }
+    }
+    state.traceIdChanges.splice(idx, 1);
+    state.mappingSelectedIdx = -1;
+    await apiPost('/api/save_mappings', { mappings: state.traceIdChanges });
+    renderMappings();
+    await loadFrame(state.currentFrame);
+  } catch (e) {
+    setStatus('删除映射失败: ' + e.message, true);
+  }
+}
+
 function renderGreenPoints() {
-  const rect = canvas.getBoundingClientRect();
-  const displayW = rect.width;
-  const displayH = rect.height;
   for (const pt of state.greenPoints) {
     if (pt.frameIdx === state.currentFrame) {
-      const dx = (pt.x / canvas.width) * displayW;
-      const dy = (pt.y / canvas.height) * displayH;
       ctx.beginPath();
-      ctx.arc(dx, dy, 6, 0, Math.PI * 2);
+      ctx.arc(pt.x, pt.y, 6, 0, Math.PI * 2);
       ctx.fillStyle = '#00ff00';
       ctx.fill();
       ctx.strokeStyle = '#ffffff';
@@ -1077,6 +1290,7 @@ $('clearMappingBtn').onclick = () => {
 
 $('clearGreenBtn').onclick = () => {
   state.greenPoints = [];
+  redrawBbox();
   setStatus('已清空所有绿点');
 };
 
@@ -1091,9 +1305,7 @@ $('modifyMappingBtn').onclick = () => {
 
 $('deleteMappingBtn').onclick = () => {
   if (state.mappingSelectedIdx < 0) { setStatus('请先选择要删除的映射', true); return; }
-  state.traceIdChanges.splice(state.mappingSelectedIdx, 1);
-  state.mappingSelectedIdx = -1;
-  renderMappings();
+  removeTraceMappingAt(state.mappingSelectedIdx);
 };
 
 $('saveMappingBtn').onclick = async () => {
@@ -1124,10 +1336,18 @@ async function loadMappings() {
 // ==================== Export ====================
 $('exportBtn').onclick = async () => {
   try {
-    const data = await apiPost('/api/export', { categories: [] });
+    $('exportBtn').disabled = true;
+    const data = await apiPost('/api/export', {
+      category_mappings: getCategoryMappings(),
+      conf_threshold: parseInt($('confSlider').value) / 100
+    });
     setStatus(data.msg || '导出完成');
     $('savePathInput').value = data.path || 'temp_data_post';
-  } catch (e) { setStatus('导出失败: ' + e.message, true); }
+  } catch (e) {
+    setStatus('导出失败: ' + e.message, true);
+  } finally {
+    $('exportBtn').disabled = state.totalFrames <= 0;
+  }
 };
 
 // ==================== Save Video ====================
@@ -1187,6 +1407,13 @@ $('fenceClearBtn').onclick = () => {
 
 // ==================== Init ====================
 initColorPalette();
+apiGet('/api/get_video_info').then((info) => {
+  state.totalFrames = info.total || 0;
+  $('exportBtn').disabled = state.totalFrames <= 0;
+  updateFrameInfo();
+}).catch(() => {
+  $('exportBtn').disabled = true;
+});
 </script>
 </body>
 </html>
