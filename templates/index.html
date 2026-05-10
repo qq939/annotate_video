@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>视频标注工具</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .header {
+            background: #16213e;
+            padding: 15px 20px;
+            border-bottom: 2px solid #0f3460;
+        }
+        
+        .header h1 {
+            color: #00d9ff;
+            font-size: 24px;
+        }
+        
+        .main-container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+        
+        .video-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            background: #0f0f1a;
+        }
+        
+        .video-container {
+            position: relative;
+            width: {{ video_width }}px;
+            height: {{ video_height }}px;
+            margin: 0 auto;
+            background: #000;
+            border: 3px solid #00d9ff;
+            cursor: crosshair;
+        }
+        
+        #videoCanvas {
+            width: {{ video_width }}px;
+            height: {{ video_height }}px;
+            display: block;
+        }
+        
+        .controls {
+            margin-top: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            background: #00d9ff;
+            color: #000;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+        
+        .btn:hover {
+            background: #00b8d9;
+            transform: scale(1.05);
+        }
+        
+        .btn-danger {
+            background: #ff4444;
+            color: white;
+        }
+        
+        .btn-danger:hover {
+            background: #cc0000;
+        }
+        
+        .info-panel {
+            width: 350px;
+            background: #16213e;
+            padding: 20px;
+            border-left: 2px solid #0f3460;
+            overflow-y: auto;
+        }
+        
+        .panel-title {
+            color: #00d9ff;
+            font-size: 18px;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #0f3460;
+        }
+        
+        .info-item {
+            margin-bottom: 15px;
+        }
+        
+        .info-label {
+            color: #888;
+            font-size: 12px;
+            margin-bottom: 5px;
+        }
+        
+        .info-value {
+            color: #fff;
+            font-size: 16px;
+        }
+        
+        .slider-container {
+            margin-top: 10px;
+        }
+        
+        input[type="range"] {
+            width: 100%;
+            height: 8px;
+            background: #0f3460;
+            border-radius: 4px;
+            outline: none;
+            -webkit-appearance: none;
+        }
+        
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 20px;
+            height: 20px;
+            background: #00d9ff;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        
+        .del-list {
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 10px;
+        }
+        
+        .del-item {
+            background: #0f3460;
+            padding: 10px;
+            margin-bottom: 8px;
+            border-radius: 5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .del-item-info {
+            flex: 1;
+        }
+        
+        .del-item-remove {
+            background: #ff4444;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        
+        .del-item-remove:hover {
+            background: #cc0000;
+        }
+        
+        .loading {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        
+        .loading-text {
+            color: #00d9ff;
+            font-size: 24px;
+        }
+        
+        .status-bar {
+            background: #0f3460;
+            padding: 10px 20px;
+            display: flex;
+            justify-content: space-between;
+            color: #888;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="loading" id="loading">
+        <div class="loading-text">加载中...</div>
+    </div>
+    
+    <div class="header">
+        <h1>🎬 视频标注工具</h1>
+    </div>
+    
+    <div class="main-container">
+        <div class="video-section">
+            <div class="video-container" id="videoContainer">
+                <canvas id="videoCanvas" width="{{ video_width }}" height="{{ video_height }}"></canvas>
+            </div>
+            
+            <div class="controls">
+                <button class="btn" id="prevBtn">◀ 上一帧</button>
+                <button class="btn" id="playBtn">▶ 播放</button>
+                <button class="btn" id="nextBtn">下一帧 ▶</button>
+                <button class="btn btn-danger" id="clearBtn">🗑️ 清空</button>
+                <button class="btn" id="exportBtn">💾 导出</button>
+            </div>
+        </div>
+        
+        <div class="info-panel">
+            <div class="info-item">
+                <div class="panel-title">📊 视频信息</div>
+                <div class="info-label">当前帧</div>
+                <div class="info-value" id="currentFrame">0 / 0</div>
+            </div>
+            
+            <div class="info-item">
+                <div class="info-label">可见标注</div>
+                <div class="info-value" id="visibleCount">0 / 0</div>
+            </div>
+            
+            <div class="info-item">
+                <div class="info-label">已删除</div>
+                <div class="info-value" id="deletedCount">0</div>
+            </div>
+            
+            <div class="info-item">
+                <div class="panel-title">⚙️ 置信度阈值</div>
+                <div class="slider-container">
+                    <input type="range" id="confSlider" min="0" max="100" value="50">
+                    <div class="info-value" id="confValue">0.50</div>
+                </div>
+            </div>
+            
+            <div class="info-item">
+                <div class="panel-title">🗑️ 删除列表</div>
+                <button class="btn" id="clearListBtn" style="width: 100%; margin-bottom: 10px;">清空删除列表</button>
+                <div class="del-list" id="delList"></div>
+            </div>
+            
+            <div class="info-item" style="margin-top: 20px;">
+                <div class="panel-title">💡 使用说明</div>
+                <div style="font-size: 12px; color: #888; line-height: 1.6;">
+                    • 点击画面中的标注添加删除点<br>
+                    • 拖动置信度滑块筛选显示<br>
+                    • 导出视频保存结果
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="status-bar">
+        <span id="statusText">就绪</span>
+        <span>分辨率: {{ video_width }}x{{ video_height }}</span>
+    </div>
+    
+    <script>
+        const VIDEO_WIDTH = {{ video_width }};
+        const VIDEO_HEIGHT = {{ video_height }};
+        
+        let currentFrame = 0;
+        let totalFrames = 0;
+        let isPlaying = false;
+        let playInterval = null;
+        
+        const canvas = document.getElementById('videoCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        async function init() {
+            try {
+                const resp = await fetch('/api/init', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({project_name: 'default'})
+                });
+                const data = await resp.json();
+                
+                const metaResp = await fetch('/api/metadata');
+                const meta = await metaResp.json();
+                totalFrames = meta.total_frames;
+                
+                document.getElementById('loading').style.display = 'none';
+                loadFrame(0);
+            } catch (e) {
+                console.error('初始化失败:', e);
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+        
+        async function loadFrame(frameIdx) {
+            currentFrame = frameIdx;
+            if (currentFrame < 0) currentFrame = totalFrames - 1;
+            if (currentFrame >= totalFrames) currentFrame = 0;
+            
+            try {
+                const resp = await fetch(`/api/frame_with_masks/${currentFrame}`);
+                const blob = await resp.blob();
+                const url = URL.createObjectURL(blob);
+                
+                const img = new Image();
+                img.onload = () => {
+                    ctx.drawImage(img, 0, 0);
+                    URL.revokeObjectURL(url);
+                };
+                img.src = url;
+                
+                const infoResp = await fetch(`/api/frame_info/${currentFrame}`);
+                const info = await infoResp.json();
+                
+                document.getElementById('currentFrame').textContent = `${currentFrame + 1} / ${totalFrames}`;
+                document.getElementById('visibleCount').textContent = `${info.visible_count} / ${info.total_count}`;
+                document.getElementById('deletedCount').textContent = info.deleted_count;
+                
+                await loadDelPoints();
+            } catch (e) {
+                console.error('加载帧失败:', e);
+            }
+        }
+        
+        async function loadDelPoints() {
+            try {
+                const resp = await fetch('/api/del_points');
+                const points = await resp.json();
+                
+                const list = document.getElementById('delList');
+                list.innerHTML = '';
+                
+                points.forEach((p, idx) => {
+                    const item = document.createElement('div');
+                    item.className = 'del-item';
+                    item.innerHTML = `
+                        <div class="del-item-info">
+                            <div>${p.shortcut} | 帧${p.frame_idx + 1} | (${p.x}, ${p.y})</div>
+                            <div style="color: #888; font-size: 11px;">ID: ${p.track_id}</div>
+                        </div>
+                        <button class="del-item-remove" onclick="removePoint(${idx})">删除</button>
+                    `;
+                    list.appendChild(item);
+                });
+            } catch (e) {
+                console.error('加载删除点失败:', e);
+            }
+        }
+        
+        async function handleClick(e) {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            document.getElementById('statusText').textContent = `点击: (${x}, ${y})`;
+            
+            try {
+                const resp = await fetch('/api/click', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({x, y, frame_idx: currentFrame})
+                });
+                const data = await resp.json();
+                
+                if (data.success) {
+                    document.getElementById('statusText').textContent = data.message;
+                    loadFrame(currentFrame);
+                } else {
+                    document.getElementById('statusText').textContent = data.message;
+                }
+            } catch (e) {
+                console.error('点击处理失败:', e);
+            }
+        }
+        
+        async function removePoint(idx) {
+            try {
+                await fetch('/api/remove_point', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({index: idx})
+                });
+                loadFrame(currentFrame);
+            } catch (e) {
+                console.error('移除失败:', e);
+            }
+        }
+        
+        async function clearAll() {
+            try {
+                await fetch('/api/clear', {method: 'POST'});
+                loadFrame(currentFrame);
+            } catch (e) {
+                console.error('清空失败:', e);
+            }
+        }
+        
+        async function setConf(value) {
+            try {
+                await fetch('/api/set_conf', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({threshold: value / 100})
+                });
+                loadFrame(currentFrame);
+            } catch (e) {
+                console.error('设置置信度失败:', e);
+            }
+        }
+        
+        async function exportVideo() {
+            document.getElementById('statusText').textContent = '正在导出...';
+            try {
+                const resp = await fetch('/api/export', {method: 'POST'});
+                const data = await resp.json();
+                document.getElementById('statusText').textContent = `导出完成: ${data.output_path}`;
+            } catch (e) {
+                console.error('导出失败:', e);
+            }
+        }
+        
+        document.getElementById('videoContainer').addEventListener('click', handleClick);
+        
+        document.getElementById('prevBtn').addEventListener('click', () => loadFrame(currentFrame - 1));
+        document.getElementById('nextBtn').addEventListener('click', () => loadFrame(currentFrame + 1));
+        
+        document.getElementById('playBtn').addEventListener('click', () => {
+            if (isPlaying) {
+                clearInterval(playInterval);
+                isPlaying = false;
+                document.getElementById('playBtn').textContent = '▶ 播放';
+            } else {
+                isPlaying = true;
+                document.getElementById('playBtn').textContent = '⏸ 暂停';
+                playInterval = setInterval(() => loadFrame(currentFrame + 1), 100);
+            }
+        });
+        
+        document.getElementById('clearBtn').addEventListener('click', clearAll);
+        document.getElementById('clearListBtn').addEventListener('click', clearAll);
+        document.getElementById('exportBtn').addEventListener('click', exportVideo);
+        
+        document.getElementById('confSlider').addEventListener('input', (e) => {
+            const value = e.target.value / 100;
+            document.getElementById('confValue').textContent = value.toFixed(2);
+            setConf(e.target.value);
+        });
+        
+        init();
+    </script>
+</body>
+</html>

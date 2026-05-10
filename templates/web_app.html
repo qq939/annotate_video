@@ -36,8 +36,8 @@ body { font-family: 'Segoe UI', sans-serif; background: #1e1e2e; color: #cdd6f4;
 .progress-bar { height: 6px; background: #313244; border-radius: 3px; overflow: hidden; margin-top: 4px; display: none; }
 .progress-fill { height: 100%; background: #89b4fa; width: 0%; transition: width 0.2s; }
 .progress-text { font-size: 11px; color: #a6adc8; text-align: center; margin-top: 2px; display: none; }
-.canvas-wrapper { flex: 1; display: flex; justify-content: center; align-items: center; overflow: hidden; padding: 10px; position: relative; }
-.canvas-wrapper canvas { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 4px; }
+.canvas-wrapper { flex: 1; display: flex; justify-content: center; align-items: center; overflow: auto; padding: 10px; position: relative; }
+.canvas-wrapper canvas { display: block; flex: 0 0 auto; border-radius: 4px; background: #000; }
 .nav-bar { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 8px; background: #181825; border-top: 1px solid #313244; flex-wrap: wrap; }
 .nav-bar input[type="text"] { width: 70px; text-align: center; padding: 3px 6px; background: #313244; border: 1px solid #45475a; border-radius: 4px; color: #cdd6f4; font-size: 13px; }
 .nav-bar .frame-label { background: #333; color: #fff; border-radius: 3px; padding: 4px 12px; font-weight: bold; font-size: 12px; min-width: 70px; text-align: center; }
@@ -313,12 +313,53 @@ const state = {
   drawCurrentY: 0,
   greenPoints: [],
   firstFrameData: null,
+  canvasImageData: null,
+  imageWidth: 0,
+  imageHeight: 0,
+  canvasMode: 'annotate',
 };
 
 const PALETTE_COLORS = ['#ff0000','#ffa500','#ffff00','#00ff00','#00ffff','#0000ff','#800080'];
 
 const canvas = document.getElementById('viewerCanvas');
 const ctx = canvas.getContext('2d');
+
+function getCanvasZoom() {
+  const slider = state.canvasMode === 'viewer' ? $('zoomSlider') : $('scaleSlider');
+  return parseInt((slider && slider.value) || '100') / 100;
+}
+
+function setCanvasImage(dataUrl, width, height, zoom) {
+  state.canvasImageData = dataUrl;
+  state.imageWidth = width;
+  state.imageHeight = height;
+  canvas.width = width;
+  canvas.height = height;
+  canvas.style.width = Math.round(width * zoom) + 'px';
+  canvas.style.height = Math.round(height * zoom) + 'px';
+  redrawCanvas();
+}
+
+function clientToImageCoords(e) {
+  const r = canvas.getBoundingClientRect();
+  if (!r.width || !r.height || !canvas.width || !canvas.height) return null;
+  const x = (e.clientX - r.left) * (canvas.width / r.width);
+  const y = (e.clientY - r.top) * (canvas.height / r.height);
+  return {
+    x: Math.max(0, Math.min(x, canvas.width)),
+    y: Math.max(0, Math.min(y, canvas.height)),
+  };
+}
+
+function normalizeBbox(x1, y1, x2, y2) {
+  const bx = [
+    Math.max(0, Math.min(Math.min(x1, x2), canvas.width)),
+    Math.max(0, Math.min(Math.min(y1, y2), canvas.height)),
+    Math.max(0, Math.min(Math.max(x1, x2), canvas.width)),
+    Math.max(0, Math.min(Math.max(y1, y2), canvas.height)),
+  ];
+  return [Math.round(bx[0]), Math.round(bx[1]), Math.round(bx[2]), Math.round(bx[3])];
+}
 
 function $(id) { return document.getElementById(id); }
 
@@ -446,20 +487,19 @@ $('selectVideoBtn').onclick = async () => {
 
 async function loadFirstFrameForDraw() {
   try {
+    state.canvasMode = 'annotate';
     const res = await fetch('/api/get_video_first_frame');
     const data = await res.json();
     if (!data.image) return;
-    canvas.width = data.width || 800;
-    canvas.height = data.height || 600;
+    const dataUrl = 'data:image/jpeg;base64,' + data.image;
     const img = new Image();
     img.onload = () => {
-      canvas.width = img.naturalWidth || data.width || 800;
-      canvas.height = img.naturalHeight || data.height || 600;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      state.firstFrameData = 'data:image/jpeg;base64,' + data.image;
+      const w = img.naturalWidth || data.width || 800;
+      const h = img.naturalHeight || data.height || 600;
+      state.firstFrameData = dataUrl;
+      setCanvasImage(dataUrl, w, h, getCanvasZoom());
     };
-    img.src = 'data:image/jpeg;base64,' + data.image;
+    img.src = dataUrl;
   } catch (e) { /* ignore */ }
 }
 
@@ -470,7 +510,13 @@ $('annotateBtn').onclick = async () => {
   await runAnnotation($('itemsInput').value);
 };
 
-$('scaleSlider').oninput = () => { $('scaleLabel').textContent = $('scaleSlider').value + '%'; };
+$('scaleSlider').oninput = () => {
+  $('scaleLabel').textContent = $('scaleSlider').value + '%';
+  if (state.canvasMode === 'annotate' && state.imageWidth && state.imageHeight) {
+    canvas.style.width = Math.round(state.imageWidth * getCanvasZoom()) + 'px';
+    canvas.style.height = Math.round(state.imageHeight * getCanvasZoom()) + 'px';
+  }
+};
 $('zoomSlider').oninput = () => { $('zoomLabel').textContent = $('zoomSlider').value + '%'; loadFrame(state.currentFrame); };
 $('confSlider').oninput = () => { $('confLabel').textContent = $('confSlider').value + '%'; loadFrame(state.currentFrame); };
 $('alphaSlider').oninput = () => { $('alphaLabel').textContent = $('alphaSlider').value + '%'; };
@@ -590,6 +636,7 @@ async function showViewer(refresh) {
 
 async function loadFrame(idx) {
   if (state.totalFrames <= 0) return;
+  state.canvasMode = 'viewer';
   idx = ((idx % state.totalFrames) + state.totalFrames) % state.totalFrames;
   state.currentFrame = idx;
   $('frameIdxInput').value = idx;
@@ -604,22 +651,17 @@ async function loadFrame(idx) {
       addDebugLog('loadFrame错误: 无图片数据', 'error');
       return;
     }
-    canvas.width = data.width || 800;
-    canvas.height = data.height || 600;
     const zoom = parseInt($('zoomSlider').value) / 100;
-    canvas.style.width = (canvas.width * zoom) + 'px';
-    canvas.style.height = (canvas.height * zoom) + 'px';
+    const dataUrl = 'data:image/jpeg;base64,' + data.image;
     const img = new Image();
     img.onload = () => {
       addDebugLog('图片加载成功: ' + img.naturalWidth + 'x' + img.naturalHeight, 'info');
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      renderGreenPoints();
+      setCanvasImage(dataUrl, img.naturalWidth || data.width || 800, img.naturalHeight || data.height || 600, zoom);
     };
     img.onerror = () => {
       addDebugLog('图片加载失败', 'error');
     };
-    img.src = 'data:image/jpeg;base64,' + data.image;
+    img.src = dataUrl;
   } catch (e) { setStatus('加载帧失败: ' + e.message, true); addDebugLog('loadFrame错误: ' + e.message, 'error'); }
 }
 
@@ -639,30 +681,28 @@ let dragStarted = false;
 
 canvas.addEventListener('mousedown', (e) => {
   if (state.annotationRunning || canvas.width === 0) return;
+  const p = clientToImageCoords(e);
+  if (!p) return;
   isDragging = true;
   dragStarted = false;
-  const r = canvas.getBoundingClientRect();
-  const scaleX = canvas.width / r.width;
-  const scaleY = canvas.height / r.height;
-  state.drawStartX = (e.clientX - r.left) * scaleX;
-  state.drawStartY = (e.clientY - r.top) * scaleY;
+  state.drawStartX = p.x;
+  state.drawStartY = p.y;
   state.drawCurrentX = state.drawStartX;
   state.drawCurrentY = state.drawStartY;
 });
 
 canvas.addEventListener('mousemove', (e) => {
   if (!isDragging || canvas.width === 0) return;
-  const r = canvas.getBoundingClientRect();
-  const scaleX = canvas.width / r.width;
-  const scaleY = canvas.height / r.height;
-  state.drawCurrentX = (e.clientX - r.left) * scaleX;
-  state.drawCurrentY = (e.clientY - r.top) * scaleY;
+  const p = clientToImageCoords(e);
+  if (!p) return;
+  state.drawCurrentX = p.x;
+  state.drawCurrentY = p.y;
   const dx = state.drawCurrentX - state.drawStartX;
   const dy = state.drawCurrentY - state.drawStartY;
   if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
     dragStarted = true;
     state.isDrawing = true;
-    requestAnimationFrame(redrawBbox);
+    requestAnimationFrame(redrawCanvas);
   }
 });
 
@@ -674,21 +714,15 @@ canvas.addEventListener('mouseup', (e) => {
   }
   dragStarted = false;
   state.isDrawing = false;
-  const r = canvas.getBoundingClientRect();
-  const scaleX = canvas.width / r.width;
-  const scaleY = canvas.height / r.height;
-  const endX = (e.clientX - r.left) * scaleX;
-  const endY = (e.clientY - r.top) * scaleY;
-  const x1 = Math.min(state.drawStartX, endX);
-  const y1 = Math.min(state.drawStartY, endY);
-  const x2 = Math.max(state.drawStartX, endX);
-  const y2 = Math.max(state.drawStartY, endY);
+  const p = clientToImageCoords(e);
+  if (!p) return;
+  const [x1, y1, x2, y2] = normalizeBbox(state.drawStartX, state.drawStartY, p.x, p.y);
   if (x2 - x1 > 10 && y2 - y1 > 10) {
     state.promptBboxes.push([x1, y1, x2, y2]);
     updateBboxCount();
     setStatus('已添加边界框 (' + state.promptBboxes.length + ')', false);
   }
-  redrawBbox();
+  redrawCanvas();
 });
 
 canvas.addEventListener('mouseleave', () => {
@@ -706,7 +740,7 @@ function undoLastBbox() {
   if (state.promptBboxes.length > 0) {
     state.promptBboxes.pop();
     updateBboxCount();
-    redrawBbox();
+    redrawCanvas();
     setStatus('已撤销最后一个边界框', false);
   }
 }
@@ -716,22 +750,29 @@ function updateBboxCount() {
   if (el) el.textContent = '已画 ' + state.promptBboxes.length + ' 个框';
 }
 
-function redrawBbox() {
+function redrawCanvas() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  if (state.firstFrameData) {
+  const bg = state.canvasImageData || state.firstFrameData;
+  if (bg) {
     const bgImg = new Image();
-    bgImg.src = state.firstFrameData;
     bgImg.onload = () => {
       ctx.drawImage(bgImg, 0, 0, canvas.width, canvas.height);
       drawBboxOverlay();
+      renderGreenPoints();
     };
+    bgImg.src = bg;
   } else {
     drawBboxOverlay();
+    renderGreenPoints();
   }
 }
 
+function redrawBbox() {
+  redrawCanvas();
+}
+
 function drawBboxOverlay() {
-  if (state.isDrawing && state.drawStartX) {
+  if (state.isDrawing) {
     ctx.strokeStyle = '#a6e3a1';
     ctx.lineWidth = 2;
     ctx.strokeRect(
@@ -806,11 +847,19 @@ function togglePlay() {
 $('promptBtn').onclick = async () => {
   if (!state.promptMode) {
     state.promptMode = true;
+    $('promptFrameIdx').value = state.currentFrame;
+    state.promptBboxes = [];
+    updateBboxCount();
+    redrawCanvas();
     $('promptBtn').style.background = '#ff8c00';
     $('promptBtn').textContent = '执行提示帧';
     setStatus('提示帧模式：请在右侧画布绘制边界框后点击本按钮', false);
     addDebugLog('提示帧模式：请绘制边界框', 'info');
   } else {
+    if (state.promptBboxes.length === 0) {
+      setStatus('请先绘制至少一个边界框', true);
+      return;
+    }
     state.promptMode = false;
     $('promptBtn').style.background = '#ffa500';
     $('promptBtn').textContent = '提示帧';
@@ -827,6 +876,7 @@ $('promptBtn').onclick = async () => {
       addDebugLog('提示帧结果: ' + JSON.stringify(data), 'success');
       setStatus('提示帧完成: ' + (data.msg || ''));
       state.promptBboxes = [];
+      updateBboxCount();
       state.firstFrameData = null;
       await showViewer(true);
     } catch (e) { 
@@ -839,7 +889,8 @@ $('promptBtn').onclick = async () => {
 // ==================== Bidirectional ====================
 $('promptFrameBtn').onclick = async () => {
   if (!state.videoName) { setStatus('请先完成标注', true); return; }
-  const idx = parseInt($('promptFrameIdx').value) || 0;
+  const idx = parseInt($('promptFrameIdx').value || state.currentFrame) || 0;
+  if (state.promptBboxes.length === 0) { setStatus('请先绘制至少一个边界框', true); return; }
   try {
     const data = await apiPost('/api/prompt_frame', {
       prompt_frame_idx: idx,
@@ -895,31 +946,18 @@ $('bidirectionalBtn').onclick = async () => {
 canvas.addEventListener('click', async (e) => {
   if (state.isDrawing) return;
   if (canvas.width === 0) return;
-  
-  const rect = canvas.getBoundingClientRect();
-  const scaleX = canvas.width / rect.width;
-  const scaleY = canvas.height / rect.height;
-  const cx = (e.clientX - rect.left) * scaleX;
-  const cy = (e.clientY - rect.top) * scaleY;
-  addDebugLog('点击: rect(' + Math.round(rect.left) + ',' + Math.round(rect.top) + ') size(' + Math.round(rect.width) + 'x' + Math.round(rect.height) + ') canvas(' + canvas.width + 'x' + canvas.height + ') scale(' + scaleX.toFixed(2) + ',' + scaleY.toFixed(2) + ') -> (' + Math.round(cx) + ',' + Math.round(cy) + ')', 'info');
 
   if (state.promptMode) {
-    state.promptMode = false;
-    $('promptBtn').style.background = '#ffa500';
-    $('promptBtn').textContent = '提示帧';
-    try {
-      const data = await apiPost('/api/prompt_frame', {
-        prompt_frame_idx: state.currentFrame,
-        bboxes: [[cx - 50, cy - 50, cx + 50, cx + 50]],
-        items: $('itemsInput').value,
-        iou: parseFloat($('iouInput').value),
-        merge_iou: parseFloat($('mergeIouInput').value),
-      });
-      setStatus('提示帧完成: ' + (data.msg || ''));
-      await loadFrame(state.currentFrame);
-    } catch (e) { setStatus('提示帧失败: ' + e.message, true); }
+    addDebugLog('提示帧模式点击忽略：请拖动画框后点击执行提示帧', 'info');
     return;
   }
+
+  const p = clientToImageCoords(e);
+  if (!p) return;
+  const cx = p.x;
+  const cy = p.y;
+  const rect = canvas.getBoundingClientRect();
+  addDebugLog('点击: rect(' + Math.round(rect.left) + ',' + Math.round(rect.top) + ') size(' + Math.round(rect.width) + 'x' + Math.round(rect.height) + ') canvas(' + canvas.width + 'x' + canvas.height + ') -> (' + Math.round(cx) + ',' + Math.round(cy) + ')', 'info');
 
   try {
     const af = await apiGet('/api/frame_annotations/' + state.currentFrame);
@@ -1049,15 +1087,10 @@ function renderMappings() {
 }
 
 function renderGreenPoints() {
-  const rect = canvas.getBoundingClientRect();
-  const displayW = rect.width;
-  const displayH = rect.height;
   for (const pt of state.greenPoints) {
     if (pt.frameIdx === state.currentFrame) {
-      const dx = (pt.x / canvas.width) * displayW;
-      const dy = (pt.y / canvas.height) * displayH;
       ctx.beginPath();
-      ctx.arc(dx, dy, 6, 0, Math.PI * 2);
+      ctx.arc(pt.x, pt.y, 6, 0, Math.PI * 2);
       ctx.fillStyle = '#00ff00';
       ctx.fill();
       ctx.strokeStyle = '#ffffff';
@@ -1077,6 +1110,7 @@ $('clearMappingBtn').onclick = () => {
 
 $('clearGreenBtn').onclick = () => {
   state.greenPoints = [];
+  redrawCanvas();
   setStatus('已清空所有绿点');
 };
 

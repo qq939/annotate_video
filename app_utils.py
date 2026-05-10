@@ -13,6 +13,74 @@ from pathlib import Path
 TEMP_DATA_DIR = Path("temp_data")
 TEMP_DATA_MID_DIR = Path("temp_data_mid")
 TEMP_DATA_POST_DIR = Path("temp_data_post")
+DST_VIDEO_DIR = Path("1dst")
+
+
+# ==================== 坐标/图像工具 ====================
+def normalize_bboxes(bboxes, width=None, height=None):
+    """归一化前端传入的xyxy框，保证坐标顺序正确并可选裁剪到图像范围。"""
+    normalized = []
+    for box in bboxes or []:
+        if not isinstance(box, (list, tuple)) or len(box) < 4:
+            continue
+        try:
+            x1, y1, x2, y2 = [float(v) for v in box[:4]]
+        except (TypeError, ValueError):
+            continue
+
+        if x1 > x2:
+            x1, x2 = x2, x1
+        if y1 > y2:
+            y1, y2 = y2, y1
+
+        if width is not None:
+            x1 = max(0.0, min(x1, float(width)))
+            x2 = max(0.0, min(x2, float(width)))
+        if height is not None:
+            y1 = max(0.0, min(y1, float(height)))
+            y2 = max(0.0, min(y2, float(height)))
+
+        if x2 - x1 >= 2 and y2 - y1 >= 2:
+            normalized.append([int(round(x1)), int(round(y1)), int(round(x2)), int(round(y2))])
+    return normalized
+
+
+def encode_frame_jpeg(frame, quality=85):
+    """将BGR帧编码成base64 JPEG，并返回图像尺寸。"""
+    if frame is None:
+        return None
+    h, w = frame.shape[:2]
+    ok, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, int(quality)])
+    if not ok:
+        return None
+    import base64
+    return {'image': base64.b64encode(buf).decode(), 'width': w, 'height': h}
+
+
+def render_frame_with_annotations(frame, annotations, color_func, conf_threshold=0.0):
+    """按post_annotate/video_viewer的方式在原始帧坐标系中绘制标注。"""
+    res = frame.copy()
+    for ann in annotations or []:
+        if ann.get('confidence', 1.0) < conf_threshold:
+            continue
+        tid = ann.get('track_id', 0)
+        if tid == 0:
+            continue
+        color = color_func(tid)
+        seg = ann.get('segmentation')
+        if seg:
+            pts = np.array(seg[0], dtype=np.int32).reshape(-1, 2)
+            cv2.polylines(res, [pts], True, color, 2)
+            m = cv2.moments(pts)
+            if m['m00'] != 0:
+                cx = int(m['m10'] / m['m00'])
+                cy = int(m['m01'] / m['m00'])
+                cv2.putText(res, str(tid), (cx, cy), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+        bbox = ann.get('bbox')
+        if bbox:
+            x, y, bw, bh = [int(v) for v in bbox]
+            cv2.rectangle(res, (x, y), (x + bw, y + bh), color, 1)
+    return res
 
 
 # ==================== SAM相关 ====================
@@ -197,6 +265,7 @@ def run_prompt_frame(frame_path, bboxes=None, find_list=None, overrides=None, fi
     if frame is None:
         return [], first_id
     h, w = frame.shape[:2]
+    bboxes = normalize_bboxes(bboxes, w, h)
     
     use_semantic = bool(find_list)
     
@@ -592,6 +661,7 @@ def process_clip_for_bidirectional(start_frame, end_frame, forward, prompt_bboxe
     print(f"[DEBUG {direction}] ✓ 视频片段生成完成: {frames_written} 帧")
 
     print(f"[DEBUG {direction}] 正在加载 SAM3VideoPredictor 处理...")
+    prompt_bboxes = normalize_bboxes(prompt_bboxes, width, height)
     print(f"[DEBUG {direction}] prompt_bboxes={prompt_bboxes}")
     
     if prompt_bboxes:
@@ -738,6 +808,7 @@ def run_bidirectional_inject(prompt_idx, total_frames, bboxes, forward_enabled=T
     if sample_frame is None:
         return False, "无法读取帧"
     height, width = sample_frame.shape[:2]
+    bboxes = normalize_bboxes(bboxes, width, height)
 
     print(f"=== 双向标注开始 === 提示帧: {prompt_idx}, 总帧数: {total_frames}, 前向={forward_enabled}, 后向={backward_enabled}, FIRST_ID={first_id}")
 
@@ -747,22 +818,39 @@ def run_bidirectional_inject(prompt_idx, total_frames, bboxes, forward_enabled=T
     forward_anns = []
     backward_anns = []
 
-    if forward_enabled:
+    if forward_enabled and prompt_idx + 1 < total_frames:
         forward_anns, new_first_id = process_clip_for_bidirectional(
-            prompt_idx, total_frames, True, bboxes,
+            prompt_idx + 1, total_frames, True, bboxes,
             mid_frames_dir, mid_labels_dir, temp_inject,
             predictor, width, height, first_id,
             iou_threshold, merge_iou_threshold
         )
         first_id = new_first_id
 
-    if backward_enabled:
+    if backward_enabled and prompt_idx > 0:
         backward_anns, _ = process_clip_for_bidirectional(
             0, prompt_idx, False, bboxes,
             mid_frames_dir, mid_labels_dir, temp_inject,
             predictor, width, height, first_id,
             iou_threshold, merge_iou_threshold
         )
+
+    all_new_anns = backward_anns + forward_anns
+    if mid_annotations_file.exists():
+        with open(mid_annotations_file) as f:
+            coco = json.load(f)
+    else:
+        coco = {'info': {}, 'images': [], 'annotations': [], 'categories': []}
+
+    max_ann_id = max([ann.get('id', 0) for ann in coco.get('annotations', [])], default=0)
+    for ann in all_new_anns:
+        max_ann_id += 1
+        new_ann = dict(ann)
+        new_ann['id'] = max_ann_id
+        coco.setdefault('annotations', []).append(new_ann)
+
+    with open(mid_annotations_file, 'w') as f:
+        json.dump(coco, f)
 
     return True, f"双向标注完成，前向{len(forward_anns)}条，后向{len(backward_anns)}条"
 
@@ -807,6 +895,8 @@ def get_predictor_args(video_path, bboxes=None, find_list=None, device='auto', m
     if bboxes:
         source = video_path
         pred_args = {'source': source, 'stream': True, 'bboxes': bboxes, 'labels': [1] * len(bboxes)}
+        if find_list:
+            pred_args['text'] = find_list
     else:
         source = video_path
         pred_args = {'source': source, 'stream': True}
@@ -959,6 +1049,7 @@ def run_video_annotate(src_video, bboxes, find_list, overrides, use_semantic, io
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     cap.release()
+    bboxes = normalize_bboxes(bboxes, width, height)
 
     if use_semantic:
         try:
@@ -978,6 +1069,8 @@ def run_video_annotate(src_video, bboxes, find_list, overrides, use_semantic, io
         shutil.copy2(src_video, str(src_dst))
         source = str(src_dst)
         predictor_args = {'source': source, 'stream': True, 'bboxes': bboxes, 'labels': [1] * len(bboxes)}
+        if find_list:
+            predictor_args['text'] = find_list
     else:
         source = src_video
         predictor_args = {'source': source, 'stream': True}

@@ -47,8 +47,57 @@ def index():
     return render_template('web_app.html')
 
 
+@app.route('/api/upload_video', methods=['POST'])
+def upload_video():
+    from app_utils import encode_frame_jpeg
+
+    f = request.files.get('video')
+    if not f or not f.filename:
+        return jsonify({'error': '未收到视频文件'}), 400
+
+    filename = Path(f.filename).name
+    dst = SRC_VIDEO_DIR / filename
+    f.save(str(dst))
+
+    cap = cv2.VideoCapture(str(dst))
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    ret, frame = cap.read()
+    cap.release()
+
+    state['video_name'] = filename
+    state['total_frames'] = total
+    state['first_frame'] = encode_frame_jpeg(frame) if ret else None
+    return jsonify({'filename': filename, 'total': total, 'width': width, 'height': height})
+
+
+@app.route('/api/get_video_first_frame')
+def get_video_first_frame():
+    from app_utils import encode_frame_jpeg
+
+    video_name = state.get('video_name', '')
+    if not video_name:
+        return jsonify({'error': '未选择视频'}), 400
+
+    cached = state.get('first_frame')
+    if cached:
+        return jsonify(cached)
+
+    src = SRC_VIDEO_DIR / video_name
+    cap = cv2.VideoCapture(str(src))
+    ret, frame = cap.read()
+    cap.release()
+    if not ret:
+        return jsonify({'error': '无法读取视频首帧'}), 500
+    encoded = encode_frame_jpeg(frame)
+    state['first_frame'] = encoded
+    return jsonify(encoded)
+
+
 # ==================== 视频标注（调用app_utils） ====================
 @app.route('/api/start_annotate', methods=['POST'])
+@app.route('/api/run_annotate', methods=['POST'])
 def start_annotate():
     from app_utils import get_sam_overrides, patch_sam3_video_semantic, TEMP_DATA_DIR
     from app_utils import run_video_annotate
@@ -136,7 +185,7 @@ def show_viewer():
 # ==================== 帧渲染 ====================
 @app.route('/api/get_frame/<int:idx>')
 def get_frame(idx):
-    from app_utils import TEMP_DATA_MID_DIR
+    from app_utils import TEMP_DATA_MID_DIR, encode_frame_jpeg, render_frame_with_annotations
     
     fd = TEMP_DATA_MID_DIR / "frames"
     ld = TEMP_DATA_MID_DIR / "labels"
@@ -147,34 +196,16 @@ def get_frame(idx):
     frame = cv2.imread(str(fp))
     if frame is None:
         return jsonify({'error': '无法读取帧'}), 500
-    res = frame.copy()
     h, w = frame.shape[:2]
     lp = ld / f"frame_{idx:06d}.json"
     frame_anns = []
     if lp.exists():
         with open(lp) as f:
             frame_anns = json.load(f)
-        for a in frame_anns:
-            tid = a.get('track_id', 0)
-            if tid == 0:
-                continue
-            color = get_color_for_track_id(tid)
-            seg = a.get('segmentation')
-            if seg:
-                pts = np.array(seg[0], dtype=np.int32).reshape(-1, 2)
-                cv2.polylines(res, [pts], True, color, 2)
-                M = cv2.moments(pts)
-                if M['m00'] != 0:
-                    cx = int(M['m10'] / M['m00'])
-                    cy = int(M['m01'] / M['m00'])
-                    cv2.putText(res, str(tid), (cx, cy), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
-            bbox = a.get('bbox')
-            if bbox:
-                x, y, bw, bh = [int(v) for v in bbox]
-                cv2.rectangle(res, (x, y), (x + bw, y + bh), color, 1)
-
-    _, buf = cv2.imencode('.jpg', res, [cv2.IMWRITE_JPEG_QUALITY, 85])
-    return jsonify({'image': base64.b64encode(buf).decode(), 'frame': idx, 'width': w, 'height': h, 'annotations': frame_anns})
+    conf = float(request.args.get('conf', 0) or 0)
+    res = render_frame_with_annotations(frame, frame_anns, get_color_for_track_id, conf_threshold=conf)
+    encoded = encode_frame_jpeg(res)
+    return jsonify({'image': encoded['image'], 'frame': idx, 'width': w, 'height': h, 'annotations': frame_anns})
 
 
 @app.route('/api/get_video_info')
@@ -267,7 +298,9 @@ def export_route():
     from app_utils import export_to_temp_data_post, TEMP_DATA_MID_DIR
     
     data = request.json or {}
-    cat_maps = data.get('category_mappings', ['Detect'] * 8)
+    cat_maps = data.get('category_mappings') or data.get('categories') or ['Detect'] * 8
+    if not cat_maps:
+        cat_maps = ['Detect'] * 8
 
     if not TEMP_DATA_MID_DIR.exists():
         return jsonify({'error': 'temp_data_mid 不存在'}), 400
@@ -335,11 +368,12 @@ def save_video():
     
     data = request.json or {}
     alpha = float(data.get('alpha', 0.5))
-    color_index = int(data.get('color_index', 0))
+    color_index = int(data.get('color_index', data.get('selected_color_index', 0)))
     category_name = data.get('category', 'Detect')
+    output_name = Path(data.get('output_name', 'output.mp4')).name
 
     input_path = TEMP_DATA_POST_DIR
-    output_path = DST_VIDEO_DIR / "output.mp4"
+    output_path = DST_VIDEO_DIR / output_name
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     if not input_path.exists():
