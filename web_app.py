@@ -147,7 +147,8 @@ def start_annotate():
                 merge_iou=merge_iou,
                 src_video_dir=SRC_VIDEO_DIR,
                 temp_data_dir=TEMP_DATA_DIR,
-                yield_func=progress_callback
+                yield_func=progress_callback,
+                log_func=append_debug_log
             )
 
             state['total_frames'] = frame_count
@@ -396,6 +397,7 @@ def delete_track_id():
 @app.route('/api/save_video', methods=['POST'])
 def save_video():
     from app_utils import TEMP_DATA_POST_DIR, DST_VIDEO_DIR, get_save_color_for_track_id
+    from annotate_video import put_chinese_text
     
     data = request.json or {}
     alpha = float(data.get('alpha', 0.5))
@@ -462,7 +464,7 @@ def save_video():
 
                 x, y, bw, bh = [int(v) for v in bbox]
                 cv2.rectangle(overlay, (x, y), (x + bw, y + bh), color, 2)
-                cv2.putText(overlay, f"{cat} {conf:.2f}", (x, y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+                overlay = put_chinese_text(overlay, f"{cat} {conf:.2f}", (x, y - 18), font_size=18, color=(255, 255, 255))
 
             cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
 

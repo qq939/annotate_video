@@ -75,7 +75,7 @@ body { font-family: 'Segoe UI', sans-serif; background: #1e1e2e; color: #cdd6f4;
 .bind-row label { font-size: 11px; color: #a6adc8; min-width: 36px; }
 .bind-row input { padding: 2px 6px; background: #313244; border: 1px solid #45475a; border-radius: 4px; color: #cdd6f4; font-size: 11px; width: 70px; }
 .bind-row .btn { padding: 2px 8px; font-size: 11px; }
-.debug-panel { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #1e1e2e; border: 2px solid #89b4fa; border-radius: 8px; padding: 16px; width: 600px; max-height: 80vh; z-index: 2000; box-shadow: 0 0 30px rgba(137, 180, 250, 0.3); display: none; }
+.debug-panel { position: fixed; right: 16px; bottom: 132px; background: #1e1e2e; border: 2px solid #89b4fa; border-radius: 8px; padding: 16px; width: min(600px, calc(100vw - 32px)); max-height: 64vh; z-index: 2000; box-shadow: 0 0 30px rgba(137, 180, 250, 0.3); display: none; }
 .debug-panel.show { display: block; }
 .debug-panel h2 { color: #89b4fa; margin: 0 0 12px 0; font-size: 16px; display: flex; justify-content: space-between; align-items: center; }
 .debug-panel h2 .close-btn { background: #f38ba8; color: #1e1e2e; border: none; border-radius: 4px; padding: 4px 12px; cursor: pointer; font-size: 12px; }
@@ -87,7 +87,7 @@ body { font-family: 'Segoe UI', sans-serif; background: #1e1e2e; color: #cdd6f4;
 .debug-line.warning { color: #fab387; }
 .debug-line.error { color: #f38ba8; }
 .debug-line.progress { color: #89dceb; }
-.debug-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1999; display: none; }
+.debug-overlay { position: fixed; top: 0; left: 0; width: 0; height: 0; background: transparent; z-index: 0; display: none; pointer-events: none; }
 .debug-overlay.show { display: block; }
 #debugToggleBtn { position: fixed; bottom: 80px; right: 20px; z-index: 1001; }
 </style>
@@ -505,18 +505,33 @@ function setStatus(msg, isError) {
   el.style.display = 'block';
   el.style.background = isError ? '#f38ba8' : '#313244';
   el.style.color = isError ? '#1e1e2e' : '#cdd6f4';
+  addDebugLog('状态: ' + msg, isError ? 'error' : 'info');
   setTimeout(() => el.style.display = 'none', 5000);
 }
 
 async function apiPost(url, body) {
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: body ? JSON.stringify(body) : undefined
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-  return data;
+  const startedAt = performance.now();
+  addDebugLog('请求开始: POST ' + url, 'info');
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined
+    });
+    const data = await res.json();
+    const elapsed = Math.round(performance.now() - startedAt);
+    if (!res.ok) {
+      addDebugLog('请求失败: POST ' + url + ' HTTP ' + res.status + ' (' + elapsed + 'ms) ' + (data.error || ''), 'error');
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+    addDebugLog('请求完成: POST ' + url + ' (' + elapsed + 'ms)', 'success');
+    return data;
+  } catch (e) {
+    if (!String(e.message || '').startsWith('HTTP')) {
+      addDebugLog('请求异常: POST ' + url + ' ' + e.message, 'error');
+    }
+    throw e;
+  }
 }
 
 async function apiGet(url) {
@@ -552,13 +567,17 @@ $('videoFile').addEventListener('change', (e) => {
 });
 
 $('selectVideoBtn').onclick = async () => {
+  addDebugLog('按钮点击: 选择/上传视频', 'info');
   const file = $('videoFile').files[0];
   if (!file) { setStatus('请选择视频文件', true); return; }
+  addDebugLog('上传开始: ' + file.name + ' (' + file.size + ' bytes)', 'info');
   const fd = new FormData();
   fd.append('video', file);
   try {
+    const startedAt = performance.now();
     const res = await apiFetch('/api/upload_video', { method: 'POST', body: fd });
     const data = await res.json();
+    addDebugLog('上传接口完成: /api/upload_video (' + Math.round(performance.now() - startedAt) + 'ms)', 'success');
     state.videoName = data.filename;
     $('videoName').textContent = data.filename;
     state.totalFrames = data.total;
@@ -569,8 +588,9 @@ $('selectVideoBtn').onclick = async () => {
     $('bidirectionalSection').style.display = 'block';
     updateFrameInfo();
     await loadFirstFrameForDraw();
+    addDebugLog('上传后首帧加载完成: total=' + state.totalFrames, 'success');
     setStatus('上传成功: ' + data.filename);
-  } catch (e) { setStatus('上传失败: ' + e.message, true); }
+  } catch (e) { addDebugLog('上传失败: ' + e.message, 'error'); setStatus('上传失败: ' + e.message, true); }
 };
 
 async function loadFirstFrameForDraw() {
@@ -593,6 +613,7 @@ async function loadFirstFrameForDraw() {
 
 // ==================== Annotate ====================
 async function finishCurrentBboxAction() {
+  addDebugLog('按钮点击: 完成提示帧/完成标注, canvasMode=' + state.canvasMode + ', promptMode=' + state.promptMode, 'info');
   if (state.canvasMode === 'annotate' && !state.promptMode) {
     if (!state.videoName) { setStatus('请先上传视频', true); return; }
     if (state.annotationRunning) { setStatus('标注正在执行中...', true); return; }
@@ -617,6 +638,7 @@ async function finishCurrentBboxAction() {
   addDebugLog('提示帧: ' + idx + ', 前向=' + forwardEn + ', 后向=' + backwardEn, 'info');
   addDebugLog('bboxes=' + JSON.stringify(state.promptBboxes), 'info');
   try {
+    addDebugLog('提示帧双向请求发出: frame=' + idx + ', bboxes=' + state.promptBboxes.length, 'info');
     const logInfo = await apiGet('/api/debug_log');
     debugLogOffset = logInfo.offset || 0;
     await startDebugPolling(false);
@@ -642,6 +664,7 @@ async function finishCurrentBboxAction() {
     setStatus(data.msg || '提示帧双向推理完成');
     await showViewer(false);
     await loadFrame(idx);
+    addDebugLog('提示帧双向流程完成并刷新到提示帧: ' + idx, 'success');
   } catch (e) {
     addDebugLog('提示帧双向推理失败: ' + e.message, 'error');
     setStatus('提示帧双向推理失败: ' + e.message, true);
@@ -683,6 +706,7 @@ $('confSlider').oninput = () => { $('confLabel').textContent = $('confSlider').v
 $('alphaSlider').oninput = () => { $('alphaLabel').textContent = $('alphaSlider').value + '%'; };
 
 async function runAnnotation(items) {
+  addDebugLog('按钮点击: 完成标注/开始视频标注', 'info');
   state.annotationRunning = true;
   updateFinishPromptButton();
   $('progressBar').style.display = 'block';
@@ -706,6 +730,10 @@ async function runAnnotation(items) {
   };
 
   try {
+    addDebugLog('视频标注请求发出: /api/run_annotate', 'info');
+    const logInfo = await apiGet('/api/debug_log');
+    debugLogOffset = logInfo.offset || 0;
+    await startDebugPolling(false);
     const response = await fetch('/api/run_annotate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -715,6 +743,7 @@ async function runAnnotation(items) {
       const ed = await response.json().catch(() => ({}));
       throw new Error(ed.error || `HTTP ${response.status}`);
     }
+    addDebugLog('视频标注响应已建立，开始读取SSE进度流', 'success');
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -722,7 +751,10 @@ async function runAnnotation(items) {
 
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) {
+        addDebugLog('视频标注SSE进度流读取完成', 'success');
+        break;
+      }
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
       buffer = lines.pop();
@@ -741,6 +773,9 @@ async function runAnnotation(items) {
             if (d.type === 'error' || d.error) {
               addDebugLog('错误: ' + (d.msg || d.error), 'error');
             }
+            if (d.type === 'done') {
+              addDebugLog('后端标注完成事件: frames=' + (d.frames ?? ''), 'success');
+            }
           } catch (e) { /* ignore parse errors */ }
         }
       }
@@ -754,6 +789,9 @@ async function runAnnotation(items) {
     addDebugLog('标注失败: ' + e.message, 'error');
     setStatus('标注失败: ' + e.message, true);
   } finally {
+    stopDebugPolling();
+    await startDebugPolling(false);
+    stopDebugPolling();
     state.annotationRunning = false;
     updateFinishPromptButton();
     $('progressBar').style.display = 'none';
@@ -771,6 +809,7 @@ async function showAnnotateView() {
 }
 
 $('showAnnotateBtn').onclick = () => {
+  addDebugLog('按钮点击: 标注视图', 'info');
   if (!state.videoName) { setStatus('请先上传视频', true); return; }
   showAnnotateView();
   $('showAnnotateBtn').style.background = '#89b4fa';
@@ -778,6 +817,7 @@ $('showAnnotateBtn').onclick = () => {
 };
 
 $('showViewerBtn').onclick = () => {
+  addDebugLog('按钮点击: 显示预览', 'info');
   showViewer(true);
   $('showViewerBtn').style.background = '#89b4fa';
   $('showAnnotateBtn').style.background = '#45475a';
@@ -785,16 +825,19 @@ $('showViewerBtn').onclick = () => {
 
 async function showViewer(refresh) {
   try {
+    addDebugLog('预览刷新开始: refresh=' + refresh + ', currentFrame=' + state.currentFrame, 'info');
     if (refresh) {
       await apiPost('/api/show_viewer', { trace_id_changes: state.traceIdChanges });
     }
     const info = await apiGet('/api/get_video_info');
+    addDebugLog('视频信息读取完成: total=' + info.total + ', annotations=' + ((info.annotations || []).length), 'info');
     state.totalFrames = info.total;
     $('exportBtn').disabled = state.totalFrames <= 0;
     updateFrameInfo();
     await loadFrame(state.currentFrame || 0);
     await loadMappings();
-  } catch (e) { setStatus('显示失败: ' + e.message, true); }
+    addDebugLog('预览刷新完成: frame=' + state.currentFrame + '/' + state.totalFrames, 'success');
+  } catch (e) { addDebugLog('预览刷新失败: ' + e.message, 'error'); setStatus('显示失败: ' + e.message, true); }
 }
 
 async function loadFrame(idx) {
@@ -911,6 +954,7 @@ canvas.addEventListener('contextmenu', (e) => {
 });
 
 function undoLastBbox() {
+  addDebugLog('按钮/快捷键: 撤销框选，当前框数=' + state.promptBboxes.length, 'info');
   if (state.promptBboxes.length > 0) {
     state.promptBboxes.pop();
     updateBboxCount();
@@ -958,11 +1002,11 @@ function drawBboxOverlay() {
 }
 
 // ==================== Navigation ====================
-$('prevFrameBtn').onclick = () => { stopPlayback(); loadFrame(state.currentFrame - 1); };
-$('nextFrameBtn').onclick = () => { stopPlayback(); loadFrame(state.currentFrame + 1); };
+$('nextFrameBtn').onclick = () => { addDebugLog('按钮点击: 下一帧', 'info'); stopPlayback(); loadFrame(state.currentFrame + 1); };
+$('prevFrameBtn').onclick = () => { addDebugLog('按钮点击: 上一帧', 'info'); stopPlayback(); loadFrame(state.currentFrame - 1); };
 $('frameIdxInput').onchange = () => {
   const v = parseInt($('frameIdxInput').value);
-  if (!isNaN(v)) loadFrame(v);
+  if (!isNaN(v)) { addDebugLog('输入跳帧: ' + v, 'info'); loadFrame(v); }
 };
 
 document.addEventListener('keydown', (e) => {
@@ -974,10 +1018,10 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ==================== Playback Controls ====================
-$('backwardFastBtn').onclick = () => togglePlayback(-1, 100);
-$('backwardBtn').onclick = () => { stopPlayback(); loadFrame(state.currentFrame - 1); };
-$('forwardBtn').onclick = () => { stopPlayback(); loadFrame(state.currentFrame + 1); };
-$('forwardFastBtn').onclick = () => togglePlayback(1, 100);
+$('backwardFastBtn').onclick = () => { addDebugLog('按钮点击: 倒播', 'info'); togglePlayback(-1, 100); };
+$('backwardBtn').onclick = () => { addDebugLog('按钮点击: 倒帧', 'info'); stopPlayback(); loadFrame(state.currentFrame - 1); };
+$('forwardBtn').onclick = () => { addDebugLog('按钮点击: 正帧', 'info'); stopPlayback(); loadFrame(state.currentFrame + 1); };
+$('forwardFastBtn').onclick = () => { addDebugLog('按钮点击: 正播', 'info'); togglePlayback(1, 100); };
 
 function togglePlayback(dir, speed) {
   if (state.playbackTimer && state.playDirection === dir && state.playSpeed === speed) {
@@ -1015,6 +1059,7 @@ function togglePlay() {
 
 // ==================== Prompt Mode ====================
 $('promptBtn').onclick = async () => {
+  addDebugLog('按钮点击: 提示帧，当前状态=' + (state.promptMode ? '退出' : '进入') + ', currentFrame=' + state.currentFrame, 'info');
   if (!state.promptMode) {
     state.promptMode = true;
     state.promptFrameIdx = state.currentFrame;
@@ -1040,6 +1085,7 @@ $('promptBtn').onclick = async () => {
 
 // ==================== Bidirectional ====================
 $('bidirectionalBtn').onclick = async () => {
+  addDebugLog('按钮点击: 双向标注面板按钮', 'info');
   if (!state.videoName) { setStatus('请先完成标注', true); return; }
   const idx = Math.max(0, Math.min(parseInt($('promptFrameIdx').value) || 0, Math.max(state.totalFrames - 1, 0)));
   syncDirectionAvailability(idx);
@@ -1051,6 +1097,7 @@ $('bidirectionalBtn').onclick = async () => {
   addDebugLog('提示帧: ' + idx, 'info');
   addDebugLog('前向: ' + forwardEn + ', 后向: ' + backwardEn, 'info');
   try {
+    addDebugLog('双向标注请求发出: frame=' + idx + ', bboxes=' + state.promptBboxes.length, 'info');
     const logInfo = await apiGet('/api/debug_log');
     debugLogOffset = logInfo.offset || 0;
     await startDebugPolling(false);
@@ -1071,6 +1118,7 @@ $('bidirectionalBtn').onclick = async () => {
     setStatus(data.msg || '双向标注完成');
     await showViewer(false);
     await loadFrame(idx);
+    addDebugLog('双向标注流程完成并刷新到帧: ' + idx, 'success');
   } catch (e) { 
     addDebugLog('双向标注失败: ' + e.message, 'error');
     setStatus('双向标注失败: ' + e.message, true); 
@@ -1180,6 +1228,7 @@ function isPointInPolygon(px, py, polygon) {
 
 // ==================== Trace ID Controls ====================
 $('decIdBtn').onclick = () => {
+  addDebugLog('按钮点击: 当前ID -1', 'info');
   let v = parseInt($('currentIdInput').value) || 1000000;
   v = Math.max(1, v - 1);
   $('currentIdInput').value = v;
@@ -1187,6 +1236,7 @@ $('decIdBtn').onclick = () => {
 };
 
 $('incIdBtn').onclick = () => {
+  addDebugLog('按钮点击: 当前ID +1', 'info');
   let v = parseInt($('currentIdInput').value) || 1000000;
   v = v + 1;
   $('currentIdInput').value = v;
@@ -1195,16 +1245,21 @@ $('incIdBtn').onclick = () => {
 
 $('currentIdInput').onchange = () => {
   const v = parseInt($('currentIdInput').value);
-  if (!isNaN(v)) state.currentTraceId = v;
+  if (!isNaN(v)) {
+    state.currentTraceId = v;
+    addDebugLog('当前ID输入变更: ' + v, 'info');
+  }
 };
 
 $('deleteTraceBtn').onclick = async () => {
+  addDebugLog('按钮点击: 删除trace', 'info');
   const tid = parseInt($('deleteTraceInput').value);
   if (!tid) { setStatus('请输入有效的trace ID', true); return; }
   try {
     await apiPost('/api/delete_track_id', { track_id: tid });
     setStatus('已删除 trace: ' + tid);
     await showViewer(true);
+    addDebugLog('删除trace完成并刷新预览: ' + tid, 'success');
   } catch (e) { setStatus('删除失败: ' + e.message, true); }
 };
 
@@ -1248,6 +1303,7 @@ function parseTraceMapping(m) {
 async function removeTraceMappingAt(idx) {
   if (idx < 0 || idx >= state.traceIdChanges.length) return;
   const mapping = parseTraceMapping(state.traceIdChanges[idx]);
+  addDebugLog('删除映射开始: idx=' + idx + ', mapping=' + state.traceIdChanges[idx], 'info');
   try {
     if (mapping) {
       await apiPost('/api/revert_mapping', { old_id: mapping.oldId, new_id: mapping.newId });
@@ -1261,7 +1317,9 @@ async function removeTraceMappingAt(idx) {
     await apiPost('/api/save_mappings', { mappings: state.traceIdChanges });
     renderMappings();
     await loadFrame(state.currentFrame);
+    addDebugLog('删除映射完成并刷新当前帧', 'success');
   } catch (e) {
+    addDebugLog('删除映射失败: ' + e.message, 'error');
     setStatus('删除映射失败: ' + e.message, true);
   }
 }
@@ -1281,6 +1339,7 @@ function renderGreenPoints() {
 }
 
 $('clearMappingBtn').onclick = () => {
+  addDebugLog('按钮点击: 清空ID映射', 'info');
   state.traceIdChanges = [];
   state.greenPoints = [];
   state.mappingSelectedIdx = -1;
@@ -1289,31 +1348,37 @@ $('clearMappingBtn').onclick = () => {
 };
 
 $('clearGreenBtn').onclick = () => {
+  addDebugLog('按钮点击: 清空绿点', 'info');
   state.greenPoints = [];
   redrawBbox();
   setStatus('已清空所有绿点');
 };
 
 $('modifyMappingBtn').onclick = () => {
+  addDebugLog('按钮点击: 修改ID映射', 'info');
   if (state.mappingSelectedIdx < 0) { setStatus('请先选择要修改的映射', true); return; }
   const m = state.traceIdChanges[state.mappingSelectedIdx];
   const newVal = prompt('修改映射 (旧ID→新ID):', m);
   if (!newVal || !newVal.includes('→')) return;
   state.traceIdChanges[state.mappingSelectedIdx] = newVal;
   renderMappings();
+  addDebugLog('ID映射已修改: ' + newVal, 'success');
 };
 
 $('deleteMappingBtn').onclick = () => {
+  addDebugLog('按钮点击: 删除ID映射', 'info');
   if (state.mappingSelectedIdx < 0) { setStatus('请先选择要删除的映射', true); return; }
   removeTraceMappingAt(state.mappingSelectedIdx);
 };
 
 $('saveMappingBtn').onclick = async () => {
+  addDebugLog('按钮点击: 保存ID映射', 'info');
   if (state.traceIdChanges.length === 0) { setStatus('没有要保存的变更', true); return; }
   try {
     await apiPost('/api/save_mappings', { mappings: state.traceIdChanges });
     setStatus('已保存 ' + state.traceIdChanges.length + ' 条变更');
     await showViewer(true);
+    addDebugLog('保存ID映射完成并刷新预览', 'success');
   } catch (e) { setStatus('保存失败: ' + e.message, true); }
 };
 
@@ -1335,6 +1400,7 @@ async function loadMappings() {
 
 // ==================== Export ====================
 $('exportBtn').onclick = async () => {
+  addDebugLog('按钮点击: 导出到 temp_data_post', 'info');
   try {
     $('exportBtn').disabled = true;
     const data = await apiPost('/api/export', {
@@ -1343,7 +1409,9 @@ $('exportBtn').onclick = async () => {
     });
     setStatus(data.msg || '导出完成');
     $('savePathInput').value = data.path || 'temp_data_post';
+    addDebugLog('导出完成: ' + (data.msg || '') + ', path=' + ($('savePathInput').value), 'success');
   } catch (e) {
+    addDebugLog('导出失败: ' + e.message, 'error');
     setStatus('导出失败: ' + e.message, true);
   } finally {
     $('exportBtn').disabled = state.totalFrames <= 0;
@@ -1370,6 +1438,7 @@ function initColorPalette() {
 }
 
 $('saveBtn').onclick = async () => {
+  addDebugLog('按钮点击: 保存视频并上传OBS', 'info');
   const saveDir = $('savePathInput').value.trim();
   const outputName = $('saveNameInput').value.trim() || '1dst.mp4';
   const alpha = parseInt($('alphaSlider').value) / 100;
@@ -1384,8 +1453,10 @@ $('saveBtn').onclick = async () => {
     });
     $('saveStatus').textContent = '保存完成: ' + (data.msg || '') + (data.upload ? ' 上传成功' : '');
     setStatus('视频保存' + (data.upload ? '并上传' : '') + '完成');
+    addDebugLog('保存视频完成: ' + (data.msg || '') + ', upload=' + !!data.upload, 'success');
   } catch (e) {
     $('saveStatus').textContent = '保存失败: ' + e.message;
+    addDebugLog('保存视频失败: ' + e.message, 'error');
     setStatus('保存失败: ' + e.message, true);
   } finally {
     $('saveBtn').disabled = false;
@@ -1395,12 +1466,14 @@ $('saveBtn').onclick = async () => {
 // ==================== Fence Mode ====================
 $('fenceToggleBtn').onclick = () => {
   state.fenceMode = !state.fenceMode;
+  addDebugLog('按钮点击: 围栏模式 -> ' + (state.fenceMode ? '开启' : '关闭'), 'info');
   $('fenceToggleBtn').style.background = state.fenceMode ? '#ffa500' : '#45475a';
   $('fenceStatus').textContent = state.fenceMode ? '围栏模式: ON' : '';
   apiPost('/api/fence/toggle', {}).catch(() => {});
 };
 
 $('fenceClearBtn').onclick = () => {
+  addDebugLog('按钮点击: 清除围栏', 'info');
   apiPost('/api/fence/clear', {}).catch(() => {});
   setStatus('围栏已清除');
 };

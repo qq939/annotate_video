@@ -1181,13 +1181,14 @@ def process_annotation_stream(source, predictor_args, iou=0.5, merge_iou=0.5, he
     return coco_data, frame_count
 
 
-def run_video_annotate(src_video, bboxes, find_list, overrides, use_semantic, iou, merge_iou, src_video_dir, temp_data_dir, yield_func=None):
+def run_video_annotate(src_video, bboxes, find_list, overrides, use_semantic, iou, merge_iou, src_video_dir, temp_data_dir, yield_func=None, log_func=None):
     """执行视频标注（SSE版，从app.py的annotate endpoint移植）
     
     Returns:
         (coco_data, frame_count)
     """
     from annotate_video import merge_masks_in_frame, TrackManager
+    log = lambda msg: emit_debug(log_func, msg)
     
     if temp_data_dir.exists():
         shutil.rmtree(temp_data_dir)
@@ -1243,6 +1244,7 @@ def run_video_annotate(src_video, bboxes, find_list, overrides, use_semantic, io
     results = predictor(**predictor_args)
 
     frame_count = 0
+    log("正在生成标注视频...")
     for r in results:
         orig_img = getattr(r, 'orig_img', None)
         if orig_img is None:
@@ -1261,66 +1263,80 @@ def run_video_annotate(src_video, bboxes, find_list, overrides, use_semantic, io
         coco_data['images'].append({'id': frame_count, 'file_name': f"frame_{frame_count:06d}.jpg", 'width': width, 'height': height})
 
         frame_anns = []
+        debug_masks_count = 0
+        debug_contours_count = 0
+        debug_merged_count = 0
+        debug_track_ids = []
         masks_attr = getattr(r, 'masks', None)
         if masks_attr is not None and masks_attr.data is not None:
             mt = masks_attr.data
-            confs = None
-            boxes_attr = getattr(r, 'boxes', None)
-            if boxes_attr is not None and hasattr(boxes_attr, 'conf'):
-                confs = boxes_attr.conf.cpu().numpy()
+            if mt is not None and len(mt) > 0:
+                debug_masks_count = len(mt)
+                confs = None
+                boxes_attr = getattr(r, 'boxes', None)
+                if boxes_attr is not None and hasattr(boxes_attr, 'conf'):
+                    confs = boxes_attr.conf.cpu().numpy()
+                    log(f"[DEBUG {frame_count}/{total}] boxes.conf={confs.tolist()}")
 
-            curr_masks = []
-            curr_boxes = []
-            for m in mt:
-                mn = m.cpu().numpy() if hasattr(m, 'cpu') else np.array(m)
-                if mn.shape[-2:] != (height, width):
-                    mn = cv2.resize(mn.astype(np.float32), (width, height))
-                mb = (mn > 0.5).astype(np.uint8)
-                contours, _ = cv2.findContours(mb, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                for cnt in contours:
-                    if len(cnt) >= 3:
-                        poly = cnt.squeeze().flatten().tolist()
-                        xs, ys = poly[0::2], poly[1::2]
-                        x1, x2 = min(xs), max(xs)
-                        y1, y2 = min(ys), max(ys)
-                        bbox = [float(x1), float(y1), float(x2 - x1), float(y2 - y1)]
-                        area = cv2.contourArea(cnt)
-                        if area > 0:
-                            curr_masks.append(mb)
-                            curr_boxes.append(bbox)
-
-            if curr_masks:
-                curr_masks, curr_boxes = merge_masks_in_frame(curr_masks, curr_boxes, merge_iou)
-                tids = track_manager.update(curr_masks, curr_boxes, frame_count)
-                for idx, (m, b) in enumerate(zip(curr_masks, curr_boxes)):
-                    mb = (m > 0.5).astype(np.uint8)
+                curr_masks = []
+                curr_boxes = []
+                for m in mt:
+                    mn = m.cpu().numpy() if hasattr(m, 'cpu') else np.array(m)
+                    if mn.shape[-2:] != (height, width):
+                        mn = cv2.resize(mn.astype(np.float32), (width, height))
+                    mb = (mn > 0.5).astype(np.uint8)
                     contours, _ = cv2.findContours(mb, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                    debug_contours_count += len(contours)
                     for cnt in contours:
                         if len(cnt) >= 3:
                             poly = cnt.squeeze().flatten().tolist()
+                            xs, ys = poly[0::2], poly[1::2]
+                            x1, x2 = min(xs), max(xs)
+                            y1, y2 = min(ys), max(ys)
+                            bbox = [float(x1), float(y1), float(x2 - x1), float(y2 - y1)]
                             area = cv2.contourArea(cnt)
-                            tid = tids[idx] if idx < len(tids) else ann_id_counter[0]
-                            conf = float(confs[idx]) if confs is not None and idx < len(confs) else float(m.max())
-                            ann = {'id': ann_id_counter[0], 'track_id': tid, 'image_id': frame_count, 'category_id': tid, 'bbox': b, 'area': float(area), 'segmentation': [poly], 'iscrowd': 0, 'confidence': conf}
-                            coco_data['annotations'].append(ann)
-                            frame_anns.append(ann)
-                            ann_id_counter[0] += 1
+                            if area > 0:
+                                curr_masks.append(mb)
+                                curr_boxes.append(bbox)
+
+                if curr_masks:
+                    debug_merged_count = len(curr_masks)
+                    curr_masks, curr_boxes = merge_masks_in_frame(curr_masks, curr_boxes, merge_iou)
+                    tids = track_manager.update(curr_masks, curr_boxes, frame_count)
+                    debug_track_ids = tids
+                    after_merge_contours = 0
+                    for merged_mask in curr_masks:
+                        merged_binary = (merged_mask > 0.5).astype(np.uint8)
+                        merged_contours, _ = cv2.findContours(merged_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                        after_merge_contours += sum(1 for contour in merged_contours if len(contour) >= 3)
+                    log(f"[DEBUG {frame_count}/{total}] 原始contours={debug_contours_count}, 有效polygon={debug_merged_count}, merge后={len(curr_masks)}, merge后contours={after_merge_contours}, track_ids={tids}")
+
+                    for idx, (m, b) in enumerate(zip(curr_masks, curr_boxes)):
+                        mb = (m > 0.5).astype(np.uint8)
+                        contours, _ = cv2.findContours(mb, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                        for cnt in contours:
+                            if len(cnt) >= 3:
+                                poly = cnt.squeeze().flatten().tolist()
+                                area = cv2.contourArea(cnt)
+                                tid = tids[idx] if idx < len(tids) else ann_id_counter[0]
+                                conf = float(confs[idx]) if confs is not None and idx < len(confs) else float(m.max())
+                                ann = {'id': ann_id_counter[0], 'track_id': tid, 'image_id': frame_count, 'category_id': tid, 'bbox': b, 'area': float(area), 'segmentation': [poly], 'iscrowd': 0, 'confidence': conf}
+                                coco_data['annotations'].append(ann)
+                                frame_anns.append(ann)
+                                ann_id_counter[0] += 1
+            else:
+                log(f"[DEBUG {frame_count}/{total}] masks_tensor长度=0")
+        else:
+            log(f"[DEBUG {frame_count}/{total}] 无masks属性或masks为None")
 
         with open(labels_dir / f"frame_{frame_count:06d}.json", 'w') as f_out:
             json.dump(frame_anns, f_out)
 
+        log(f"[DEBUG {frame_count}/{total}] 帧annotations数量={len(frame_anns)}, track_ids={debug_track_ids}")
         frame_count += 1
-        debug_contours = 0
-        if masks_attr is not None and masks_attr.data is not None:
-            mt = masks_attr.data
-            for m in mt:
-                mn = m.cpu().numpy() if hasattr(m, 'cpu') else np.array(m)
-                mb = (mn > 0.5).astype(np.uint8)
-                contours, _ = cv2.findContours(mb, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                debug_contours += len(contours)
         
         if yield_func:
-            yield_func(frame_count, total, f'帧 {frame_count}/{total}: contours={debug_contours}, annotations={len(frame_anns)}')
+            yield_func(frame_count, total, f'帧 {frame_count}/{total}: contours={debug_contours_count}, annotations={len(frame_anns)}')
 
     with open(temp_data_dir / 'annotations.json', 'w') as f_out:
         json.dump(coco_data, f_out)
