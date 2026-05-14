@@ -518,16 +518,30 @@ def load_frame_annotations(frame_idx, labels_dir):
 
 
 # ==================== 复制目录 ====================
-def copy_temp_data(src_dir, dst_dir, apply_mappings=None):
+def copy_temp_data(src_dir, dst_dir, apply_mappings=None, log_func=None):
     """复制temp_data到目标目录，可选应用track_id映射
     
     Args:
         src_dir: 源目录
         dst_dir: 目标目录
         apply_mappings: 可选的映射列表 [(old_id, new_id), ...]
+        log_func: 可选的日志回调函数
     """
     src_dir = Path(src_dir)
     dst_dir = Path(dst_dir)
+    
+    if not src_dir.exists():
+        msg = f"[copy_temp_data] 源目录不存在: {src_dir}"
+        if log_func:
+            log_func(msg)
+        return False
+    
+    src_frames = list(src_dir.glob("frames/*.jpg"))
+    if not src_frames:
+        msg = f"[copy_temp_data] 源目录没有帧文件: {src_dir}"
+        if log_func:
+            log_func(msg)
+        return False
     
     if dst_dir.exists():
         shutil.rmtree(dst_dir)
@@ -535,6 +549,8 @@ def copy_temp_data(src_dir, dst_dir, apply_mappings=None):
     
     if apply_mappings:
         apply_trace_id_mappings(apply_mappings)
+    
+    return True
 
 
 # ==================== 导出相关 ====================
