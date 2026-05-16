@@ -971,7 +971,10 @@ class UnifiedPanel(QMainWindow):
                     from annotate_video import BOX_COLORS as AV_BOX_COLORS
                     for i, bbox in enumerate(boxes):
                         label = f"目标 {i + 1}"
-                        annotated_frame_rgb = put_chinese_text(annotated_frame_rgb, label, (bbox[0], max(10, bbox[1] - 10)), font_size=15, color=AV_BOX_COLORS[i % len(AV_BOX_COLORS)])
+                        x1 = int(bbox['x1']) if isinstance(bbox, dict) else int(bbox[0])
+                        y1 = int(bbox['y1']) if isinstance(bbox, dict) else int(bbox[1])
+                        color = AV_BOX_COLORS[i % len(AV_BOX_COLORS)]
+                        annotated_frame_rgb = put_chinese_text(annotated_frame_rgb, label, (x1, max(10, y1 - 10)), font_size=15, color=color)
                 out.write(annotated_frame_rgb)
                 frame_count += 1
                 if frame_count % 30 == 0:
