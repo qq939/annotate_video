@@ -253,20 +253,25 @@ def apply_single_mapping_to_mid(from_id, to_id, temp_mid_dir=None):
 
 
 def apply_trace_id_mappings(mappings, temp_mid_dir=None):
-    """将track_id映射列表应用到temp_data_mid
+    """将track_id映射列表应用到temp_data_mid，同时记录历史到trace_id_history.json
     
     Args:
         mappings: [(old_id, new_id), ...] 列表
     
     Returns:
-        影响的帧数
+        (影响的帧数, 历史记录列表)
     """
     temp_mid = Path(temp_mid_dir) if temp_mid_dir else TEMP_DATA_MID_DIR
     labels_dir = temp_mid / "labels"
     annotations_file = temp_mid / "annotations.json"
+    history_file = temp_mid / "trace_id_history.json"
     
     if not mappings or not labels_dir.exists():
-        return 0
+        return 0, []
+    
+    history_records = []
+    for old_id, new_id in mappings:
+        history_records.append({'old_id': old_id, 'new_id': new_id})
     
     converted_count = 0
     for label_file in sorted(labels_dir.glob("frame_*.json")):
@@ -277,6 +282,10 @@ def apply_trace_id_mappings(mappings, temp_mid_dir=None):
             for old_id, new_id in mappings:
                 if ann.get('track_id') == old_id:
                     ann['track_id'] = new_id
+                    trace_list = ann.get('trace_id_list', [])
+                    if not trace_list or trace_list[-1] != new_id:
+                        trace_list.append(new_id)
+                        ann['trace_id_list'] = trace_list
                     changed = True
         if changed:
             with open(label_file, 'w') as f:
@@ -291,12 +300,84 @@ def apply_trace_id_mappings(mappings, temp_mid_dir=None):
             for old_id, new_id in mappings:
                 if ann.get('track_id') == old_id:
                     ann['track_id'] = new_id
+                    trace_list = ann.get('trace_id_list', [])
+                    if not trace_list or trace_list[-1] != new_id:
+                        trace_list.append(new_id)
+                        ann['trace_id_list'] = trace_list
                     changed = True
         if changed:
             with open(annotations_file, 'w') as f:
                 json.dump(coco, f)
     
-    return converted_count
+    with open(history_file, 'w') as f:
+        json.dump(history_records, f)
+    
+    return converted_count, history_records
+
+
+def revert_trace_id_mappings(temp_mid_dir=None):
+    """回退最近的trace_id映射，恢复到上一个状态
+    
+    Returns:
+        (影响的帧数, 回退的映射数量)
+    """
+    temp_mid = Path(temp_mid_dir) if temp_mid_dir else TEMP_DATA_MID_DIR
+    labels_dir = temp_mid / "labels"
+    annotations_file = temp_mid / "annotations.json"
+    history_file = temp_mid / "trace_id_history.json"
+    
+    if not history_file.exists():
+        return 0, 0
+    
+    with open(history_file) as f:
+        history_records = json.load(f)
+    
+    if not history_records:
+        return 0, 0
+    
+    mappings = [(rec['new_id'], rec['old_id']) for rec in reversed(history_records)]
+    
+    converted_count = 0
+    for label_file in sorted(labels_dir.glob("frame_*.json")):
+        with open(label_file) as f:
+            frame_anns = json.load(f)
+        changed = False
+        for ann in frame_anns:
+            for new_id, old_id in mappings:
+                if ann.get('track_id') == new_id:
+                    current_list = ann.get('trace_id_list', [])
+                    if len(current_list) >= 2 and current_list[-1] == new_id:
+                        ann['trace_id'] = current_list[-2]
+                        ann['trace_id_list'] = current_list[:-1]
+                    else:
+                        ann['trace_id'] = old_id
+                    changed = True
+        if changed:
+            with open(label_file, 'w') as f:
+                json.dump(frame_anns, f)
+            converted_count += 1
+    
+    if annotations_file.exists():
+        with open(annotations_file) as f:
+            coco = json.load(f)
+        changed = False
+        for ann in coco.get('annotations', []):
+            for new_id, old_id in mappings:
+                if ann.get('track_id') == new_id:
+                    current_list = ann.get('trace_id_list', [])
+                    if len(current_list) >= 2 and current_list[-1] == new_id:
+                        ann['track_id'] = current_list[-2]
+                        ann['trace_id_list'] = current_list[:-1]
+                    else:
+                        ann['track_id'] = old_id
+                    changed = True
+        if changed:
+            with open(annotations_file, 'w') as f:
+                json.dump(coco, f)
+    
+    history_file.unlink()
+    
+    return converted_count, len(history_records)
 
 
 # ==================== 提示帧/双向标注 ====================

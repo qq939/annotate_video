@@ -1163,6 +1163,12 @@ class UnifiedPanel(QMainWindow):
         clear_trace_btn.clicked.connect(self.clear_trace_id_mappings)
         btn_col.addWidget(clear_trace_btn)
 
+        revert_trace_btn = QPushButton("撤回")
+        revert_trace_btn.setFixedSize(44, 22)
+        revert_trace_btn.setStyleSheet(btn_style)
+        revert_trace_btn.clicked.connect(self._revert_trace_id_mapping)
+        btn_col.addWidget(revert_trace_btn)
+
         modify_btn = QPushButton("变更")
         modify_btn.setFixedSize(44, 22)
         modify_btn.setStyleSheet(btn_blue)
@@ -1684,7 +1690,7 @@ class UnifiedPanel(QMainWindow):
                                                 'id': ann_id, 'track_id': tid, 'image_id': img_id,
                                                 'category_id': tid, 'bbox': bb, 'area': float(area2),
                                                 'segmentation': [poly2], 'iscrowd': 0, 'confidence': conf,
-                                                'category': 'Detect'
+                                                'category': 'Detect', 'trace_id_list': [tid]
                                             }
                                             result_anns.append(ann)
                                             frame_anns.append(ann)
@@ -1902,6 +1908,7 @@ class UnifiedPanel(QMainWindow):
         frames_dir = temp_mid / "frames"
         labels_dir = temp_mid / "labels"
         annotations_file = temp_mid / "annotations.json"
+        history_file = temp_mid / "trace_id_history.json"
 
         mappings = []
         for i in range(self.trace_id_list.count()):
@@ -1915,6 +1922,12 @@ class UnifiedPanel(QMainWindow):
                 except ValueError:
                     pass
 
+        if not mappings:
+            print("没有有效的映射规则")
+            return
+
+        history_records = [{'old_id': old_id, 'new_id': new_id} for old_id, new_id in mappings]
+
         converted_count = 0
         for label_file in sorted(labels_dir.glob("frame_*.json")):
             with open(label_file) as f:
@@ -1924,6 +1937,10 @@ class UnifiedPanel(QMainWindow):
                 for old_id, new_id in mappings:
                     if ann.get('track_id') == old_id:
                         ann['track_id'] = new_id
+                        trace_list = ann.get('trace_id_list', [])
+                        if not trace_list or trace_list[-1] != new_id:
+                            trace_list.append(new_id)
+                            ann['trace_id_list'] = trace_list
                         changed = True
             if changed:
                 with open(label_file, 'w') as f:
@@ -1938,10 +1955,17 @@ class UnifiedPanel(QMainWindow):
                 for old_id, new_id in mappings:
                     if ann.get('track_id') == old_id:
                         ann['track_id'] = new_id
+                        trace_list = ann.get('trace_id_list', [])
+                        if not trace_list or trace_list[-1] != new_id:
+                            trace_list.append(new_id)
+                            ann['trace_id_list'] = trace_list
                         changed = True
             if changed:
                 with open(annotations_file, 'w') as f:
                     json.dump(coco, f)
+
+        with open(history_file, 'w') as f:
+            json.dump(history_records, f)
 
         print(f"应用 trace_id 映射: {len(mappings)} 条规则, 影响 {converted_count} 帧")
 
@@ -1990,6 +2014,68 @@ class UnifiedPanel(QMainWindow):
             self._save_trace_id_mappings()
             if self.viewer:
                 self.viewer.update_display()
+
+    def _revert_trace_id_mapping(self):
+        temp_mid = Path(TEMP_DATA_MID_DIR)
+        labels_dir = temp_mid / "labels"
+        annotations_file = temp_mid / "annotations.json"
+        history_file = temp_mid / "trace_id_history.json"
+
+        if not history_file.exists():
+            print("没有可撤回的映射记录")
+            return
+
+        with open(history_file) as f:
+            history_records = json.load(f)
+
+        if not history_records:
+            print("没有可撤回的映射记录")
+            return
+
+        mappings = [(rec['new_id'], rec['old_id']) for rec in reversed(history_records)]
+
+        converted_count = 0
+        for label_file in sorted(labels_dir.glob("frame_*.json")):
+            with open(label_file) as f:
+                frame_anns = json.load(f)
+            changed = False
+            for ann in frame_anns:
+                for new_id, old_id in mappings:
+                    if ann.get('track_id') == new_id:
+                        current_list = ann.get('trace_id_list', [])
+                        if len(current_list) >= 2 and current_list[-1] == new_id:
+                            ann['track_id'] = current_list[-2]
+                            ann['trace_id_list'] = current_list[:-1]
+                        else:
+                            ann['track_id'] = old_id
+                        changed = True
+            if changed:
+                with open(label_file, 'w') as f:
+                    json.dump(frame_anns, f)
+                converted_count += 1
+
+        if annotations_file.exists():
+            with open(annotations_file) as f:
+                coco = json.load(f)
+            changed = False
+            for ann in coco.get('annotations', []):
+                for new_id, old_id in mappings:
+                    if ann.get('track_id') == new_id:
+                        current_list = ann.get('trace_id_list', [])
+                        if len(current_list) >= 2 and current_list[-1] == new_id:
+                            ann['track_id'] = current_list[-2]
+                            ann['trace_id_list'] = current_list[:-1]
+                        else:
+                            ann['track_id'] = old_id
+                        changed = True
+            if changed:
+                with open(annotations_file, 'w') as f:
+                    json.dump(coco, f)
+
+        history_file.unlink()
+        self.trace_id_list.clear()
+        self._load_trace_id_mappings()
+        print(f"已撤回 trace_id 映射: {len(history_records)} 条规则, 影响 {converted_count} 帧")
 
     def on_trace_id_input_changed(self, text):
         try:
