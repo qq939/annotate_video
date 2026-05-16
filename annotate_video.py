@@ -231,24 +231,30 @@ def get_output_filename(video_path: str) -> str:
 
 def get_device():
     """自动检测并返回可用的计算设备"""
+    import torch
     try:
-        import torch
+        print("[DEBUG get_device] torch.cuda.is_available():", torch.cuda.is_available())
+        print("[DEBUG get_device] torch.version.cuda:", torch.version.cuda if torch.cuda.is_available() else "N/A")
         if torch.cuda.is_available():
             gpu_name = torch.cuda.get_device_name(0)
-            print(f"✓ 检测到NVIDIA GPU: {gpu_name}")
-            # CUDA优化
+            gpu_mem_total = torch.cuda.get_device_properties(0).total_memory / 1024**3
+            print(f"[DEBUG get_device] 检测到NVIDIA GPU: {gpu_name}, 显存: {gpu_mem_total:.2f}GB")
+            print(f"[DEBUG get_device] 当前GPU内存分配: {torch.cuda.memory_allocated(0) / 1024**3:.3f}GB")
+            print(f"[DEBUG get_device] 当前GPU内存缓存: {torch.cuda.memory_reserved(0) / 1024**3:.3f}GB")
             torch.backends.cudnn.benchmark = True
             torch.backends.cudnn.deterministic = False
             torch.cuda.empty_cache()
             return '0', 'cuda'
         elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-            print("✓ 检测到Apple MPS GPU")
+            print("[DEBUG get_device] 检测到Apple MPS GPU")
             return 'mps', 'mps'
         else:
-            print("✓ 未检测到GPU，使用CPU")
+            print("[DEBUG get_device] 未检测到GPU，使用CPU")
             return 'cpu', 'cpu'
     except Exception as e:
-        print(f"⚠ GPU检测失败: {e}，使用CPU")
+        import traceback
+        print(f"[DEBUG get_device] GPU检测失败: {e}")
+        print(traceback.format_exc())
         return 'cpu', 'cpu'
 
 @dataclass

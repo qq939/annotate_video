@@ -19,6 +19,37 @@ from PyQt5.QtWidgets import QShortcut
 from video_control import VideoController
 from annotate_video import TEMP_DATA_MID_DIR
 
+def _patch_ultralytics_compile():
+    """修复ultralytics中torch.compile的兼容性问题"""
+    try:
+        import ultralytics.models.sam.build_sam3 as build_file
+        file_path = build_file.__file__
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        if 'compile_mode=None_mode' in content:
+            content = content.replace('compile_mode=None_mode', "compile_mode='default'")
+            content = content.replace('compile_mode=compile', "compile_mode='default'")
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            print("[PATCH] build_sam3.py patched for torch.compile compatibility")
+        
+        import ultralytics.models.sam.sam3.vitdet as vitdet_file
+        vitdet_path = vitdet_file.__file__
+        with open(vitdet_path, 'r', encoding='utf-8') as f:
+            vit_content = f.read()
+        if 'torch.compile(self.forward' in vit_content:
+            vit_content = vit_content.replace(
+                'self.forward = torch.compile(self.forward, mode=compile_mode, fullgraph=True)',
+                '# self.forward = torch.compile(self.forward, mode=compile_mode, fullgraph=True)  # Disabled for compatibility'
+            )
+            with open(vitdet_path, 'w', encoding='utf-8') as f:
+                f.write(vit_content)
+            print("[PATCH] vitdet.py patched for torch.compile compatibility")
+    except Exception as e:
+        print(f"[PATCH] Warning: Could not patch ultralytics: {e}")
+
+_patch_ultralytics_compile()
+
 _SAM3_SEMANTIC_PATCHED = False
 def _patch_sam3_video_semantic():
     global _SAM3_SEMANTIC_PATCHED
@@ -437,20 +468,26 @@ class UnifiedPanel(QMainWindow):
                 print(f"  bbox提示框: {[tuple(int(x) for x in b) for b in boxes]}")
 
             device, device_type = get_device()
+            print(f"[DEBUG run_annotate] get_device() 返回: device={device}, device_type={device_type}")
             half = device_type == 'cuda'
+            print(f"[DEBUG run_annotate] half={half}")
             overrides = dict(
                 conf=0.25, task="segment", mode="predict",
                 model=SAM_MODEL_PATH, device=device,
                 half=half, save=False, verbose=False
             )
+            print(f"[DEBUG run_annotate] overrides: {overrides}")
             if device_type == 'cuda':
                 overrides['batch'] = 1
                 overrides['stream_buffer'] = False
+                print(f"[DEBUG run_annotate] CUDA优化: batch=1, stream_buffer=False")
             elif device_type == 'mps':
                 overrides['half'] = True
                 overrides['amp'] = True
                 overrides['stream_buffer'] = True
+                print(f"[DEBUG run_annotate] MPS优化: half=True, amp=True, stream_buffer=True")
 
+            print(f"[DEBUG run_annotate] 正在初始化 {predictor_name}...")
             if predictor_name == "SAM3VideoSemanticPredictor":
                 _patch_sam3_video_semantic()
                 from ultralytics.models.sam import SAM3VideoSemanticPredictor
@@ -458,6 +495,9 @@ class UnifiedPanel(QMainWindow):
             else:
                 from ultralytics.models.sam import SAM3VideoPredictor
                 predictor = SAM3VideoPredictor(overrides=overrides)
+            print(f"[DEBUG run_annotate] {predictor_name} 初始化完成")
+            print(f"[DEBUG run_annotate] predictor.device: {predictor.device}")
+            print(f"[DEBUG run_annotate] predictor.model.device: {predictor.model.device if hasattr(predictor.model, 'device') else 'N/A'}")
 
             cap = cv2.VideoCapture(src_video)
             fourcc_int = int(cap.get(cv2.CAP_PROP_FOURCC))
@@ -500,11 +540,29 @@ class UnifiedPanel(QMainWindow):
             if has_text:
                 predictor_args['text'] = find_list
 
+            print(f"[DEBUG run_annotate] predictor_args: {predictor_args}")
+
+            import torch
+            if hasattr(predictor, 'model') and hasattr(predictor.model, 'device'):
+                print(f"[DEBUG run_annotate] 模型当前设备(推理前): {predictor.model.device}")
+            print(f"[DEBUG run_annotate] torch.cuda.current_device(): {torch.cuda.current_device() if torch.cuda.is_available() else 'N/A'}")
+            print(f"[DEBUG run_annotate] torch.cuda.device_count(): {torch.cuda.device_count() if torch.cuda.is_available() else 0}")
+
             results = predictor(**predictor_args)
             frame_count = 0
-            print("正在生成标注视频...")
+            print(f"[DEBUG run_annotate] 开始遍历results, 预计总帧数: {total_frames}")
 
             for r in results:
+                if frame_count == 0:
+                    if hasattr(predictor, 'model') and hasattr(predictor.model, 'device'):
+                        print(f"[DEBUG run_annotate] 模型推理后设备: {predictor.model.device}")
+                    print(f"[DEBUG run_annotate] 第一帧推理结果 device: {r.device if hasattr(r, 'device') else 'N/A'}")
+                    if r.masks is not None and hasattr(r.masks.data, 'device'):
+                        print(f"[DEBUG run_annotate] masks.device: {r.masks.data.device}")
+
+                if frame_count % 10 == 0:
+                    print(f"[DEBUG run_annotate] 已处理 {frame_count}/{total_frames} 帧, GPU内存: {torch.cuda.memory_allocated(0)/1024**3:.2f}GB")
+
                 orig_img = r.orig_img if hasattr(r, 'orig_img') and r.orig_img is not None else None
                 if orig_img is None:
                     cap_temp = cv2.VideoCapture(src_video)
