@@ -2032,23 +2032,21 @@ class UnifiedPanel(QMainWindow):
             print("没有可撤回的映射记录")
             return
 
-        mappings = [(rec['new_id'], rec['old_id']) for rec in reversed(history_records)]
-
         converted_count = 0
         for label_file in sorted(labels_dir.glob("frame_*.json")):
             with open(label_file) as f:
                 frame_anns = json.load(f)
             changed = False
             for ann in frame_anns:
-                for new_id, old_id in mappings:
-                    if ann.get('track_id') == new_id:
-                        current_list = ann.get('trace_id_list', [])
-                        if len(current_list) >= 2 and current_list[-1] == new_id:
-                            ann['track_id'] = current_list[-2]
-                            ann['trace_id_list'] = current_list[:-1]
-                        else:
-                            ann['track_id'] = old_id
-                        changed = True
+                trace_list = ann.get('trace_id_list', [])
+                if len(trace_list) >= 2 and trace_list[-1] == history_records[-1]['new_id']:
+                    ann['track_id'] = trace_list[-2]
+                    ann['trace_id_list'] = trace_list[:-1]
+                    changed = True
+                elif len(trace_list) == 1 and trace_list[0] == history_records[-1]['new_id']:
+                    ann['track_id'] = history_records[-1]['old_id']
+                    ann['trace_id_list'] = [history_records[-1]['old_id']]
+                    changed = True
             if changed:
                 with open(label_file, 'w') as f:
                     json.dump(frame_anns, f)
@@ -2059,15 +2057,15 @@ class UnifiedPanel(QMainWindow):
                 coco = json.load(f)
             changed = False
             for ann in coco.get('annotations', []):
-                for new_id, old_id in mappings:
-                    if ann.get('track_id') == new_id:
-                        current_list = ann.get('trace_id_list', [])
-                        if len(current_list) >= 2 and current_list[-1] == new_id:
-                            ann['track_id'] = current_list[-2]
-                            ann['trace_id_list'] = current_list[:-1]
-                        else:
-                            ann['track_id'] = old_id
-                        changed = True
+                trace_list = ann.get('trace_id_list', [])
+                if len(trace_list) >= 2 and trace_list[-1] == history_records[-1]['new_id']:
+                    ann['track_id'] = trace_list[-2]
+                    ann['trace_id_list'] = trace_list[:-1]
+                    changed = True
+                elif len(trace_list) == 1 and trace_list[0] == history_records[-1]['new_id']:
+                    ann['track_id'] = history_records[-1]['old_id']
+                    ann['trace_id_list'] = [history_records[-1]['old_id']]
+                    changed = True
             if changed:
                 with open(annotations_file, 'w') as f:
                     json.dump(coco, f)
