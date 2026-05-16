@@ -104,6 +104,170 @@ BOX_COLORS = [
 ]
 
 
+class RotatableBBoxEditorWidget(QWidget):
+    """可旋转的bbox编辑器，支持调整倾斜角度"""
+    bbox_changed = pyqtSignal(int, dict)
+    editing_finished = pyqtSignal()
+
+    def __init__(self, frame, boxes, parent=None):
+        super().__init__(parent)
+        self.frame = frame
+        self.boxes = boxes
+        self.editing_index = -1
+        self.dragging_handle = -1
+        self.rotating = False
+        self.last_pos = QPoint()
+
+        h, w = frame.shape[:2]
+        self.setFixedSize(w, h)
+        self.setMinimumSize(w, h)
+        self.setMaximumSize(w, h)
+
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        self.qimage = QImage(rgb.data, w, h, w * 3, QImage.Format_RGB888)
+        self.update_image = True
+
+    def set_editing_box(self, index):
+        self.editing_index = index
+        self.update()
+
+    def _get_box_corners(self, box):
+        cx = (box['x1'] + box['x2']) / 2
+        cy = (box['y1'] + box['y2']) / 2
+        w = box['x2'] - box['x1']
+        h = box['y2'] - box['y1']
+        angle = box.get('angle', 0)
+        import math
+        rad = math.radians(angle)
+        cos_a = math.cos(rad)
+        sin_a = math.sin(rad)
+
+        corners = [
+            (-w/2, -h/2), (w/2, -h/2), (w/2, h/2), (-w/2, h/2)
+        ]
+        rotated = []
+        for dx, dy in corners:
+            rx = cx + dx * cos_a - dy * sin_a
+            ry = cy + dx * sin_a + dy * cos_a
+            rotated.append((rx, ry))
+        return rotated
+
+    def _point_in_handle(self, pt, cx, cy, r=8):
+        import math
+        dist = math.sqrt((pt.x() - cx)**2 + (pt.y() - cy)**2)
+        return dist <= r
+
+    def _get_center(self, box):
+        cx = (box['x1'] + box['x2']) / 2
+        cy = (box['y1'] + box['y2']) / 2
+        return cx, cy
+
+    def mousePressEvent(self, event):
+        if self.editing_index < 0 or self.editing_index >= len(self.boxes):
+            return
+
+        box = self.boxes[self.editing_index]
+        corners = self._get_box_corners(box)
+        cx, cy = self._get_center(box)
+
+        import math
+        for i, (px, py) in enumerate(corners):
+            if self._point_in_handle(event.pos(), px, py, 12):
+                self.dragging_handle = i
+                self.last_pos = event.pos()
+                self.rotating = False
+                return
+
+        center_x, center_y = self._get_center(box)
+        if self._point_in_handle(event.pos(), center_x, center_y, 20):
+            self.rotating = True
+            self.last_pos = event.pos()
+            return
+
+        self.bbox_changed.emit(self.editing_index, box)
+        self.editing_finished.emit()
+
+    def mouseMoveEvent(self, event):
+        if self.editing_index < 0 or self.editing_index >= len(self.boxes):
+            return
+        if self.dragging_handle < 0 and not self.rotating:
+            return
+
+        box = self.boxes[self.editing_index]
+        corners = self._get_box_corners(box)
+        cx, cy = self._get_center(box)
+
+        import math
+
+        if self.rotating:
+            old_angle = math.atan2(self.last_pos.y() - cy, self.last_pos.x() - cx)
+            new_angle = math.atan2(event.y() - cy, event.x() - cx)
+            delta = math.degrees(new_angle - old_angle)
+            box['angle'] = box.get('angle', 0) + delta
+            self.last_pos = event.pos()
+            self.update()
+            return
+
+        hx, hy = corners[self.dragging_handle]
+        dx = event.x() - hx
+        dy = event.y() - hy
+
+        min_x = min(c[0] for c in corners)
+        max_x = max(c[0] for c in corners)
+        min_y = min(c[1] for c in corners)
+        max_y = max(c[1] for c in corners)
+
+        new_x1 = box['x1'] + dx if self.dragging_handle in [0, 3] else box['x1']
+        new_y1 = box['y1'] + dy if self.dragging_handle in [0, 1] else box['y1']
+        new_x2 = box['x2'] + dx if self.dragging_handle in [1, 2] else box['x2']
+        new_y2 = box['y2'] + dy if self.dragging_handle in [2, 3] else box['y2']
+
+        if new_x2 > new_x1 + 10 and new_y2 > new_y1 + 10:
+            box['x1'] = max(0, new_x1)
+            box['y1'] = max(0, new_y1)
+            box['x2'] = min(self.width(), new_x2)
+            box['y2'] = min(self.height(), new_y2)
+
+        self.last_pos = event.pos()
+        self.update()
+        self.bbox_changed.emit(self.editing_index, box)
+
+    def mouseReleaseEvent(self, event):
+        self.dragging_handle = -1
+        self.rotating = False
+        self.bbox_changed.emit(self.editing_index, self.boxes[self.editing_index])
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        if self.update_image:
+            painter.drawImage(0, 0, self.qimage)
+        else:
+            rgb = cv2.cvtColor(self.frame, cv2.COLOR_BGR2RGB)
+            qimg = QImage(rgb.data, rgb.shape[1], rgb.shape[0], rgb.shape[1] * 3, QImage.Format_RGB888)
+            painter.drawImage(0, 0, qimg)
+
+        for i, box in enumerate(self.boxes):
+            color = QColor(*box['color'][::-1])
+            pen = QPen(color, 2)
+            painter.setPen(pen)
+
+            corners = self._get_box_corners(box)
+            polygon = [QPoint(int(c[0]), int(c[1])) for c in corners]
+            painter.drawPolygon(polygon)
+
+            if i == self.editing_index:
+                painter.setPen(QPen(QColor(255, 255, 0), 2))
+                for px, py in corners:
+                    painter.drawEllipse(QPoint(int(px), int(py)), 8, 8)
+
+                cx, cy = self._get_center(box)
+                painter.drawEllipse(QPoint(int(cx), int(cy)), 12, 12)
+                painter.drawLine(QPoint(int(cx), int(cy)), QPoint(int(cx), int(cy - 40)))
+
+            painter.setFont(QFont("Arial", 14))
+            painter.drawText(box['x1'], box['y1'] - 5, f"{i + 1}")
+
+
 class AnnotationImageWidget(QWidget):
     box_added = pyqtSignal()
     def __init__(self, frame, boxes, color_index, parent=None):
@@ -270,8 +434,142 @@ class AnnotationDialog(QDialog):
     def get_boxes(self):
         if self.scale != 1.0:
             inv = 1.0 / self.scale
-            return [(int(b['x1'] * inv), int(b['y1'] * inv), int(b['x2'] * inv), int(b['y2'] * inv)) for b in self.boxes]
-        return [(b['x1'], b['y1'], b['x2'], b['y2']) for b in self.boxes]
+            result = []
+            for b in self.boxes:
+                result.append({
+                    'x1': int(b['x1'] * inv), 'y1': int(b['y1'] * inv),
+                    'x2': int(b['x2'] * inv), 'y2': int(b['y2'] * inv),
+                    'angle': b.get('angle', 0),
+                    'color': b.get('color', BOX_COLORS[0])
+                })
+            return result
+        return self.boxes
+
+
+class AngleAdjustDialog(QDialog):
+    def __init__(self, frame, boxes, parent=None, scale=1.0):
+        super().__init__(parent)
+        self.frame = frame
+        self.boxes = boxes
+        self.scale = scale
+        self.current_index = 0
+
+        self._setup_ui()
+        self._show_box(0)
+
+    def _setup_ui(self):
+        h, w = self.frame.shape[:2]
+        if self.scale != 1.0:
+            dw = max(1, int(w * self.scale))
+            dh = max(1, int(h * self.scale))
+            self.display_frame = cv2.resize(self.frame, (dw, dh), interpolation=cv2.INTER_LINEAR)
+        else:
+            self.display_frame = self.frame
+
+        dh, dw = self.display_frame.shape[:2]
+
+        self.setWindowTitle("调整标注框角度")
+        self.setFixedSize(dw, dh + 80)
+        self.setMaximumSize(dw, dh + 80)
+        self.setMinimumSize(dw, dh + 80)
+        self.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint)
+
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        header = QWidget()
+        header.setFixedSize(dw, 50)
+        header.setStyleSheet("background: rgba(0,0,0,200);")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(12, 0, 12, 0)
+        header_layout.setSpacing(8)
+
+        self.info_label = QLabel(f"调整标注框 (1/{len(self.boxes)})")
+        self.info_label.setStyleSheet("color: #ccc; font-size: 14px; font-weight: bold;")
+        header_layout.addWidget(self.info_label)
+
+        self.angle_label = QLabel("角度: 0")
+        self.angle_label.setStyleSheet("color: #ff0; font-size: 14px;")
+        self.angle_label.setFixedWidth(80)
+        header_layout.addWidget(self.angle_label)
+
+        self.angle_slider = QSlider(Qt.Horizontal)
+        self.angle_slider.setMinimum(-180)
+        self.angle_slider.setMaximum(180)
+        self.angle_slider.setValue(0)
+        self.angle_slider.setFixedWidth(200)
+        self.angle_slider.setStyleSheet("""
+            QSlider::groove:horizontal { border: 1px solid #555; height: 8px; background: #333; }
+            QSlider::handle:horizontal { background: #00CC00; width: 18px; margin: -5px 0; }
+        """)
+        self.angle_slider.valueChanged.connect(self._on_angle_slider_changed)
+        header_layout.addWidget(self.angle_slider)
+
+        self.prev_btn = QPushButton("< 上一个")
+        self.prev_btn.setFixedSize(80, 28)
+        self.prev_btn.setStyleSheet("background: #555; color: white; border: none; border-radius: 4px;")
+        self.prev_btn.clicked.connect(self._prev_box)
+        header_layout.addWidget(self.prev_btn)
+
+        self.next_btn = QPushButton("下一个 >")
+        self.next_btn.setFixedSize(80, 28)
+        self.next_btn.setStyleSheet("background: #555; color: white; border: none; border-radius: 4px;")
+        self.next_btn.clicked.connect(self._next_box)
+        header_layout.addWidget(self.next_btn)
+
+        self.done_btn = QPushButton("✓ 完成")
+        self.done_btn.setFixedSize(80, 28)
+        self.done_btn.setStyleSheet("background: #00CC00; color: white; border: none; border-radius: 4px; font-weight: bold;")
+        self.done_btn.clicked.connect(self.accept)
+        header_layout.addWidget(self.done_btn)
+
+        main_layout.addWidget(header)
+
+        self.editor_widget = RotatableBBoxEditorWidget(self.display_frame, self.boxes)
+        self.editor_widget.set_editing_box(0)
+        self.editor_widget.bbox_changed.connect(self._on_bbox_changed)
+        self.editor_widget.editing_finished.connect(self._on_editing_finished)
+        main_layout.addWidget(self.editor_widget)
+
+        if len(self.boxes) <= 1:
+            self.prev_btn.setEnabled(False)
+            self.next_btn.setEnabled(False)
+
+    def _show_box(self, index):
+        self.current_index = index
+        self.editor_widget.set_editing_box(index)
+        box = self.boxes[index]
+        angle = box.get('angle', 0)
+        self.info_label.setText(f"调整标注框 ({index + 1}/{len(self.boxes)})")
+        self.angle_label.setText(f"角度: {int(angle)}")
+        self.angle_slider.blockSignals(True)
+        self.angle_slider.setValue(int(angle))
+        self.angle_slider.blockSignals(False)
+        self.prev_btn.setEnabled(index > 0)
+        self.next_btn.setEnabled(index < len(self.boxes) - 1)
+
+    def _on_angle_slider_changed(self, value):
+        self.boxes[self.current_index]['angle'] = value
+        self.angle_label.setText(f"角度: {value}")
+        self.editor_widget.update()
+
+    def _on_bbox_changed(self, index, box):
+        self.boxes[index] = box
+
+    def _on_editing_finished(self):
+        pass
+
+    def _prev_box(self):
+        if self.current_index > 0:
+            self._show_box(self.current_index - 1)
+
+    def _next_box(self):
+        if self.current_index < len(self.boxes) - 1:
+            self._show_box(self.current_index + 1)
+
+    def get_boxes(self):
+        return self.boxes
 
 
 class DragLineEdit(QLineEdit):
@@ -430,6 +728,14 @@ class UnifiedPanel(QMainWindow):
         if dialog.exec_() != QDialog.Accepted:
             return
         boxes = dialog.get_boxes()
+        display_frame = dialog.display_frame
+
+        if boxes:
+            print(f"已标注 {len(boxes)} 个目标，正在打开角度调整...")
+            angle_dialog = AngleAdjustDialog(display_frame, boxes, self, scale=scale)
+            if angle_dialog.exec_() == QDialog.Accepted:
+                boxes = angle_dialog.get_boxes()
+                print(f"角度调整完成，{len(boxes)} 个目标已更新角度")
 
         iou_val = float(self.iou_input.text() or "0.5")
         merge_iou_val = float(self.merge_iou_input.text() or "0.5")
@@ -535,8 +841,11 @@ class UnifiedPanel(QMainWindow):
 
             predictor_args = {'source': src_video, 'stream': True}
             if has_bbox:
-                predictor_args['bboxes'] = boxes
+                bbox_list = [(b['x1'], b['y1'], b['x2'], b['y2']) for b in boxes]
+                predictor_args['bboxes'] = bbox_list
                 predictor_args['labels'] = [1] * len(boxes)
+                angles = [b.get('angle', 0) for b in boxes]
+                predictor_args['angles'] = angles
             if has_text:
                 predictor_args['text'] = find_list
 
