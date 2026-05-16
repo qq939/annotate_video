@@ -845,8 +845,6 @@ class UnifiedPanel(QMainWindow):
                 bbox_list = [(b['x1'], b['y1'], b['x2'], b['y2']) for b in boxes]
                 predictor_args['bboxes'] = bbox_list
                 predictor_args['labels'] = [1] * len(boxes)
-                angles = [b.get('angle', 0) for b in boxes]
-                predictor_args['angles'] = angles
             if has_text:
                 predictor_args['text'] = find_list
 
