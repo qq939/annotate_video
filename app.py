@@ -1888,6 +1888,13 @@ class UnifiedPanel(QMainWindow):
             for ann in frame_anns:
                 if ann.get('track_id') == from_id:
                     ann['track_id'] = to_id
+                    trace_list = ann.get('trace_id_list', [])
+                    if len(trace_list) >= 2 and trace_list[-1] == from_id:
+                        ann['track_id'] = trace_list[-2]
+                        ann['trace_id_list'] = trace_list[:-1]
+                    elif len(trace_list) == 1 and trace_list[0] == from_id:
+                        ann['track_id'] = to_id
+                        ann['trace_id_list'] = [to_id]
                     changed = True
             if changed:
                 with open(label_file, 'w') as f:
@@ -1898,7 +1905,13 @@ class UnifiedPanel(QMainWindow):
                 coco = json.load(f)
             for ann in coco.get('annotations', []):
                 if ann.get('track_id') == from_id:
-                    ann['track_id'] = to_id
+                    trace_list = ann.get('trace_id_list', [])
+                    if len(trace_list) >= 2 and trace_list[-1] == from_id:
+                        ann['track_id'] = trace_list[-2]
+                        ann['trace_id_list'] = trace_list[:-1]
+                    elif len(trace_list) == 1 and trace_list[0] == from_id:
+                        ann['track_id'] = to_id
+                        ann['trace_id_list'] = [to_id]
             with open(annotations_file, 'w') as f:
                 json.dump(coco, f)
         print(f"恢复映射: {from_id} → {to_id}, 影响 {count} 帧")
