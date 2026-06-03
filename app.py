@@ -2408,8 +2408,23 @@ class UnifiedPanel(QMainWindow):
         with open(output_path / "annotations.json", 'w') as f:
             json.dump(coco_output, f)
 
-        QMessageBox.information(self, "完成", f"数据已保存到 {output_path}")
         print(f"导出完成: {output_path}")
+
+        # Merge拷贝到final_data
+        try:
+            from app_utils import merge_copy_to_final_data
+            success, msg = merge_copy_to_final_data(output_path, "final_data")
+            if not success:
+                QMessageBox.warning(self, "Merge拷贝警告", f"Merge拷贝失败: {msg}\n\n导出到temp_data_post已成功完成。")
+            else:
+                print(f"Merge拷贝: {msg}")
+        except Exception as e:
+            import traceback
+            error_msg = f"Merge拷贝出错: {str(e)}\n\n{traceback.format_exc()}"
+            print(f"[ERROR] {error_msg}")
+            QMessageBox.warning(self, "Merge拷贝错误", f"Merge拷贝出错:\n{str(e)}\n\n导出到temp_data_post已成功完成。")
+
+        QMessageBox.information(self, "完成", f"数据已保存到 {output_path}")
 
     def run_save(self):
         input_dir = self.save_input_dir.text() or "temp_data_post"
