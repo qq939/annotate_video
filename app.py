@@ -796,12 +796,22 @@ class UnifiedPanel(QMainWindow):
 
             print(f"[DEBUG run_annotate] 正在初始化 {predictor_name}...")
             if predictor_name == "SAM3VideoSemanticPredictor":
-                _patch_sam3_video_semantic()
-                from ultralytics.models.sam import SAM3VideoSemanticPredictor
-                predictor = SAM3VideoSemanticPredictor(overrides=overrides)
+                try:
+                    _patch_sam3_video_semantic()
+                    from ultralytics.models.sam import SAM3VideoSemanticPredictor
+                    predictor = SAM3VideoSemanticPredictor(overrides=overrides)
+                except (ImportError, AttributeError) as e:
+                    print(f"[WARN] SAM3VideoSemanticPredictor不可用: {e}")
+                    print(f"[WARN] 回退到 SAM3VideoPredictor")
+                    from ultralytics.models.sam import SAM3VideoPredictor
+                    predictor = SAM3VideoPredictor(overrides=overrides)
             else:
-                from ultralytics.models.sam import SAM3VideoPredictor
-                predictor = SAM3VideoPredictor(overrides=overrides)
+                try:
+                    from ultralytics.models.sam import SAM3VideoPredictor
+                    predictor = SAM3VideoPredictor(overrides=overrides)
+                except ImportError:
+                    print("[ERROR] 无法导入SAM3VideoPredictor，请安装ultralytics>=8.3.0")
+                    return
             print(f"[DEBUG run_annotate] {predictor_name} 初始化完成")
             print(f"[DEBUG run_annotate] predictor.device: {predictor.device}")
             print(f"[DEBUG run_annotate] predictor.model.device: {predictor.model.device if hasattr(predictor.model, 'device') else 'N/A'}")
@@ -1487,7 +1497,12 @@ class UnifiedPanel(QMainWindow):
 
         try:
             from annotate_video import merge_masks_in_frame, TrackManager, get_device, SAM_MODEL_PATH, put_chinese_text
-            from ultralytics.models.sam import SAM3VideoPredictor
+            try:
+                from ultralytics.models.sam import SAM3VideoSemanticPredictor as SAM3Predictor
+                print("[INFO] 使用 SAM3VideoSemanticPredictor")
+            except ImportError:
+                from ultralytics.models.sam import SAM3VideoPredictor as SAM3Predictor
+                print("[INFO] 使用 SAM3VideoPredictor (SAM3VideoSemanticPredictor不可用)")
 
             device, device_type = get_device()
             half = device_type == 'cuda'
@@ -1504,7 +1519,7 @@ class UnifiedPanel(QMainWindow):
                 overrides['amp'] = True
                 overrides['stream_buffer'] = True
 
-            predictor = SAM3VideoPredictor(overrides=overrides)
+            predictor = SAM3Predictor(overrides=overrides)
 
             sample_frame = cv2.imread(str(mid_frames_dir / f"frame_{0:06d}.jpg"))
             height, width = sample_frame.shape[:2]
