@@ -2518,15 +2518,24 @@ class UnifiedPanel(QMainWindow):
         out.release()
         print(f"视频已保存: {output_path}")
 
+        # OBS文件名添加时间戳
+        import time
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        name_without_ext = output_name.rsplit('.', 1)[0] if '.' in output_name else output_name
+        ext = output_name.split('.')[-1] if '.' in output_name else 'mp4'
+        obs_filename = f"{name_without_ext}_{timestamp}.{ext}"
+        obs_url = f"http://obs.dimond.top/{obs_filename}"
+
         print("正在上传到OBS...")
+        print(f"[OBS] 上传文件名: {obs_filename}")
         try:
             result = subprocess.run(
-                ['curl', '--upload-file', str(output_path), f'http://obs.dimond.top/{output_name}'],
+                ['curl', '--upload-file', str(output_path), obs_url],
                 capture_output=True, text=True
             )
             if result.returncode == 0:
-                print("上传成功!")
-                QMessageBox.information(self, "完成", f"视频已保存并上传!")
+                print(f"上传成功! OBS地址: {obs_url}")
+                QMessageBox.information(self, "完成", f"视频已保存并上传!\n\nOBS地址: {obs_url}")
             else:
                 print(f"上传失败: {result.stderr}")
                 QMessageBox.warning(self, "部分完成", f"视频已保存，但上传失败")
