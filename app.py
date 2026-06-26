@@ -2646,13 +2646,42 @@ class UnifiedPanel(QMainWindow):
             )
             if result.returncode == 0:
                 print(f"上传成功! OBS地址: {obs_url}")
-                QMessageBox.information(self, "完成", f"视频已保存并上传!\n\nOBS地址: {obs_url}")
             else:
                 print(f"上传失败: {result.stderr}")
-                QMessageBox.warning(self, "部分完成", f"视频已保存，但上传失败")
         except Exception as e:
             print(f"上传失败: {e}")
-            QMessageBox.warning(self, "错误", str(e))
+
+        # 压缩并上传label_x_label_me
+        import zipfile
+        labelme_dir = Path("label_x_label_me")
+        if labelme_dir.exists():
+            zip_filename = f"{name_without_ext}_labelme_{timestamp}.zip"
+            zip_path = Path("1dst") / zip_filename
+            print(f"[ZIP] 正在压缩label_x_label_me...")
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                for f in labelme_dir.rglob("*"):
+                    if f.is_file():
+                        zf.write(f, f.relative_to(labelme_dir.parent))
+            print(f"[ZIP] 压缩完成: {zip_path}")
+
+            zip_url = f"http://obs.dimond.top/{zip_filename}"
+            print(f"[OBS] 正在上传labelme压缩包...")
+            try:
+                result = subprocess.run(
+                    ['curl', '--upload-file', str(zip_path), zip_url],
+                    capture_output=True, text=True
+                )
+                if result.returncode == 0:
+                    print(f"上传成功! labelme OBS地址: {zip_url}")
+                    QMessageBox.information(self, "完成", f"视频已保存并上传!\n\n视频: {obs_url}\n\nlabelme: {zip_url}")
+                else:
+                    print(f"上传失败: {result.stderr}")
+                    QMessageBox.warning(self, "部分完成", f"视频已保存，但labelme上传失败")
+            except Exception as e:
+                print(f"上传失败: {e}")
+                QMessageBox.warning(self, "错误", str(e))
+        else:
+            QMessageBox.information(self, "完成", f"视频已保存并上传!\n\nOBS地址: {obs_url}")
 
 
 def main():
