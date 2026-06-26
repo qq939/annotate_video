@@ -1277,6 +1277,11 @@ class UnifiedPanel(QMainWindow):
             color_btn_layout.addWidget(btn)
         layout.addLayout(color_btn_layout)
 
+        self.render_segment_check = QCheckBox("渲染分割")
+        self.render_segment_check.setChecked(True)
+        self.render_segment_check.setStyleSheet("QCheckBox { color: #ccc; }")
+        layout.addWidget(self.render_segment_check)
+
         self.save_btn = QPushButton("💾 保存视频并上传OBS")
         self.save_btn.setFixedHeight(28)
         self.save_btn.clicked.connect(self.run_save)
@@ -2602,7 +2607,7 @@ class UnifiedPanel(QMainWindow):
                         else:
                             color = self.palette_colors[color_idx_in_remapped + 1]
 
-                    if polygon:
+                    if polygon and self.render_segment_check.isChecked():
                         pts = np.array(polygon[0], dtype=np.int32).reshape(-1, 2)
                         cv2.fillPoly(overlay, [pts], color)
                         cv2.polylines(overlay, [pts], True, (255, 255, 255), 2)
