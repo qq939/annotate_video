@@ -2426,6 +2426,109 @@ class UnifiedPanel(QMainWindow):
 
         QMessageBox.information(self, "完成", f"数据已保存到 {output_path}")
 
+    def _export_to_labelme(self, input_dir):
+        """将temp_data_post转换为labelme格式"""
+        import shutil
+        input_path = Path(input_dir)
+        output_path = Path("label_x_label_me")
+
+        # 如果已有label_x_label_me，先删掉
+        if output_path.exists():
+            shutil.rmtree(output_path)
+        output_path.mkdir(parents=True)
+
+        frames_dir = input_path / "frames"
+        labels_dir = input_path / "labels"
+
+        # 获取所有帧
+        frame_files = sorted(frames_dir.glob("frame_*.jpg"))
+        target_size = (640, 640)
+
+        print(f"[labelme] 正在转换 {len(frame_files)} 帧到labelme格式...")
+
+        converted_count = 0
+        for frame_file in frame_files:
+            frame_idx = int(frame_file.stem.split('_')[1])
+            label_file = labels_dir / f"frame_{frame_idx:06d}.json"
+
+            # 读取并resize图片
+            frame = cv2.imread(str(frame_file))
+            if frame is None:
+                continue
+
+            orig_h, orig_w = frame.shape[:2]
+            resized = cv2.resize(frame, target_size)
+            scale_x = target_size[0] / orig_w
+            scale_y = target_size[1] / orig_h
+
+            # 保存图片
+            new_filename = f"frame{frame_idx}_00000.jpg"
+            img_path = output_path / new_filename
+            cv2.imwrite(str(img_path), resized)
+
+            # 生成labelme JSON
+            shapes = []
+            if label_file.exists():
+                with open(label_file) as f:
+                    annotations = json.load(f)
+
+                for ann in annotations:
+                    bbox = ann.get('bbox', [])
+                    if not bbox:
+                        continue
+
+                    label = ann.get('category', 'Unknown')
+
+                    # 将bbox转换为四个点
+                    x1, y1, w, h = bbox
+                    x2 = x1 + w
+                    y2 = y1 + h
+
+                    # scale坐标
+                    px1 = x1 * scale_x
+                    py1 = y1 * scale_y
+                    px2 = x2 * scale_x
+                    py2 = y2 * scale_y
+
+                    shapes.append({
+                        "label": label,
+                        "score": None,
+                        "points": [
+                            [px1, py1],
+                            [px2, py1],
+                            [px2, py2],
+                            [px1, py2]
+                        ],
+                        "group_id": None,
+                        "description": "",
+                        "difficult": False,
+                        "shape_type": "rectangle",
+                        "flags": {},
+                        "attributes": {},
+                        "kie_linking": []
+                    })
+
+            labelme_data = {
+                "version": "4.0.0-beta.5",
+                "flags": {},
+                "checked": False,
+                "shapes": shapes,
+                "imagePath": new_filename,
+                "imageData": None,
+                "imageHeight": target_size[1],
+                "imageWidth": target_size[0],
+                "description": ""
+            }
+
+            # 保存JSON
+            json_path = output_path / f"frame{frame_idx}_00000.jpg.json"
+            with open(json_path, 'w', encoding='utf-8') as f:
+                json.dump(labelme_data, f, indent=2, ensure_ascii=False)
+
+            converted_count += 1
+
+        print(f"[labelme] 转换完成: {converted_count} 张图片")
+
     def run_save(self):
         input_dir = self.save_input_dir.text() or "temp_data_post"
         output_name = self.save_output_name.text() or "1dst.mp4"
@@ -2517,6 +2620,14 @@ class UnifiedPanel(QMainWindow):
 
         out.release()
         print(f"视频已保存: {output_path}")
+
+        # 转换为labelme格式
+        try:
+            self._export_to_labelme(input_path)
+        except Exception as e:
+            import traceback
+            print(f"[ERROR] 导出labelme格式失败: {e}")
+            traceback.print_exc()
 
         # OBS文件名添加时间戳
         import time
