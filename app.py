@@ -2518,7 +2518,7 @@ class UnifiedPanel(QMainWindow):
                 "flags": {},
                 "checked": False,
                 "shapes": shapes,
-                "imagePath": new_filename,
+                "imagePath": f"frame_{frame_idx:06d}.jpg",
                 "imageData": None,
                 "imageHeight": target_size[1],
                 "imageWidth": target_size[0],
@@ -2526,7 +2526,7 @@ class UnifiedPanel(QMainWindow):
             }
 
             # 保存JSON（使用原文件名）
-            json_path = output_path / f"frame_{frame_idx:06d}.jpg.json"
+            json_path = output_path / f"frame_{frame_idx:06d}.json"
             with open(json_path, 'w', encoding='utf-8') as f:
                 json.dump(labelme_data, f, indent=2, ensure_ascii=False)
 
