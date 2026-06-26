@@ -2373,9 +2373,14 @@ class UnifiedPanel(QMainWindow):
                 filtered = self.ctrl.filter_annotations(annotations)
                 track_id_filtered = [ann for ann in filtered if ann.get('track_id', 0) > 999998]
 
+                # 根据track_id去重
+                seen_track_ids = set()
                 frame_anns = []
                 for ann in track_id_filtered:
                     tid = ann.get('track_id', 0)
+                    if tid in seen_track_ids:
+                        continue
+                    seen_track_ids.add(tid)
                     cat_id, cat_name = self._get_category_for_track_id(tid)
                     cat_id_set.add((cat_id, cat_name))
                     ann_copy = ann.copy()
@@ -2387,6 +2392,7 @@ class UnifiedPanel(QMainWindow):
                     json.dump(frame_anns, f)
 
         all_annotations = []
+        all_seen_ids = set()  # 用于全局去重: (image_id, track_id)
         for i in range(total_frames):
             label_path = labels_dir / f"frame_{i:06d}.json"
             if label_path.exists():
@@ -2394,8 +2400,12 @@ class UnifiedPanel(QMainWindow):
                     annotations = json.load(f)
                 filtered = self.ctrl.filter_annotations(annotations)
                 for ann in filtered:
-                    if ann.get('track_id', 0) > 999998:
-                        tid = ann.get('track_id', 0)
+                    tid = ann.get('track_id', 0)
+                    if tid > 999998:
+                        unique_key = (i, tid)
+                        if unique_key in all_seen_ids:
+                            continue
+                        all_seen_ids.add(unique_key)
                         cat_id, cat_name = self._get_category_for_track_id(tid)
                         cat_id_set.add((cat_id, cat_name))
                         ann_copy = ann.copy()
