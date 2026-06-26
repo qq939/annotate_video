@@ -2466,8 +2466,8 @@ class UnifiedPanel(QMainWindow):
             scale_x = target_size[0] / orig_w
             scale_y = target_size[1] / orig_h
 
-            # 保存图片
-            new_filename = f"frame{frame_idx}_00000.jpg"
+            # 保存图片（使用原文件名）
+            new_filename = f"frame_{frame_idx:06d}.jpg"
             img_path = output_path / new_filename
             cv2.imwrite(str(img_path), resized)
 
@@ -2525,8 +2525,8 @@ class UnifiedPanel(QMainWindow):
                 "description": ""
             }
 
-            # 保存JSON
-            json_path = output_path / f"frame{frame_idx}_00000.jpg.json"
+            # 保存JSON（使用原文件名）
+            json_path = output_path / f"frame_{frame_idx:06d}.jpg.json"
             with open(json_path, 'w', encoding='utf-8') as f:
                 json.dump(labelme_data, f, indent=2, ensure_ascii=False)
 
