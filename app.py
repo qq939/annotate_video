@@ -1027,6 +1027,11 @@ class UnifiedPanel(QMainWindow):
         show_btn.setFixedSize(44, 22)
         show_btn.clicked.connect(self.show_viewer)
         path_layout.addWidget(show_btn)
+        import_labelme_btn = QPushButton("导入labelme")
+        import_labelme_btn.setFixedSize(80, 22)
+        import_labelme_btn.setStyleSheet("QPushButton { background-color: #17a2b8; color: white; border: none; border-radius: 3px; }")
+        import_labelme_btn.clicked.connect(self.import_labelme_to_temp_data)
+        path_layout.addWidget(import_labelme_btn)
         layout.addLayout(path_layout)
 
         category_layout = QVBoxLayout()
@@ -2268,6 +2273,142 @@ class UnifiedPanel(QMainWindow):
             traceback.print_exc()
             self.statusBar().showMessage("切帧失败")
             QMessageBox.critical(self, "错误", f"切帧失败:\n{e}")
+
+    def import_labelme_to_temp_data(self):
+        """选择labelme格式文件夹，转换为COCO格式覆盖temp_data"""
+        labelme_dir = QFileDialog.getExistingDirectory(self, "选择labelme格式文件夹")
+        if not labelme_dir:
+            return
+
+        labelme_path = Path(labelme_dir)
+        temp_data = Path("temp_data")
+
+        # 收集所有json和图片
+        json_files = sorted(labelme_path.glob("*.json"))
+        if not json_files:
+            QMessageBox.warning(self, "错误", "选择的文件夹中没有.json文件")
+            return
+
+        print(f"[labelme import] 找到 {len(json_files)} 个JSON文件")
+
+        # 清空或创建temp_data目录
+        if temp_data.exists():
+            import shutil
+            shutil.rmtree(temp_data)
+        temp_data.mkdir(parents=True)
+        frames_dir = temp_data / "frames"
+        labels_dir = temp_data / "labels"
+        frames_dir.mkdir()
+        labels_dir.mkdir()
+
+        all_annotations = []
+        ann_id = 0
+        all_images = []
+
+        for json_file in json_files:
+            with open(json_file) as f:
+                data = json.load(f)
+
+            # 获取图片文件名
+            image_name = data.get('imagePath', '')
+            if not image_name:
+                continue
+
+            # 复制图片
+            src_img = labelme_path / image_name
+            if not src_img.exists():
+                print(f"[WARN] 图片不存在: {src_img}")
+                continue
+
+            # 从文件名提取帧索引
+            try:
+                frame_idx = int(image_name.replace('frame_', '').replace('.jpg', ''))
+            except:
+                print(f"[WARN] 无法解析帧索引: {image_name}")
+                continue
+
+            dst_img = frames_dir / f"frame_{frame_idx:06d}.jpg"
+            shutil.copy2(src_img, dst_img)
+
+            # 获取图片尺寸
+            img = cv2.imread(str(dst_img))
+            if img is None:
+                continue
+            orig_h, orig_w = img.shape[:2]
+
+            # 添加images记录
+            all_images.append({'id': frame_idx, 'frame_idx': frame_idx})
+
+            # 解析shapes
+            shapes = data.get('shapes', [])
+            frame_anns = []
+            for shape in shapes:
+                label = shape.get('label', 'Unknown')
+                points = shape.get('points', [])
+                shape_type = shape.get('shape_type', '')
+
+                if not points:
+                    continue
+
+                if shape_type == 'rectangle' and len(points) == 4:
+                    # rectangle格式：4个角点
+                    xs = [p[0] for p in points]
+                    ys = [p[1] for p in points]
+                    x1, y1 = min(xs), min(ys)
+                    x2, y2 = max(xs), max(ys)
+                    w, h = x2 - x1, y2 - y1
+                    bbox = [float(x1), float(y1), float(w), float(h)]
+                    # polygon用4个角点
+                    polygon = []
+                    for p in points:
+                        polygon.extend([p[0], p[1]])
+                elif len(points) >= 3:
+                    # polygon格式
+                    xs = [p[0] for p in points]
+                    ys = [p[1] for p in points]
+                    x1, y1, x2, y2 = min(xs), min(ys), max(xs), max(ys)
+                    w, h = x2 - x1, y2 - y1
+                    bbox = [float(x1), float(y1), float(w), float(h)]
+                    polygon = []
+                    for p in points:
+                        polygon.extend([p[0], p[1]])
+                else:
+                    continue
+
+                area = float(w * h)
+                ann = {
+                    'id': ann_id,
+                    'track_id': 1000000,  # 默认track_id
+                    'image_id': frame_idx,
+                    'category_id': 0,
+                    'bbox': bbox,
+                    'area': area,
+                    'segmentation': [polygon] if polygon else [],
+                    'iscrowd': 0,
+                    'confidence': 1.0,
+                    'category': label
+                }
+                frame_anns.append(ann)
+                all_annotations.append(ann)
+                ann_id += 1
+
+            # 保存帧标注
+            with open(labels_dir / f"frame_{frame_idx:06d}.json", 'w') as f:
+                json.dump(frame_anns, f)
+
+        # 保存annotations.json
+        coco_data = {
+            'info': {'description': 'Imported from labelme', 'fps': 30, 'width': orig_w, 'height': orig_h},
+            'images': all_images,
+            'annotations': all_annotations,
+            'categories': [{'id': 0, 'name': 'Detect'}]
+        }
+        with open(temp_data / "annotations.json", 'w') as f:
+            json.dump(coco_data, f)
+
+        print(f"[labelme import] 完成: {len(all_images)} 帧, {len(all_annotations)} 标注")
+        self.path_input.setText("temp_data")
+        QMessageBox.information(self, "完成", f"已导入labelme格式到temp_data\n\n{len(all_images)} 帧, {len(all_annotations)} 标注")
 
     def show_viewer(self):
         from video_viewer import VideoViewer
