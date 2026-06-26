@@ -2486,8 +2486,12 @@ class UnifiedPanel(QMainWindow):
             QMessageBox.warning(self, "错误", "没有帧数据")
             return
 
+        # 清空temp_data_post
+        import shutil
         output_path = Path("temp_data_post")
-        output_path.mkdir(exist_ok=True)
+        if output_path.exists():
+            shutil.rmtree(output_path)
+        output_path.mkdir(parents=True)
         output_labels_dir = output_path / "labels"
         output_labels_dir.mkdir(exist_ok=True)
         output_frames_dir = output_path / "frames"

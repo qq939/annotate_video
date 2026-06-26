@@ -1441,7 +1441,7 @@ def run_video_annotate(src_video, bboxes, find_list, overrides, use_semantic, io
 
 # ==================== Merge拷贝到final_data ====================
 def merge_copy_to_final_data(source_dir, final_dir="final_data", log_func=None):
-    """将temp_data_post拷贝并融合到final_data目录
+    """将temp_data_post拷贝覆盖到final_data目录
     
     Args:
         source_dir: 源目录（通常是temp_data_post）
@@ -1469,187 +1469,19 @@ def merge_copy_to_final_data(source_dir, final_dir="final_data", log_func=None):
     with open(source_ann_file) as f:
         source_coco = json.load(f)
     
-    source_images = source_coco.get('images', [])
     source_annotations = source_coco.get('annotations', [])
-    source_frames = len(source_images)
+    source_frames = len(source_coco.get('images', []))
     
-    log(f"[Merge] 源目录: {source_dir}")
-    log(f"[Merge] 源数据: {source_frames} 帧, {len(source_annotations)} 条标注")
+    log(f"[Copy] 源目录: {source_dir}")
+    log(f"[Copy] 源数据: {source_frames} 帧, {len(source_annotations)} 条标注")
     
-    # 如果final_data不存在，直接拷贝
-    if not final_dir.exists():
-        log(f"[Merge] final_data不存在，直接拷贝...")
-        shutil.copytree(source_dir, final_dir)
-        log(f"[Merge] 拷贝完成: {final_dir}")
-        return True, f"首次拷贝完成: {len(source_annotations)} 条标注"
+    # 清空并覆盖final_data
+    if final_dir.exists():
+        log(f"[Copy] 清空final_data...")
+        shutil.rmtree(final_dir)
     
-    # final_data已存在，进行merge
-    final_ann_file = final_dir / "annotations.json"
-    if not final_ann_file.exists():
-        log(f"[Merge] final_data没有annotations.json，重新拷贝...")
-        shutil.copytree(source_dir, final_dir, dirs_exist_ok=True)
-        return True, "重新拷贝完成"
+    log(f"[Copy] 拷贝到final_data...")
+    shutil.copytree(source_dir, final_dir)
+    log(f"[Copy] 拷贝完成: {final_dir}")
     
-    with open(final_ann_file) as f:
-        final_coco = json.load(f)
-    
-    final_images = final_coco.get('images', [])
-    final_annotations = final_coco.get('annotations', [])
-    final_frames = len(final_images)
-    
-    log(f"[Merge] final_data已有: {final_frames} 帧, {len(final_annotations)} 条标注")
-    
-    # 检查帧数是否一致
-    if source_frames != final_frames:
-        msg = f"帧数不一致: source={source_frames}, final={final_frames}"
-        log(f"[Merge] {msg}")
-        return False, msg
-    
-    # 合并categories
-    source_cats = {c['id']: c['name'] for c in source_coco.get('categories', [])}
-    final_cats = {c['id']: c['name'] for c in final_coco.get('categories', [])}
-    all_cats = final_cats.copy()
-    for cid, cname in source_cats.items():
-        if cid not in all_cats:
-            all_cats[cid] = cname
-    
-    # 构建final_data的标注索引: (trace_id, category) -> annotations
-    final_index = {}
-    for ann in final_annotations:
-        key = (ann.get('track_id'), ann.get('category'))
-        if key not in final_index:
-            final_index[key] = []
-        final_index[key].append(ann)
-    
-    merged_annotations = list(final_annotations)
-    new_ann_id = max([a.get('id', 0) for a in final_annotations], default=0) + 1
-    
-    source_by_frame = {}
-    for ann in source_annotations:
-        img_id = ann.get('image_id', 0)
-        if img_id not in source_by_frame:
-            source_by_frame[img_id] = []
-        source_by_frame[img_id].append(ann)
-    
-    for frame_idx in range(source_frames):
-        frame_anns = source_by_frame.get(frame_idx, [])
-        
-        for source_ann in frame_anns:
-            s_trace_id = source_ann.get('track_id')
-            s_category = source_ann.get('category')
-            s_key = (s_trace_id, s_category)
-            
-            if s_key in final_index:
-                # trace_id和category都一致，合并masks和bbox
-                final_ann = final_index[s_key][0]
-                s_seg = source_ann.get('segmentation', [[]])
-                f_seg = final_ann.get('segmentation', [[]])
-                
-                # 合并polygon点
-                s_points = s_seg[0] if s_seg and len(s_seg) > 0 else []
-                f_points = f_seg[0] if f_seg and len(f_seg) > 0 else []
-                merged_points = list(set(f_points + s_points))
-                merged_points.sort()
-                
-                # 合并bbox范围
-                s_bbox = source_ann.get('bbox', [0, 0, 0, 0])
-                f_bbox = final_ann.get('bbox', [0, 0, 0, 0])
-                x1 = min(s_bbox[0], f_bbox[0])
-                y1 = min(s_bbox[1], f_bbox[1])
-                x2 = max(s_bbox[0] + s_bbox[2], f_bbox[0] + f_bbox[2])
-                y2 = max(s_bbox[1] + s_bbox[3], f_bbox[1] + f_bbox[3])
-                merged_bbox = [float(x1), float(y1), float(x2 - x1), float(y2 - y1)]
-                
-                final_ann['segmentation'] = [merged_points]
-                final_ann['bbox'] = merged_bbox
-                area = abs(x2 - x1) * abs(y2 - y1)
-                final_ann['area'] = float(area)
-                
-            else:
-                # 检查是否有相同trace_id但不同category
-                same_trace_key = None
-                for key in final_index:
-                    if key[0] == s_trace_id and key[1] != s_category:
-                        same_trace_key = key
-                        break
-                
-                if same_trace_key:
-                    # trace_id一致但category不一致，更新trace_id后加入
-                    new_trace_id = max([k[0] for k in final_index.keys()], default=s_trace_id) + 1
-                    new_ann = source_ann.copy()
-                    new_ann['id'] = new_ann_id
-                    new_ann['track_id'] = new_trace_id
-                    new_ann['category'] = s_category
-                    new_ann['category_id'] = s_trace_id
-                    new_ann['image_id'] = frame_idx
-                    merged_annotations.append(new_ann)
-                    new_ann_id += 1
-                    if (new_trace_id, s_category) not in final_index:
-                        final_index[(new_trace_id, s_category)] = []
-                    final_index[(new_trace_id, s_category)].append(new_ann)
-                else:
-                    # 检查是否有相同category但不同trace_id
-                    same_cat_key = None
-                    for key in final_index:
-                        if key[1] == s_category and key[0] != s_trace_id:
-                            same_cat_key = key
-                            break
-                    
-                    if same_cat_key:
-                        # category一致但trace_id不一致，让trace_id一致后合并
-                        final_ann = final_index[same_cat_key][0]
-                        s_seg = source_ann.get('segmentation', [[]])
-                        f_seg = final_ann.get('segmentation', [[]])
-                        
-                        s_points = s_seg[0] if s_seg and len(s_seg) > 0 else []
-                        f_points = f_seg[0] if f_seg and len(f_seg) > 0 else []
-                        merged_points = list(set(f_points + s_points))
-                        merged_points.sort()
-                        
-                        s_bbox = source_ann.get('bbox', [0, 0, 0, 0])
-                        f_bbox = final_ann.get('bbox', [0, 0, 0, 0])
-                        x1 = min(s_bbox[0], f_bbox[0])
-                        y1 = min(s_bbox[1], f_bbox[1])
-                        x2 = max(s_bbox[0] + s_bbox[2], f_bbox[0] + f_bbox[2])
-                        y2 = max(s_bbox[1] + s_bbox[3], f_bbox[1] + f_bbox[3])
-                        merged_bbox = [float(x1), float(y1), float(x2 - x1), float(y2 - y1)]
-                        
-                        final_ann['segmentation'] = [merged_points]
-                        final_ann['bbox'] = merged_bbox
-                        area = abs(x2 - x1) * abs(y2 - y1)
-                        final_ann['area'] = float(area)
-                    else:
-                        # trace_id和category都不一致，直接加入
-                        new_ann = source_ann.copy()
-                        new_ann['id'] = new_ann_id
-                        new_ann['image_id'] = frame_idx
-                        merged_annotations.append(new_ann)
-                        new_ann_id += 1
-                        if s_key not in final_index:
-                            final_index[s_key] = []
-                        final_index[s_key].append(new_ann)
-    
-    # 更新frames的标注文件
-    labels_dir = final_dir / "labels"
-    labels_dir.mkdir(exist_ok=True)
-    
-    for frame_idx in range(source_frames):
-        frame_anns = [a for a in merged_annotations if a.get('image_id') == frame_idx]
-        with open(labels_dir / f"frame_{frame_idx:06d}.json", 'w') as f:
-            json.dump(frame_anns, f)
-    
-    # 保存新的annotations.json
-    merged_coco = {
-        'info': final_coco.get('info', source_coco.get('info', {})),
-        'images': final_images,
-        'annotations': merged_annotations,
-        'categories': [{'id': cid, 'name': cname} for cid, cname in sorted(all_cats.items())]
-    }
-    
-    with open(final_ann_file, 'w') as f:
-        json.dump(merged_coco, f)
-    
-    log(f"[Merge] 完成: {len(merged_annotations)} 条标注")
-    return True, f"合并完成: {len(merged_annotations)} 条标注"
-
-    return coco_data, frame_count
+    return True, f"覆盖完成: {source_frames} 帧, {len(source_annotations)} 条标注"
