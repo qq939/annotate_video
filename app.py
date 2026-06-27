@@ -2602,7 +2602,6 @@ class UnifiedPanel(QMainWindow):
 
         # 获取所有帧
         frame_files = sorted(frames_dir.glob("frame_*.jpg"))
-        target_size = (640, 640)
 
         print(f"[labelme] 正在转换 {len(frame_files)} 帧到labelme格式...")
 
@@ -2611,20 +2610,17 @@ class UnifiedPanel(QMainWindow):
             frame_idx = int(frame_file.stem.split('_')[1])
             label_file = labels_dir / f"frame_{frame_idx:06d}.json"
 
-            # 读取并resize图片
+            # 读取图片（不resize）
             frame = cv2.imread(str(frame_file))
             if frame is None:
                 continue
 
             orig_h, orig_w = frame.shape[:2]
-            resized = cv2.resize(frame, target_size)
-            scale_x = target_size[0] / orig_w
-            scale_y = target_size[1] / orig_h
 
             # 保存图片（使用原文件名）
             new_filename = f"frame_{frame_idx:06d}.jpg"
             img_path = output_path / new_filename
-            cv2.imwrite(str(img_path), resized)
+            cv2.imwrite(str(img_path), frame)
 
             # 生成labelme JSON
             shapes = []
@@ -2639,25 +2635,19 @@ class UnifiedPanel(QMainWindow):
 
                     label = ann.get('category', 'Unknown')
 
-                    # 将bbox转换为四个点
+                    # 将bbox转换为四个点（不scale）
                     x1, y1, w, h = bbox
                     x2 = x1 + w
                     y2 = y1 + h
-
-                    # scale坐标
-                    px1 = x1 * scale_x
-                    py1 = y1 * scale_y
-                    px2 = x2 * scale_x
-                    py2 = y2 * scale_y
 
                     shapes.append({
                         "label": label,
                         "score": None,
                         "points": [
-                            [px1, py1],
-                            [px2, py1],
-                            [px2, py2],
-                            [px1, py2]
+                            [x1, y1],
+                            [x2, y1],
+                            [x2, y2],
+                            [x1, y2]
                         ],
                         "group_id": None,
                         "description": "",
@@ -2675,8 +2665,8 @@ class UnifiedPanel(QMainWindow):
                 "shapes": shapes,
                 "imagePath": f"frame_{frame_idx:06d}.jpg",
                 "imageData": None,
-                "imageHeight": target_size[1],
-                "imageWidth": target_size[0],
+                "imageHeight": orig_h,
+                "imageWidth": orig_w,
                 "description": ""
             }
 
