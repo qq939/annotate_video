@@ -1143,7 +1143,7 @@ class UnifiedPanel(QMainWindow):
         self.frame_label = QLabel("1/1")
         self.frame_label.setAlignment(Qt.AlignCenter)
         self.frame_label.setFixedHeight(24)
-        self.frame_label.setFixedWidth(100)
+        self.frame_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.frame_label.setStyleSheet("QLabel { background-color: #333; color: #fff; border-radius: 3px; font-weight: bold; font-size: 14px; padding: 0 8px; }")
         frame_play_layout.addWidget(self.frame_label)
 
@@ -1176,7 +1176,7 @@ class UnifiedPanel(QMainWindow):
         list_area.addWidget(QLabel("ID映射"))
         self.trace_id_list = QListWidget()
         self.trace_id_list.setAlternatingRowColors(True)
-        self.trace_id_list.setFixedWidth(220)
+        self.trace_id_list.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.trace_id_list.itemDoubleClicked.connect(self.on_trace_id_double_clicked)
         list_area.addWidget(self.trace_id_list)
         trace_change_layout.addLayout(list_area)
