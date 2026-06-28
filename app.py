@@ -2478,7 +2478,7 @@ class UnifiedPanel(QMainWindow):
         self.viewer.show()
         self.viewer.update_display()
 
-        self.frame_label.setText(f"帧: 1/{self.total_frames}")
+        self.frame_label.setText(f"1/{self.total_frames}")
 
     def select_save_input_dir(self):
         folder = QFileDialog.getExistingDirectory(self, "选择输入目录", ".")
