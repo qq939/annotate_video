@@ -2495,15 +2495,21 @@ class UnifiedPanel(QMainWindow):
         self.total_frames = len(coco_data.get('images', []))
 
         temp_mid = Path(TEMP_DATA_MID_DIR)
-        if temp_mid.exists():
-            shutil.rmtree(temp_mid)
-        shutil.copytree(self.temp_data_path, temp_mid)
-        print(f"已从 {self.temp_data_path} 拷贝到 {temp_mid}")
+        # 如果源就是temp_mid本身，不需要复制
+        if self.temp_data_path.resolve() == temp_mid.resolve():
+            print(f"源就是temp_mid，无需复制")
+            viewer_path = str(temp_mid)
+        else:
+            if temp_mid.exists():
+                shutil.rmtree(temp_mid)
+            shutil.copytree(self.temp_data_path, temp_mid)
+            print(f"已从 {self.temp_data_path} 拷贝到 {temp_mid}")
+            viewer_path = str(temp_mid)
 
         self._load_trace_id_mappings()
         self._apply_trace_id_mappings_to_mid()
 
-        self.viewer = VideoViewer(str(temp_mid), controller=self.ctrl)
+        self.viewer = VideoViewer(viewer_path, controller=self.ctrl)
         self.viewer.video_clicked.connect(self.handle_viewer_click)
         zoom_factor = self.zoom_slider.value() / 100.0
         self.viewer.set_zoom(zoom_factor)
