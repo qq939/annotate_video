@@ -164,6 +164,15 @@ class VideoViewer(QMainWindow):
         self.timer = QTimer()
         self.timer.timeout.connect(self.play_next_frame)
 
+    def keyPressEvent(self, event):
+        key = event.key()
+        if key == Qt.Key_C:
+            self.undo_last_bbox()
+        elif key == Qt.Key_Escape:
+            self.close()
+        else:
+            super().keyPressEvent(event)
+
     def set_controller(self, controller):
         self.controller = controller
 
@@ -215,6 +224,14 @@ class VideoViewer(QMainWindow):
     def clear_prompt_bboxes(self):
         self.prompt_bboxes = []
         self.update_display()
+
+    def undo_last_bbox(self):
+        if self.prompt_bboxes:
+            self.prompt_bboxes.pop()
+            self.update_display()
+            print(f"撤销bbox，剩余: {len(self.prompt_bboxes)} 个")
+        else:
+            print("没有可撤销的bbox")
 
     def set_zoom(self, factor):
         self.zoom_factor = factor
