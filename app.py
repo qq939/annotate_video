@@ -1092,7 +1092,7 @@ class UnifiedPanel(QMainWindow):
         frame_nav_play_layout = QHBoxLayout()
         frame_nav_play_layout.setSpacing(2)
         self.backward_fast_btn = QPushButton("倒播")
-        self.backward_fast_btn.setFixedSize(36, 24)
+        self.backward_fast_btn.setFixedHeight(24)
         self.backward_fast_btn.clicked.connect(self.toggle_backward_fast)
         frame_nav_play_layout.addWidget(self.backward_fast_btn)
 
@@ -1116,8 +1116,8 @@ class UnifiedPanel(QMainWindow):
         self.frame_label = QLabel("1/1")
         self.frame_label.setAlignment(Qt.AlignCenter)
         self.frame_label.setFixedHeight(24)
-        self.frame_label.setFixedWidth(60)
-        self.frame_label.setStyleSheet("QLabel { background-color: #333; color: #fff; border-radius: 3px; font-weight: bold; font-size: 11px; padding: 0 4px; }")
+        self.frame_label.setFixedWidth(70)
+        self.frame_label.setStyleSheet("QLabel { background-color: #333; color: #fff; border-radius: 3px; font-weight: bold; font-size: 14px; padding: 0 6px; }")
         frame_nav_play_layout.addWidget(self.frame_label)
 
         self.forward_cb = QCheckBox("前向")
@@ -1132,7 +1132,7 @@ class UnifiedPanel(QMainWindow):
         frame_nav_play_layout.addWidget(self.next_btn)
 
         self.forward_fast_btn = QPushButton("正播")
-        self.forward_fast_btn.setFixedSize(36, 24)
+        self.forward_fast_btn.setFixedHeight(24)
         self.forward_fast_btn.clicked.connect(self.toggle_play_fast)
         frame_nav_play_layout.addWidget(self.forward_fast_btn)
         layout.addLayout(frame_nav_play_layout)
