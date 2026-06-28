@@ -1297,6 +1297,20 @@ class UnifiedPanel(QMainWindow):
         self.render_segment_check.setStyleSheet("QCheckBox { color: #ccc; }")
         layout.addWidget(self.render_segment_check)
 
+        trail_layout = QHBoxLayout()
+        trail_layout.setSpacing(4)
+        self.trail_check = QCheckBox("拖影粒子")
+        self.trail_check.setStyleSheet("QCheckBox { color: #ccc; }")
+        trail_layout.addWidget(self.trail_check)
+        trail_layout.addWidget(QLabel("时间:"))
+        self.trail_duration = QLineEdit("1")
+        self.trail_duration.setFixedWidth(40)
+        self.trail_duration.setFixedHeight(22)
+        trail_layout.addWidget(self.trail_duration)
+        trail_layout.addWidget(QLabel("秒"))
+        trail_layout.addStretch()
+        layout.addLayout(trail_layout)
+
         self.save_btn = QPushButton("💾 保存视频并上传OBS")
         self.save_btn.setFixedHeight(28)
         self.save_btn.clicked.connect(self.run_save)
@@ -2723,8 +2737,14 @@ class UnifiedPanel(QMainWindow):
         labels_dir = input_path / "labels"
         frames_dir = input_path / "frames"
 
+        # 拖影粒子效果初始化
+        enable_trail = self.trail_check.isChecked()
+        trail_duration = float(self.trail_duration.text()) if self.trail_duration.text() else 1.0
+        trail_frames = int(trail_duration * fps)  # 拖影帧数
+        track_trail = {}  # track_id -> [(frame_idx, cx, cy, color), ...]
+
         print(f"正在生成视频: {output_path}")
-        print(f"[DEBUG run_save] 已选颜色索引={self.selected_color_index}, 颜色={self.palette_colors[self.selected_color_index]}, 调色板长度={len(self.palette_colors)}")
+        print(f"[DEBUG run_save] 拖影: {'开启' if enable_trail else '关闭'}, 时长: {trail_duration}秒 ({trail_frames}帧)")
 
         for i in range(total_frames):
             frame_path = frames_dir / f"frame_{i:06d}.jpg"
@@ -2740,6 +2760,8 @@ class UnifiedPanel(QMainWindow):
 
                 result_frame = frame.copy()
                 overlay = frame.copy()
+
+                current_track_positions = {}  # 当前帧的track_id -> (cx, cy, color)
 
                 for ann in annotations:
                     polygon = ann.get('segmentation')
@@ -2769,9 +2791,38 @@ class UnifiedPanel(QMainWindow):
 
                     x, y = int(bbox[0]), int(bbox[1])
                     w, h = int(bbox[2]), int(bbox[3])
+                    cx, cy = x + w // 2, y + h // 2  # 中心点
+
                     cv2.rectangle(overlay, (x, y), (x + w, y + h), color, 2)
                     cv2.putText(overlay, f"{cat_name} {conf:.2f}", (x, y - 5),
                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+
+                    current_track_positions[track_id] = (cx, cy, color)
+
+                # 绘制拖影粒子
+                if enable_trail:
+                    # 先绘制拖影（旧的点）
+                    for track_id, positions in track_trail.items():
+                        for j, (fi, px, py, pcolor) in enumerate(positions):
+                            alpha = (j + 1) / len(positions) * 0.6  # 渐变透明度
+                            radius = int(3 + (j / len(positions)) * 5)  # 渐变大小
+                            # 同色系光子粒子效果
+                            for _ in range(3):  # 3个粒子
+                                offset_x = np.random.randint(-3, 4)
+                                offset_y = np.random.randint(-3, 4)
+                                cv2.circle(overlay, (px + offset_x, py + offset_y), radius, pcolor, -1)
+
+                    # 更新轨迹：移除超出范围的帧，添加当前位置
+                    for track_id, (cx, cy, color) in current_track_positions.items():
+                        if track_id not in track_trail:
+                            track_trail[track_id] = []
+                        track_trail[track_id].append((i, cx, cy, color))
+
+                    # 裁剪轨迹长度
+                    for track_id in list(track_trail.keys()):
+                        track_trail[track_id] = [(fi, px, py, c) for fi, px, py, c in track_trail[track_id] if i - fi <= trail_frames]
+                        if not track_trail[track_id]:
+                            del track_trail[track_id]
 
                 cv2.addWeighted(overlay, self.ctrl.alpha, result_frame, 1 - self.ctrl.alpha, 0, result_frame)
                 frame = result_frame
