@@ -1274,6 +1274,16 @@ class UnifiedPanel(QMainWindow):
         self.save_output_name.setFixedWidth(80)
         self.save_output_name.setFixedHeight(22)
         input_dir_name_layout.addWidget(self.save_output_name)
+        input_dir_name_layout.addWidget(QLabel("标题:"))
+        self.labelme_title = QLineEdit("frame")
+        self.labelme_title.setFixedWidth(60)
+        self.labelme_title.setFixedHeight(22)
+        input_dir_name_layout.addWidget(self.labelme_title)
+        input_dir_name_layout.addWidget(QLabel("位数:"))
+        self.labelme_digit = QLineEdit("6")
+        self.labelme_digit.setFixedWidth(30)
+        self.labelme_digit.setFixedHeight(22)
+        input_dir_name_layout.addWidget(self.labelme_digit)
         layout.addLayout(input_dir_name_layout)
 
         save_alpha_layout = QHBoxLayout()
@@ -2645,6 +2655,11 @@ class UnifiedPanel(QMainWindow):
         input_path = Path(input_dir)
         output_path = Path("label_x_label_me")
 
+        # 获取title和digit参数
+        title = self.labelme_title.text() or "frame"
+        digit = int(self.labelme_digit.text()) if self.labelme_digit.text() else 6
+        frame_pattern = title + "_{:0" + str(digit) + "d}"
+
         # 如果已有label_x_label_me，先删掉
         if output_path.exists():
             shutil.rmtree(output_path)
@@ -2656,7 +2671,7 @@ class UnifiedPanel(QMainWindow):
         # 获取所有帧
         frame_files = sorted(frames_dir.glob("frame_*.jpg"))
 
-        print(f"[labelme] 正在转换 {len(frame_files)} 帧到labelme格式...")
+        print(f"[labelme] 正在转换 {len(frame_files)} 帧到labelme格式... (title={title}, digit={digit})")
 
         converted_count = 0
         for frame_file in frame_files:
@@ -2670,8 +2685,8 @@ class UnifiedPanel(QMainWindow):
 
             orig_h, orig_w = frame.shape[:2]
 
-            # 保存图片（使用原文件名）
-            new_filename = f"frame_{frame_idx:06d}.jpg"
+            # 保存图片（使用配置的命名格式）
+            new_filename = f"{frame_pattern.format(frame_idx)}.jpg"
             img_path = output_path / new_filename
             cv2.imwrite(str(img_path), frame)
 
@@ -2716,15 +2731,16 @@ class UnifiedPanel(QMainWindow):
                 "flags": {},
                 "checked": False,
                 "shapes": shapes,
-                "imagePath": f"frame_{frame_idx:06d}.jpg",
+                "imagePath": new_filename,
                 "imageData": None,
                 "imageHeight": orig_h,
                 "imageWidth": orig_w,
                 "description": ""
             }
 
-            # 保存JSON（使用原文件名）
-            json_path = output_path / f"frame_{frame_idx:06d}.json"
+            # 保存JSON（使用配置的命名格式）
+            json_filename = f"{frame_pattern.format(frame_idx)}.json"
+            json_path = output_path / json_filename
             with open(json_path, 'w', encoding='utf-8') as f:
                 json.dump(labelme_data, f, indent=2, ensure_ascii=False)
 
