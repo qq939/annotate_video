@@ -2243,10 +2243,14 @@ class UnifiedPanel(QMainWindow):
             width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
+            max_frames = int(self.max_frames_input.text()) if self.max_frames_input.text() else 1000
             frame_count = 0
             while True:
                 ret, frame = cap.read()
                 if not ret:
+                    break
+                if frame_count >= max_frames:
+                    print(f"[DEBUG] 切帧达到最大帧数 {max_frames}，停止")
                     break
                 cv2.imwrite(str(frames_dir / f"frame_{frame_count:06d}.jpg"), frame)
                 frame_count += 1
