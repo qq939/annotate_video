@@ -1300,13 +1300,13 @@ class UnifiedPanel(QMainWindow):
 
         self.render_segment_check = QCheckBox("渲染分割")
         self.render_segment_check.setChecked(True)
-        self.render_segment_check.setStyleSheet("QCheckBox { color: #ccc; }")
+        self.render_segment_check.setStyleSheet("QCheckBox { font-size: 11px; }")
         layout.addWidget(self.render_segment_check)
 
         trail_layout = QHBoxLayout()
         trail_layout.setSpacing(4)
         self.trail_check = QCheckBox("拖影粒子")
-        self.trail_check.setStyleSheet("QCheckBox { color: #ccc; }")
+        self.trail_check.setStyleSheet("QCheckBox { font-size: 11px; }")
         trail_layout.addWidget(self.trail_check)
         trail_layout.addWidget(QLabel("时间:"))
         self.trail_duration = QLineEdit("1")
