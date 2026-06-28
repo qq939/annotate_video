@@ -2552,14 +2552,15 @@ class UnifiedPanel(QMainWindow):
                 filtered = self.ctrl.filter_annotations(annotations)
                 track_id_filtered = [ann for ann in filtered if ann.get('track_id', 0) > 999998]
 
-                # 根据track_id去重
-                seen_track_ids = set()
+                # 根据bbox去重（完全相同的bbox只保留一个）
+                seen_bboxes = set()
                 frame_anns = []
                 for ann in track_id_filtered:
-                    tid = ann.get('track_id', 0)
-                    if tid in seen_track_ids:
+                    bbox = tuple(ann.get('bbox', []))
+                    if bbox in seen_bboxes:
                         continue
-                    seen_track_ids.add(tid)
+                    seen_bboxes.add(bbox)
+                    tid = ann.get('track_id', 0)
                     cat_id, cat_name = self._get_category_for_track_id(tid)
                     cat_id_set.add((cat_id, cat_name))
                     ann_copy = ann.copy()
