@@ -1176,7 +1176,7 @@ class UnifiedPanel(QMainWindow):
         list_area.addWidget(QLabel("ID映射"))
         self.trace_id_list = QListWidget()
         self.trace_id_list.setAlternatingRowColors(True)
-        self.trace_id_list.setFixedWidth(180)
+        self.trace_id_list.setFixedWidth(220)
         self.trace_id_list.itemDoubleClicked.connect(self.on_trace_id_double_clicked)
         list_area.addWidget(self.trace_id_list)
         trace_change_layout.addLayout(list_area)
