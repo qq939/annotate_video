@@ -654,6 +654,12 @@ class UnifiedPanel(QMainWindow):
         select_btn.setFixedWidth(50)
         select_btn.clicked.connect(self.select_video)
         video_layout.addWidget(select_btn)
+        video_layout.addWidget(QLabel("起始"))
+        self.start_time_input = QLineEdit("0")
+        self.start_time_input.setFixedWidth(50)
+        self.start_time_input.setFixedHeight(22)
+        video_layout.addWidget(self.start_time_input)
+        video_layout.addWidget(QLabel("秒"))
         video_layout.addWidget(QLabel("取前"))
         self.max_frames_input = QLineEdit("1000")
         self.max_frames_input.setFixedWidth(60)
@@ -865,10 +871,16 @@ class UnifiedPanel(QMainWindow):
             results = predictor(**predictor_args)
             frame_count = 0
             max_frames = int(self.max_frames_input.text()) if self.max_frames_input.text() else 1000
-            print(f"[DEBUG run_annotate] 开始遍历results, 预计总帧数: {total_frames}, 最大处理帧数: {max_frames}")
+            start_time = float(self.start_time_input.text()) if self.start_time_input.text() else 0
+            start_frame = int(start_time * fps) if start_time > 0 else 0
+            print(f"[DEBUG run_annotate] 开始遍历results, 预计总帧数: {total_frames}, 起始帧: {start_frame}, 最大处理帧数: {max_frames}")
 
             for r in results:
-                if frame_count >= max_frames:
+                # 跳过起始帧
+                if frame_count < start_frame:
+                    frame_count += 1
+                    continue
+                if frame_count >= start_frame + max_frames:
                     print(f"[DEBUG run_annotate] 已达到最大帧数 {max_frames}，停止处理")
                     break
                 if frame_count == 0:
@@ -2249,11 +2261,18 @@ class UnifiedPanel(QMainWindow):
             height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
             max_frames = int(self.max_frames_input.text()) if self.max_frames_input.text() else 1000
+            start_time = float(self.start_time_input.text()) if self.start_time_input.text() else 0
+            start_frame = int(start_time * fps) if start_time > 0 else 0
             frame_count = 0
+            total_read = 0
             while True:
                 ret, frame = cap.read()
                 if not ret:
                     break
+                # 跳过起始帧
+                if total_read < start_frame:
+                    total_read += 1
+                    continue
                 if frame_count >= max_frames:
                     print(f"[DEBUG] 切帧达到最大帧数 {max_frames}，停止")
                     break
