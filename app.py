@@ -1089,7 +1089,7 @@ class UnifiedPanel(QMainWindow):
         conf_layout.addWidget(self.conf_slider)
         layout.addLayout(conf_layout)
 
-        # 第一行：倒播、倒帧
+        # 第一行：倒播、倒帧、正帧、正播
         frame_nav_layout = QHBoxLayout()
         frame_nav_layout.setSpacing(2)
         self.backward_fast_btn = QPushButton("倒播")
@@ -1098,13 +1098,22 @@ class UnifiedPanel(QMainWindow):
         frame_nav_layout.addWidget(self.backward_fast_btn)
 
         self.backward_btn = QPushButton("倒帧")
-        self.backward_btn.setFixedSize(36, 24)
+        self.backward_btn.setFixedHeight(24)
         self.backward_btn.clicked.connect(self.toggle_backward)
         frame_nav_layout.addWidget(self.backward_btn)
-        frame_nav_layout.addStretch()
+
+        self.next_btn = QPushButton("正帧")
+        self.next_btn.setFixedHeight(24)
+        self.next_btn.clicked.connect(self.toggle_play)
+        frame_nav_layout.addWidget(self.next_btn)
+
+        self.forward_fast_btn = QPushButton("正播")
+        self.forward_fast_btn.setFixedHeight(24)
+        self.forward_fast_btn.clicked.connect(self.toggle_play_fast)
+        frame_nav_layout.addWidget(self.forward_fast_btn)
         layout.addLayout(frame_nav_layout)
 
-        # 第二行：后向、提示帧、帧数、正向
+        # 第二行：后向、提示帧、帧数、前向
         frame_play_layout = QHBoxLayout()
         frame_play_layout.setSpacing(4)
         self.backward_cb = QCheckBox("后向")
@@ -1122,8 +1131,8 @@ class UnifiedPanel(QMainWindow):
         self.frame_label = QLabel("1/1")
         self.frame_label.setAlignment(Qt.AlignCenter)
         self.frame_label.setFixedHeight(24)
-        self.frame_label.setFixedWidth(70)
-        self.frame_label.setStyleSheet("QLabel { background-color: #333; color: #fff; border-radius: 3px; font-weight: bold; font-size: 14px; padding: 0 6px; }")
+        self.frame_label.setFixedWidth(80)
+        self.frame_label.setStyleSheet("QLabel { background-color: #333; color: #fff; border-radius: 3px; font-weight: bold; font-size: 14px; padding: 0 8px; }")
         frame_play_layout.addWidget(self.frame_label)
 
         self.forward_cb = QCheckBox("前向")
@@ -1131,16 +1140,6 @@ class UnifiedPanel(QMainWindow):
         self.forward_cb.setChecked(True)
         self.forward_cb.setStyleSheet("QCheckBox { font-size: 11px; }")
         frame_play_layout.addWidget(self.forward_cb)
-
-        self.next_btn = QPushButton("正帧")
-        self.next_btn.setFixedSize(36, 24)
-        self.next_btn.clicked.connect(self.toggle_play)
-        frame_play_layout.addWidget(self.next_btn)
-
-        self.forward_fast_btn = QPushButton("正播")
-        self.forward_fast_btn.setFixedHeight(24)
-        self.forward_fast_btn.clicked.connect(self.toggle_play_fast)
-        frame_play_layout.addWidget(self.forward_fast_btn)
         layout.addLayout(frame_play_layout)
 
         delete_trace_layout = QHBoxLayout()
