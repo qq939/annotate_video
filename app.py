@@ -1143,7 +1143,7 @@ class UnifiedPanel(QMainWindow):
         self.frame_label = QLabel("1/1")
         self.frame_label.setAlignment(Qt.AlignCenter)
         self.frame_label.setFixedHeight(24)
-        self.frame_label.setFixedWidth(80)
+        self.frame_label.setFixedWidth(100)
         self.frame_label.setStyleSheet("QLabel { background-color: #333; color: #fff; border-radius: 3px; font-weight: bold; font-size: 14px; padding: 0 8px; }")
         frame_play_layout.addWidget(self.frame_label)
 
