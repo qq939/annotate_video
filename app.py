@@ -3294,13 +3294,15 @@ class UnifiedPanel(QMainWindow):
                         # 画历史粒子
                         for fo, particles in enumerate(particle_history):
                             alpha = 1.0 - (fo / max(len(particle_history), 1) * 0.7)
-                            for px, py, p_tid in particles:
-                                if p_tid in tid_to_bbox:
-                                    bbox = tid_to_bbox[p_tid]
-                                    bx, by, bw, bh = [int(v) for v in bbox]
-                                    if bx <= px <= bx + bw and by <= py <= by + bh:
-                                        gray = int(255 * alpha)
-                                        cv2.circle(result_frame, (px, py), 2, (gray, gray, gray), -1)
+                            for p in particles:
+                                if len(p) >= 3:
+                                    px, py, p_tid = p[0], p[1], p[2]
+                                    if p_tid in tid_to_bbox:
+                                        bbox = tid_to_bbox[p_tid]
+                                        bx, by, bw, bh = [int(v) for v in bbox]
+                                        if bx <= px <= bx + bw and by <= py <= by + bh:
+                                            gray = int(255 * alpha)
+                                            cv2.circle(result_frame, (px, py), 2, (gray, gray, gray), -1)
                     
                     # 白色乳胶漆效果
                     if enable_latex and track_ids_with_particles:
