@@ -3071,66 +3071,69 @@ class UnifiedPanel(QMainWindow):
 
                     current_track_positions[track_id] = (cx, cy, color)
 
-                # 绘制粒子效果
+                # 绘制粒子效果 - 在接触面上绘制小圆点
                 if enable_particle and self.render_segment_check.isChecked():
-                    # 收集所有多边形用于检测重叠
+                    # 紫色粒子
+                    particle_color = (128, 0, 128)  # BGR 紫色
+                    
+                    # 收集所有多边形和bbox
                     all_contours = []
+                    all_bboxes = []
                     for ann in annotations:
                         polygon = ann.get('segmentation')
-                        if polygon and len(polygon[0]) >= 6:
+                        bbox = ann.get('bbox', [])
+                        if polygon and len(polygon[0]) >= 6 and bbox:
                             try:
                                 pts = np.array(polygon[0], dtype=np.int32).reshape(-1, 2)
-                                all_contours.append((pts, color))
+                                all_contours.append(pts)
+                                all_bboxes.append(bbox)
                             except:
                                 pass
                     
-                    # 检测重叠区域并绘制粒子
                     current_particles = []  # 当前帧的新粒子
+                    
+                    # 检测接触面（多边形边缘在另一个多边形内部的部分）
                     if len(all_contours) >= 2:
-                        # 创建mask用于检测重叠
-                        overlap_mask = np.zeros((height, width), dtype=np.uint8)
-                        for pts, _ in all_contours:
-                            cv2.fillPoly(overlap_mask, [pts], 255)
-                        
-                        # 找到重叠区域（交集）
-                        intersection_mask = overlap_mask.copy()
-                        for pts, _ in all_contours[1:]:
-                            temp_mask = np.zeros((height, width), dtype=np.uint8)
-                            cv2.fillPoly(temp_mask, [pts], 255)
-                            intersection_mask = cv2.bitwise_and(intersection_mask, temp_mask)
-                        
-                        # 在重叠区域生成粒子
-                        if cv2.countNonZero(intersection_mask) > 0:
-                            contours, _ = cv2.findContours(intersection_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                            
-                            np.random.seed(i)
-                            
-                            for cnt in contours:
-                                x, y, w, h = cv2.boundingRect(cnt)
-                                num_particles = min(int(w * h / 500), 50)
-                                for _ in range(num_particles):
-                                    px = np.random.randint(x, x + w)
-                                    py = np.random.randint(y, y + h)
-                                    radius = np.random.randint(3, 13)
-                                    current_particles.append((px, py, radius, color))
+                        for a_idx, (pts_a, bbox_a) in enumerate(zip(all_contours, all_bboxes)):
+                            for pts_b, bbox_b in zip(all_contours[a_idx + 1:], all_bboxes[a_idx + 1:]):
+                                # 计算两个bbox的交集区域
+                                x1 = max(bbox_a[0], bbox_b[0])
+                                y1 = max(bbox_a[1], bbox_b[1])
+                                x2 = min(bbox_a[0] + bbox_a[2], bbox_b[0] + bbox_b[2])
+                                y2 = min(bbox_a[1] + bbox_a[3], bbox_b[1] + bbox_b[3])
+                                
+                                if x2 > x1 and y2 > y1:  # 有交集
+                                    # 在交集区域内找A多边形的边缘点
+                                    for pt in pts_a:
+                                        px, py = int(pt[0]), int(pt[1])
+                                        # 检查点是否在交集区域内（接触面）
+                                        if x1 <= px <= x2 and y1 <= py <= y2:
+                                            # 限制在小范围内生成粒子
+                                            for _ in range(3):  # 每个接触点生成3个粒子
+                                                offset_x = np.random.randint(-2, 3)
+                                                offset_y = np.random.randint(-2, 3)
+                                                particle_x = px + offset_x
+                                                particle_y = py + offset_y
+                                                # 确保在交集区域内
+                                                if x1 <= particle_x <= x2 and y1 <= particle_y <= y2:
+                                                    current_particles.append((particle_x, particle_y, particle_color))
                     
                     # 绘制消散中的历史粒子
                     for frame_offset, particles in enumerate(particle_history):
-                        # 越老的粒子透明度越低
                         alpha = 1.0 - (frame_offset / len(particle_history))
-                        for px, py, radius, pcolor in particles:
-                            faded_radius = max(1, int(radius * alpha))
+                        for px, py, pcolor in particles:
                             faded_color = (
                                 int(pcolor[0] * alpha),
                                 int(pcolor[1] * alpha),
                                 int(pcolor[2] * alpha)
                             )
-                            cv2.circle(overlay, (px, py), faded_radius, faded_color, -1)
+                            # 很小的圆点
+                            cv2.circle(overlay, (px, py), 1, faded_color, -1)
                     
                     # 添加当前帧粒子到历史
                     particle_history.append(current_particles)
                     
-                    # 裁剪历史（只保留fade_frames内的）
+                    # 裁剪历史
                     if len(particle_history) > fade_frames:
                         particle_history = particle_history[-fade_frames:]
 
