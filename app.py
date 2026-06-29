@@ -1919,8 +1919,37 @@ class UnifiedPanel(QMainWindow):
             max_track_id = max([ann['track_id'] for ann in coco.get('annotations', [])], default=FIRST_ID - 1)
             print(f"[DEBUG 汇总] 现有max_ann_id={max_ann_id}, max_track_id={max_track_id}")
 
+            # 检查与现有标注重叠的IoU阈值
+            overlap_threshold = float(self.merge_iou_input.text()) if self.merge_iou_input.text() else 0.5
+            
             new_anns_count = 0
+            skipped_count = 0
             for ann in all_new_anns:
+                # 检查是否与现有标注重叠
+                new_bbox = ann.get('bbox', [])
+                skip = False
+                for existing in coco['annotations']:
+                    existing_bbox = existing.get('bbox', [])
+                    if new_bbox and existing_bbox and existing.get('image_id') == ann.get('image_id'):
+                        # 计算IoU
+                        x1 = max(new_bbox[0], existing_bbox[0])
+                        y1 = max(new_bbox[1], existing_bbox[1])
+                        x2 = min(new_bbox[0] + new_bbox[2], existing_bbox[0] + existing_bbox[2])
+                        y2 = min(new_bbox[1] + new_bbox[3], existing_bbox[1] + existing_bbox[3])
+                        inter = max(0, x2 - x1) * max(0, y2 - y1)
+                        area1 = new_bbox[2] * new_bbox[3]
+                        area2 = existing_bbox[2] * existing_bbox[3]
+                        union = area1 + area2 - inter
+                        iou = inter / union if union > 0 else 0
+                        if iou > overlap_threshold:
+                            print(f"[DEBUG 汇总] 跳过重叠标注: frame={ann.get('image_id')}, iou={iou:.3f}")
+                            skip = True
+                            break
+                
+                if skip:
+                    skipped_count += 1
+                    continue
+                
                 new_ann = dict(ann)
                 max_ann_id += 1
                 new_ann['id'] = max_ann_id
@@ -1935,6 +1964,45 @@ class UnifiedPanel(QMainWindow):
             with open(src_annotations_file, 'w') as f:
                 json.dump(coco, f)
             print(f"[DEBUG 汇总] ✓ annotations.json 已写入")
+
+            # 更新labels目录下的帧标注文件
+            temp_mid = Path(TEMP_DATA_MID_DIR)
+            labels_dir = temp_mid / "labels"
+            labels_dir.mkdir(exist_ok=True)
+            for ann in coco['annotations']:
+                frame_idx = ann.get('image_id', 0)
+                label_file = labels_dir / f"frame_{frame_idx:06d}.json"
+                frame_anns = []
+                if label_file.exists():
+                    with open(label_file) as f:
+                        frame_anns = json.load(f)
+                
+                # 检查bbox是否与现有标注重叠
+                new_bbox = ann.get('bbox', [])
+                skip = False
+                for existing in frame_anns:
+                    existing_bbox = existing.get('bbox', [])
+                    if new_bbox and existing_bbox:
+                        # 计算IoU
+                        x1 = max(new_bbox[0], existing_bbox[0])
+                        y1 = max(new_bbox[1], existing_bbox[1])
+                        x2 = min(new_bbox[0] + new_bbox[2], existing_bbox[0] + existing_bbox[2])
+                        y2 = min(new_bbox[1] + new_bbox[3], existing_bbox[1] + existing_bbox[3])
+                        inter = max(0, x2 - x1) * max(0, y2 - y1)
+                        area1 = new_bbox[2] * new_bbox[3]
+                        area2 = existing_bbox[2] * existing_bbox[3]
+                        union = area1 + area2 - inter
+                        iou = inter / union if union > 0 else 0
+                        if iou > overlap_threshold:
+                            skip = True
+                            break
+                
+                if not skip:
+                    frame_anns.append(ann)
+                    with open(label_file, 'w') as f:
+                        json.dump(frame_anns, f)
+            print(f"[DEBUG 汇总] ✓ labels目录已更新")
+
             shutil.rmtree(Path("temp_inject"), ignore_errors=True)
 
             print(f"=== 双向标注完成 === 新增标注: {len(all_new_anns)}, 总标注: {len(coco['annotations'])}")
