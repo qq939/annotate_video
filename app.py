@@ -105,7 +105,7 @@ BOX_COLORS = [
 ]
 
 
-def extract_video_segment(src_video, output_video, start_time=0, max_frames=1000):
+def extract_video_segment(src_video, output_video, start_time=0, max_frames=1000, frame_interval=1):
     """
     从视频中提取片段生成临时视频。
     用于视频标注时，根据起始秒数和最大帧数生成标注用的临时视频。
@@ -115,6 +115,7 @@ def extract_video_segment(src_video, output_video, start_time=0, max_frames=1000
         output_video: 输出临时视频路径
         start_time: 起始秒数（行723, 行739-748）
         max_frames: 最大帧数（行723, 行739-748）
+        frame_interval: 抽帧间隔，默认1表示每帧都取，2表示每2帧取1帧（行725, 行728）
     
     Returns:
         输出视频路径
@@ -137,22 +138,29 @@ def extract_video_segment(src_video, output_video, start_time=0, max_frames=1000
     # 跳转到起始帧
     cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
     
-    # 创建输出视频
+    # 创建输出视频（抽帧后fps需要调整）
+    effective_fps = fps / frame_interval if frame_interval > 1 else fps
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(output_video, fourcc, fps, (width, height))
+    out = cv2.VideoWriter(output_video, fourcc, effective_fps, (width, height))
     
     frame_count = 0
+    frames_written = 0
     while frame_count < max_frames:
         ret, frame = cap.read()
         if not ret:
             break
-        out.write(frame)
+        
+        # 抽帧逻辑：每frame_interval帧取1帧
+        if frame_interval == 1 or frame_count % frame_interval == 0:
+            out.write(frame)
+            frames_written += 1
+        
         frame_count += 1
     
     cap.release()
     out.release()
     
-    print(f"[extract_video_segment] 生成临时视频: {output_video}, 帧数: {frame_count}")
+    print(f"[extract_video_segment] 生成临时视频: {output_video}, 帧数: {frames_written}, 抽帧间隔: {frame_interval}")
     return output_video
 
 
@@ -718,6 +726,12 @@ class UnifiedPanel(QMainWindow):
         self.max_frames_input.setFixedHeight(22)
         video_layout.addWidget(self.max_frames_input)
         video_layout.addWidget(QLabel("帧"))
+        video_layout.addWidget(QLabel("抽帧"))
+        self.frame_interval_input = QLineEdit("1")
+        self.frame_interval_input.setFixedWidth(30)
+        self.frame_interval_input.setFixedHeight(22)
+        video_layout.addWidget(self.frame_interval_input)
+        video_layout.addWidget(QLabel("帧/1"))
         layout.addLayout(video_layout)
 
         iou_layout = QHBoxLayout()
@@ -788,16 +802,17 @@ class UnifiedPanel(QMainWindow):
 
         src_video = str(src_dir / video_name)
         
-        # 获取起始秒数和最大帧数
+        # 获取起始秒数、最大帧数和抽帧间隔
         start_time = float(self.start_time_input.text()) if self.start_time_input.text() else 0
         max_frames = int(self.max_frames_input.text()) if self.max_frames_input.text() else 1000
+        frame_interval = int(self.frame_interval_input.text()) if self.frame_interval_input.text() else 1
         
-        # 如果有起始秒数或最大帧数限制，先生成临时视频用于标注
-        if start_time > 0 or max_frames < 1000:
+        # 如果有起始秒数、最大帧数限制或抽帧间隔>1，生成临时视频用于标注
+        if start_time > 0 or max_frames < 1000 or frame_interval > 1:
             temp_video_name = f"_temp_annotate_{int(time.time())}.mp4"
             temp_video_path = str(src_dir / temp_video_name)
-            print(f"[run_annotate] 起始秒数={start_time}, 最大帧数={max_frames}, 生成临时视频: {temp_video_path}")
-            extract_video_segment(src_video, temp_video_path, start_time, max_frames)
+            print(f"[run_annotate] 起始秒数={start_time}, 最大帧数={max_frames}, 抽帧间隔={frame_interval}, 生成临时视频: {temp_video_path}")
+            extract_video_segment(src_video, temp_video_path, start_time, max_frames, frame_interval)
             annotate_video_for_dialog = temp_video_path
         else:
             annotate_video_for_dialog = src_video
@@ -2343,6 +2358,7 @@ class UnifiedPanel(QMainWindow):
 
             max_frames = int(self.max_frames_input.text()) if self.max_frames_input.text() else 1000
             start_time = float(self.start_time_input.text()) if self.start_time_input.text() else 0
+            frame_interval = int(self.frame_interval_input.text()) if self.frame_interval_input.text() else 1
             start_frame = int(start_time * fps) if start_time > 0 else 0
             frame_count = 0
             total_read = 0
@@ -2357,11 +2373,14 @@ class UnifiedPanel(QMainWindow):
                 if frame_count >= max_frames:
                     print(f"[DEBUG] 切帧达到最大帧数 {max_frames}，停止")
                     break
-                cv2.imwrite(str(frames_dir / f"frame_{frame_count:06d}.jpg"), frame)
-                frame_count += 1
+                # 抽帧逻辑：每frame_interval帧取1帧
+                if frame_interval == 1 or total_read % frame_interval == 0:
+                    cv2.imwrite(str(frames_dir / f"frame_{frame_count:06d}.jpg"), frame)
+                    frame_count += 1
                 if frame_count % 100 == 0:
                     self.statusBar().showMessage(f"正在切帧... {frame_count} 帧")
                     QApplication.processEvents()
+                total_read += 1
             cap.release()
 
             coco_data = {
