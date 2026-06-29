@@ -885,7 +885,11 @@ class UnifiedPanel(QMainWindow):
             print(f"[DEBUG run_annotate] predictor.device: {predictor.device}")
             print(f"[DEBUG run_annotate] predictor.model.device: {predictor.model.device if hasattr(predictor.model, 'device') else 'N/A'}")
 
-            cap = cv2.VideoCapture(src_video)
+            # 使用临时视频进行推理（如果有的话）
+            infer_video = annotate_video_for_dialog
+            print(f"[DEBUG run_annotate] 推理视频: {infer_video}")
+            
+            cap = cv2.VideoCapture(infer_video)
             fourcc_int = int(cap.get(cv2.CAP_PROP_FOURCC))
             fourcc_str = ''.join([chr(fourcc_int & 0xFF), chr((fourcc_int >> 8) & 0xFF), chr((fourcc_int >> 16) & 0xFF), chr((fourcc_int >> 24) & 0xFF)])
             fourcc = cv2.VideoWriter_fourcc(*fourcc_str)
@@ -919,7 +923,7 @@ class UnifiedPanel(QMainWindow):
             annotation_id = [0]
             track_manager = TrackManager(iou_threshold=iou_val)
 
-            predictor_args = {'source': src_video, 'stream': True}
+            predictor_args = {'source': infer_video, 'stream': True}
             if has_bbox:
                 bbox_list = [(b['x1'], b['y1'], b['x2'], b['y2']) for b in boxes]
                 predictor_args['bboxes'] = bbox_list
