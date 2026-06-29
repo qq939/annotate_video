@@ -2,7 +2,6 @@
 """视频标注工具 - 统一控制面板，控制逻辑委托给 video_control.VideoController"""
 
 import sys
-import time
 import random
 import shutil
 import cv2
@@ -103,65 +102,6 @@ BOX_COLORS = [
     (255, 255, 0), (255, 0, 255), (0, 255, 255),
     (255, 128, 0), (128, 0, 255),
 ]
-
-
-def extract_video_segment(src_video, output_video, start_time=0, max_frames=1000, frame_interval=1):
-    """
-    从视频中提取片段生成临时视频。
-    用于视频标注时，根据起始秒数和最大帧数生成标注用的临时视频。
-    
-    Args:
-        src_video: 源视频路径
-        output_video: 输出临时视频路径
-        start_time: 起始秒数（行723, 行739-748）
-        max_frames: 最大帧数（行723, 行739-748）
-        frame_interval: 抽帧间隔，默认1表示每帧都取，2表示每2帧取1帧（行725, 行728）
-    
-    Returns:
-        输出视频路径
-    """
-    cap = cv2.VideoCapture(src_video)
-    if not cap.isOpened():
-        raise ValueError(f"无法打开视频: {src_video}")
-    
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    
-    # 计算起始帧
-    start_frame = int(start_time * fps) if start_time > 0 else 0
-    if start_frame >= total_frames:
-        cap.release()
-        raise ValueError(f"起始秒数 {start_time}s 对应的帧 {start_frame} 超出视频总帧数 {total_frames}")
-    
-    # 跳转到起始帧
-    cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
-    
-    # 创建输出视频（抽帧后fps需要调整）
-    effective_fps = fps / frame_interval if frame_interval > 1 else fps
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(output_video, fourcc, effective_fps, (width, height))
-    
-    frame_count = 0
-    frames_written = 0
-    while frame_count < max_frames:
-        ret, frame = cap.read()
-        if not ret:
-            break
-        
-        # 抽帧逻辑：每frame_interval帧取1帧
-        if frame_interval == 1 or frame_count % frame_interval == 0:
-            out.write(frame)
-            frames_written += 1
-        
-        frame_count += 1
-    
-    cap.release()
-    out.release()
-    
-    print(f"[extract_video_segment] 生成临时视频: {output_video}, 帧数: {frames_written}, 抽帧间隔: {frame_interval}")
-    return output_video
 
 
 class RotatableBBoxEditorWidget(QWidget):
@@ -726,12 +666,12 @@ class UnifiedPanel(QMainWindow):
         self.max_frames_input.setFixedHeight(22)
         video_layout.addWidget(self.max_frames_input)
         video_layout.addWidget(QLabel("帧"))
-        video_layout.addWidget(QLabel("抽帧"))
-        self.frame_interval_input = QLineEdit("1")
-        self.frame_interval_input.setFixedWidth(30)
-        self.frame_interval_input.setFixedHeight(22)
-        video_layout.addWidget(self.frame_interval_input)
-        video_layout.addWidget(QLabel("帧/1"))
+        video_layout.addWidget(QLabel("每隔"))
+        self.skip_frames_input = QLineEdit("1")
+        self.skip_frames_input.setFixedWidth(40)
+        self.skip_frames_input.setFixedHeight(22)
+        video_layout.addWidget(self.skip_frames_input)
+        video_layout.addWidget(QLabel("帧取1"))
         layout.addLayout(video_layout)
 
         iou_layout = QHBoxLayout()
@@ -783,42 +723,90 @@ class UnifiedPanel(QMainWindow):
         if file_path:
             self.video_input.setText(file_path)
 
+    def create_temp_video(self, video_path, start_time=0, max_frames=1000, skip_frames=1):
+        """根据起始时间、帧数和抽帧间隔生成临时视频
+        
+        Returns:
+            tuple: (临时视频路径, fps, 总帧数) 或 None如果失败
+        """
+        import tempfile
+        
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            return None
+        
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        total_original = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        
+        # 创建临时视频文件
+        temp_video_dir = Path("1src")
+        temp_video_dir.mkdir(exist_ok=True)
+        temp_video_path = temp_video_dir / "temp_input.mp4"
+        if temp_video_path.exists():
+            temp_video_path.unlink()
+        
+        out = cv2.VideoWriter(str(temp_video_path), fourcc, fps, (width, height))
+        
+        start_frame = int(start_time * fps)
+        frame_idx = 0
+        output_count = 0
+        
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            
+            # 跳过起始帧
+            if frame_idx < start_frame:
+                frame_idx += 1
+                continue
+            
+            # 检查是否在跳帧范围内
+            if (frame_idx - start_frame) % skip_frames != 0:
+                frame_idx += 1
+                continue
+            
+            # 检查是否达到最大帧数
+            if output_count >= max_frames:
+                break
+            
+            out.write(frame)
+            output_count += 1
+            frame_idx += 1
+        
+        cap.release()
+        out.release()
+        
+        return (str(temp_video_path), fps, output_count)
+
     def run_annotate(self):
         video_path = self.video_input.text()
         if not video_path:
             QMessageBox.warning(self, "错误", "请先选择视频文件")
             return
 
-        src_dir = Path("1src")
-        src_dir.mkdir(exist_ok=True)
-        video_name = Path(video_path).name
-
-        if Path(video_path).parent.resolve() != src_dir.resolve():
-            dst_video = src_dir / video_name
-            if dst_video.exists():
-                dst_video.unlink()
-            shutil.copy2(video_path, dst_video)
-            print(f"已拷贝到src: {dst_video}")
-
-        src_video = str(src_dir / video_name)
-        
-        # 获取起始秒数、最大帧数和抽帧间隔
+        # 获取参数
         start_time = float(self.start_time_input.text()) if self.start_time_input.text() else 0
         max_frames = int(self.max_frames_input.text()) if self.max_frames_input.text() else 1000
-        frame_interval = int(self.frame_interval_input.text()) if self.frame_interval_input.text() else 1
+        skip_frames = int(self.skip_frames_input.text()) if self.skip_frames_input.text() else 1
+
+        # 生成临时视频（包含起始时间、抽帧等处理）
+        print(f"[run_annotate] 生成临时视频: 起始={start_time}秒, 取{max_frames}帧, 每隔{skip_frames}帧取1")
+        temp_result = self.create_temp_video(video_path, start_time, max_frames, skip_frames)
+        if temp_result is None:
+            QMessageBox.warning(self, "错误", "无法打开视频文件")
+            return
         
-        # 如果有起始秒数、最大帧数限制或抽帧间隔>1，生成临时视频用于标注
-        if start_time > 0 or max_frames < 1000 or frame_interval > 1:
-            temp_video_name = f"_temp_annotate_{int(time.time())}.mp4"
-            temp_video_path = str(src_dir / temp_video_name)
-            print(f"[run_annotate] 起始秒数={start_time}, 最大帧数={max_frames}, 抽帧间隔={frame_interval}, 生成临时视频: {temp_video_path}")
-            extract_video_segment(src_video, temp_video_path, start_time, max_frames, frame_interval)
-            annotate_video_for_dialog = temp_video_path
-        else:
-            annotate_video_for_dialog = src_video
+        temp_video_path, fps, temp_frame_count = temp_result
+        print(f"[run_annotate] 临时视频生成完成: {temp_video_path}, {fps}fps, {temp_frame_count}帧")
         
+        src_video = temp_video_path
         scale = self.scale_slider.value() / 100.0
-        dialog = AnnotationDialog(annotate_video_for_dialog, self, scale=scale)
+        dialog = AnnotationDialog(src_video, self, scale=scale)
         if dialog.exec_() != QDialog.Accepted:
             return
         boxes = dialog.get_boxes()
@@ -860,7 +848,7 @@ class UnifiedPanel(QMainWindow):
             print(f"正在使用 {predictor_name} 进行视频分割跟踪...")
             if has_text and has_bbox:
                 for i, t in enumerate(find_list):
-                    bbox_str = " | ".join(f"({int(b['x1'])},{int(b['y1'])},{int(b['x2'])},{int(b['y2'])})" for b in boxes)
+                    bbox_str = " | ".join(f"({int(b[0])},{int(b[1])},{int(b[2])},{int(b[3])})" for b in boxes)
                     print(f"  [{i}] 文本: '{t}' | bboxes: {bbox_str}")
             elif has_text:
                 print(f"  文本提示词: {find_list}")
@@ -900,11 +888,7 @@ class UnifiedPanel(QMainWindow):
             print(f"[DEBUG run_annotate] predictor.device: {predictor.device}")
             print(f"[DEBUG run_annotate] predictor.model.device: {predictor.model.device if hasattr(predictor.model, 'device') else 'N/A'}")
 
-            # 使用临时视频进行推理（如果有的话）
-            infer_video = annotate_video_for_dialog
-            print(f"[DEBUG run_annotate] 推理视频: {infer_video}")
-            
-            cap = cv2.VideoCapture(infer_video)
+            cap = cv2.VideoCapture(src_video)
             fourcc_int = int(cap.get(cv2.CAP_PROP_FOURCC))
             fourcc_str = ''.join([chr(fourcc_int & 0xFF), chr((fourcc_int >> 8) & 0xFF), chr((fourcc_int >> 16) & 0xFF), chr((fourcc_int >> 24) & 0xFF)])
             fourcc = cv2.VideoWriter_fourcc(*fourcc_str)
@@ -938,7 +922,7 @@ class UnifiedPanel(QMainWindow):
             annotation_id = [0]
             track_manager = TrackManager(iou_threshold=iou_val)
 
-            predictor_args = {'source': infer_video, 'stream': True}
+            predictor_args = {'source': src_video, 'stream': True}
             if has_bbox:
                 bbox_list = [(b['x1'], b['y1'], b['x2'], b['y2']) for b in boxes]
                 predictor_args['bboxes'] = bbox_list
@@ -2345,10 +2329,26 @@ class UnifiedPanel(QMainWindow):
         QApplication.processEvents()
 
         try:
-            cap = cv2.VideoCapture(video_path)
-            if not cap.isOpened():
-                QMessageBox.warning(self, "错误", f"无法打开视频: {video_path}")
+            # 获取参数
+            start_time = float(self.start_time_input.text()) if self.start_time_input.text() else 0
+            max_frames = int(self.max_frames_input.text()) if self.max_frames_input.text() else 1000
+            skip_frames = int(self.skip_frames_input.text()) if self.skip_frames_input.text() else 1
+            
+            # 生成临时视频
+            print(f"[DEBUG] 生成临时视频: 起始={start_time}秒, 取{max_frames}帧, 每隔{skip_frames}帧取1")
+            temp_result = self.create_temp_video(video_path, start_time, max_frames, skip_frames)
+            if temp_result is None:
+                QMessageBox.warning(self, "错误", "无法打开视频文件")
                 return
+            
+            temp_video_path, fps, frame_count = temp_result
+            print(f"[DEBUG] 临时视频生成完成: {temp_video_path}, {fps}fps, {frame_count}帧")
+            
+            # 使用临时视频切帧
+            cap = cv2.VideoCapture(temp_video_path)
+            if not cap.isOpened():
+                QMessageBox.warning(self, "错误", f"无法打开临时视频: {temp_video_path}")
+                return   
 
             fourcc_int = int(cap.get(cv2.CAP_PROP_FOURCC))
             fourcc_str = ''.join([chr(fourcc_int & 0xFF), chr((fourcc_int >> 8) & 0xFF), chr((fourcc_int >> 16) & 0xFF), chr((fourcc_int >> 24) & 0xFF)])
@@ -2356,31 +2356,16 @@ class UnifiedPanel(QMainWindow):
             width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-            max_frames = int(self.max_frames_input.text()) if self.max_frames_input.text() else 1000
-            start_time = float(self.start_time_input.text()) if self.start_time_input.text() else 0
-            frame_interval = int(self.frame_interval_input.text()) if self.frame_interval_input.text() else 1
-            start_frame = int(start_time * fps) if start_time > 0 else 0
-            frame_count = 0
-            total_read = 0
-            while True:
+            count = 0
+            while count < frame_count:
                 ret, frame = cap.read()
                 if not ret:
                     break
-                # 跳过起始帧
-                if total_read < start_frame:
-                    total_read += 1
-                    continue
-                if frame_count >= max_frames:
-                    print(f"[DEBUG] 切帧达到最大帧数 {max_frames}，停止")
-                    break
-                # 抽帧逻辑：每frame_interval帧取1帧
-                if frame_interval == 1 or total_read % frame_interval == 0:
-                    cv2.imwrite(str(frames_dir / f"frame_{frame_count:06d}.jpg"), frame)
-                    frame_count += 1
-                if frame_count % 100 == 0:
-                    self.statusBar().showMessage(f"正在切帧... {frame_count} 帧")
+                cv2.imwrite(str(frames_dir / f"frame_{count:06d}.jpg"), frame)
+                count += 1
+                if count % 100 == 0:
+                    self.statusBar().showMessage(f"正在切帧... {count} 帧")
                     QApplication.processEvents()
-                total_read += 1
             cap.release()
 
             coco_data = {
