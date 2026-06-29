@@ -3090,7 +3090,8 @@ class UnifiedPanel(QMainWindow):
                             except:
                                 pass
                     
-                    current_particles = []  # 当前帧的新粒子 (x, y, color)
+                    # 当前帧粒子: (x, y, bbox_x1, bbox_y1, bbox_x2, bbox_y2)
+                    current_particles = []
                     
                     # 检测接触面 - 在下方物体的bbox内
                     if len(all_contours) >= 2:
@@ -3104,25 +3105,24 @@ class UnifiedPanel(QMainWindow):
                                     bottom_bbox = bbox_b
                                     top_pts = pts_a
                                 
-                                # 在下方bbox内生成粒子
                                 bx, by, bw, bh = bottom_bbox
+                                bx1, by1, bx2, by2 = int(bx), int(by), int(bx + bw), int(by + bh)
+                                
                                 for pt in top_pts:
                                     px, py = int(pt[0]), int(pt[1])
-                                    # 检查点是否在上方物体，也在下方bbox内
-                                    intersection_x = max(bx, min(px, bx + bw))
-                                    intersection_y = max(by, min(py, by + bh))
-                                    if abs(intersection_x - px) < 50 and abs(intersection_y - py) < 50:  # 在接触范围内
+                                    # 检查点是否在接触范围内
+                                    if bx1 <= px <= bx2 and by1 <= py <= by2:
                                         for _ in range(3):
-                                            particle_x = np.random.randint(int(bx), int(bx + bw))
-                                            particle_y = np.random.randint(int(by), int(by + bh))
-                                            current_particles.append((particle_x, particle_y, particle_color))
+                                            particle_x = np.random.randint(bx1, bx2)
+                                            particle_y = np.random.randint(by1, by2)
+                                            # 保存粒子及其原始边界
+                                            current_particles.append((particle_x, particle_y, bx1, by1, bx2, by2))
                     
-                    # 绘制消散中的历史粒子 - 大小渐变 5px -> 1px
+                    # 绘制消散中的历史粒子 - 大小渐变 3px -> 1px
                     for frame_offset, particles in enumerate(particle_history):
-                        # 越老的粒子越小: 从5px渐变到1px
                         progress = frame_offset / max(len(particle_history), 1)
-                        size = max(1, int(5 - progress * 4))  # 5 -> 1
-                        alpha = 1.0 - progress * 0.7  # 透明度逐渐降低
+                        size = max(1, int(3 - progress * 2))  # 3 -> 1
+                        alpha = 1.0 - progress * 0.7
                         
                         faded_color = (
                             int(particle_color[0] * alpha),
@@ -3130,7 +3130,8 @@ class UnifiedPanel(QMainWindow):
                             int(particle_color[2] * alpha)
                         )
                         
-                        for px, py, _ in particles:
+                        for p in particles:
+                            px, py = p[0], p[1]
                             cv2.circle(overlay, (px, py), size, faded_color, -1)
                     
                     # 添加当前帧粒子到历史
