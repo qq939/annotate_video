@@ -3093,8 +3093,12 @@ class UnifiedPanel(QMainWindow):
                             except:
                                 pass
                     
-                    # 当前帧粒子: (x, y)
+                    # 当前帧粒子: (x, y, track_id, offset_x, offset_y)
+                    # offset是粒子相对于生成时bbox左上角的偏移量
                     current_particles = []
+                    
+                    # 建立track_id到bbox的映射
+                    tid_to_bbox = {tid: bbox for tid, bbox in zip(all_track_ids, all_bboxes)}
                     
                     # 检测接触面 - 在segmentation重叠处生成粒子，根据当前帧判断哪个在下方
                     if len(all_contours) >= 2:
@@ -3124,11 +3128,11 @@ class UnifiedPanel(QMainWindow):
                                         cy_b = m_b["m01"] / m_b["m00"]
                                         # y值大的在下方
                                         if cy_a > cy_b:
-                                            bottom_idx, bottom_bbox = a_idx, bbox_a
+                                            bottom_idx, bottom_bbox, bottom_tid = a_idx, bbox_a, tid_a
                                         else:
-                                            bottom_idx, bottom_bbox = b_idx, bbox_b
+                                            bottom_idx, bottom_bbox, bottom_tid = b_idx, bbox_b, tid_b
                                     else:
-                                        bottom_idx, bottom_bbox = a_idx, bbox_a
+                                        bottom_idx, bottom_bbox, bottom_tid = a_idx, bbox_a, tid_a
                                     
                                     # 在当前判断的下方bbox内生成粒子
                                     bx, by, bw, bh = bottom_bbox
@@ -3142,9 +3146,13 @@ class UnifiedPanel(QMainWindow):
                                             if bx1 <= px <= bx2 and by1 <= py <= by2:
                                                 particle_x = np.random.randint(max(bx1, px - 2), min(bx2, px + 3))
                                                 particle_y = np.random.randint(max(by1, py - 2), min(by2, py + 3))
-                                                current_particles.append((particle_x, particle_y))
+                                                # 计算相对偏移量
+                                                offset_x = particle_x - bx1
+                                                offset_y = particle_y - by1
+                                                # 保存粒子：位置、track_id、偏移量
+                                                current_particles.append((particle_x, particle_y, bottom_tid, offset_x, offset_y))
                     
-                    # 绘制消散中的历史粒子 - 1px，检查是否在当前帧的bbox内
+                    # 绘制消散中的历史粒子 - 1px，跟随下位bbox轨迹
                     for frame_offset, particles in enumerate(particle_history):
                         progress = frame_offset / max(len(particle_history), 1)
                         alpha = 1.0 - progress * 0.7
@@ -3156,16 +3164,17 @@ class UnifiedPanel(QMainWindow):
                         )
                         
                         for p in particles:
-                            px, py = p[0], p[1]
-                            # 检查粒子是否在当前帧的任意bbox内
-                            in_bbox = False
-                            for curr_bbox in all_bboxes:
-                                cbx, cby, cbw, cbh = curr_bbox
-                                if int(cbx) <= px <= int(cbx + cbw) and int(cby) <= py <= int(cby + cbh):
-                                    in_bbox = True
-                                    break
-                            if in_bbox:
-                                cv2.circle(overlay, (px, py), 1, faded_color, -1)
+                            px, py, p_tid, p_off_x, p_off_y = p
+                            # 根据track_id找到当前帧对应bbox
+                            if p_tid in tid_to_bbox:
+                                curr_bbox = tid_to_bbox[p_tid]
+                                cx, cy, cw, ch = curr_bbox
+                                # 计算粒子跟随bbox移动后的新位置
+                                new_px = int(cx) + p_off_x
+                                new_py = int(cy) + p_off_y
+                                # 确保在bbox范围内
+                                if int(cx) <= new_px <= int(cx + cw) and int(cy) <= new_py <= int(cy + ch):
+                                    cv2.circle(overlay, (new_px, new_py), 1, faded_color, -1)
                     
                     # 添加当前帧粒子到历史
                     particle_history.append(current_particles)
