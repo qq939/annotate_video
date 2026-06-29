@@ -3170,6 +3170,17 @@ class UnifiedPanel(QMainWindow):
                                                 current_particles.append((particle_x, particle_y, bottom_tid, offset_x, offset_y, random_color(), particle_size))
                                                 track_ids_with_particles.add(bottom_tid)
                     
+                    # 添加当前帧粒子到历史
+                    particle_history.append(current_particles)
+                    
+                    # 裁剪历史
+                    if len(particle_history) > fade_frames:
+                        particle_history = particle_history[-fade_frames:]
+
+                cv2.addWeighted(overlay, self.ctrl.alpha, result_frame, 1 - self.ctrl.alpha, 0, result_frame)
+                
+                # 在混合后的result_frame上绘制效果
+                if enable_particle:
                     # 绘制消散中的历史粒子 - 随机大小(1或2px)随机颜色，跟随下位bbox轨迹
                     for frame_offset, particles in enumerate(particle_history):
                         progress = frame_offset / max(len(particle_history), 1)
@@ -3193,15 +3204,6 @@ class UnifiedPanel(QMainWindow):
                                         int(p_color[2] * alpha)
                                     )
                                     cv2.circle(result_frame, (new_px, new_py), p_size, faded_color, -1, lineType=cv2.LINE_AA)
-                    
-                    # 添加当前帧粒子到历史
-                    particle_history.append(current_particles)
-                    
-                    # 裁剪历史
-                    if len(particle_history) > fade_frames:
-                        particle_history = particle_history[-fade_frames:]
-
-                cv2.addWeighted(overlay, self.ctrl.alpha, result_frame, 1 - self.ctrl.alpha, 0, result_frame)
                 
                 # 白色乳胶漆效果 - 在下位bbox上叠加半透明白色，边缘模糊
                 if enable_latex and track_ids_with_particles:
