@@ -3198,22 +3198,19 @@ class UnifiedPanel(QMainWindow):
 
                 cv2.addWeighted(overlay, self.ctrl.alpha, result_frame, 1 - self.ctrl.alpha, 0, result_frame)
                 
-                # 对有粒子的segmentation降低透明度到20%
+                # 对下位bbox降低透明度到20%
                 if track_ids_with_particles:
-                    # 创建只有segmentation的mask
-                    seg_mask = np.zeros(result_frame.shape[:2], dtype=np.uint8)
+                    # 创建只有下位bbox的mask
+                    bbox_mask = np.zeros(result_frame.shape[:2], dtype=np.uint8)
                     for ann in annotations:
                         if ann.get('track_id', 0) in track_ids_with_particles:
-                            polygon = ann.get('segmentation')
-                            if polygon and len(polygon[0]) >= 6:
-                                try:
-                                    pts = np.array(polygon[0], dtype=np.int32).reshape(-1, 2)
-                                    cv2.fillPoly(seg_mask, [pts], 255)
-                                except:
-                                    pass
-                    # 只在segmentation区域降低到20%
+                            bbox = ann.get('bbox', [])
+                            if bbox:
+                                x, y, w, h = [int(v) for v in bbox]
+                                cv2.rectangle(bbox_mask, (x, y), (x + w, y + h), 255, -1)
+                    # 只在下位bbox区域降低到20%
                     for c in range(3):
-                        result_frame[:, :, c] = np.where(seg_mask > 0,
+                        result_frame[:, :, c] = np.where(bbox_mask > 0,
                             (result_frame[:, :, c] * 0.2).astype(np.uint8),
                             result_frame[:, :, c])
                 
