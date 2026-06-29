@@ -3073,8 +3073,8 @@ class UnifiedPanel(QMainWindow):
 
                 # 绘制粒子效果 - 在接触面上绘制渐变圆点
                 if enable_particle and not self.render_segment_check.isChecked():
-                    # 宝格丽蓝粒子
-                    particle_color = (171, 71, 0)  # BGR 宝格丽蓝
+                    # 红色粒子
+                    particle_color = (0, 0, 255)  # BGR 红色
                     
                     # 收集所有多边形和bbox
                     all_contours = []
