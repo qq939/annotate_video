@@ -692,7 +692,7 @@ class UnifiedPanel(QMainWindow):
         self.merge_iou_input.setFixedHeight(22)
         iou_layout.addWidget(self.merge_iou_input)
         iou_layout.addWidget(QLabel("前后IoU:"))
-        self.iou_input = QLineEdit("0.5")
+        self.iou_input = QLineEdit("0.02")
         self.iou_input.setFixedWidth(40)
         self.iou_input.setFixedHeight(22)
         iou_layout.addWidget(self.iou_input)
@@ -841,7 +841,7 @@ class UnifiedPanel(QMainWindow):
                 boxes = angle_dialog.get_boxes()
                 print(f"角度调整完成，{len(boxes)} 个目标已更新角度")
 
-        iou_val = float(self.iou_input.text() or "0.5")
+        iou_val = float(self.iou_input.text() or "0.02")
         merge_iou_val = float(self.merge_iou_input.text() or "0.5")
         items_text = self.items_input.text()
         find_list = [s.strip() for s in items_text.split(',') if s.strip()]
@@ -1744,7 +1744,7 @@ class UnifiedPanel(QMainWindow):
                 else:
                     results = predictor(source=clip_path, stream=True)
                     print(f"[DEBUG {direction}] ⚠️ prompt_bboxes为空，无法进行SAM3VideoPredictor分割！")
-                manager = TrackManager(iou_threshold=float(self.iou_input.text() or "0.5"))
+                manager = TrackManager(iou_threshold=float(self.iou_input.text() or "0.02"))
                 manager.next_track_id = FIRST_ID
                 ann_id = FIRST_ID
                 merge_iou_val = float(self.merge_iou_input.text() or "0.5")
