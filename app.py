@@ -3009,14 +3009,14 @@ class UnifiedPanel(QMainWindow):
         labels_dir = input_path / "labels"
         frames_dir = input_path / "frames"
 
-        # 拖影粒子效果初始化
-        enable_trail = self.trail_check.isChecked()
-        trail_duration = float(self.trail_duration.text()) if self.trail_duration.text() else 1.0
-        trail_frames = int(trail_duration * fps)  # 拖影帧数
-        track_trail = {}  # track_id -> [(frame_idx, cx, cy, color), ...]
+        # 粒子效果初始化
+        enable_particle = self.trail_check.isChecked()
+        fade_duration = float(self.trail_duration.text()) if self.trail_duration.text() else 1.0
+        fade_frames = int(fade_duration * fps)  # 消散帧数
+        particle_history = []  # 保存历史帧的重叠粒子位置
 
         print(f"正在生成视频: {output_path}")
-        print(f"[DEBUG run_save] 拖影: {'开启' if enable_trail else '关闭'}, 时长: {trail_duration}秒 ({trail_frames}帧)")
+        print(f"[DEBUG run_save] 粒子效果: {'开启' if enable_particle else '关闭'}, 消散时间: {fade_duration}秒 ({fade_frames}帧)")
 
         for i in range(total_frames):
             frame_path = frames_dir / f"frame_{i:06d}.jpg"
@@ -3071,30 +3071,68 @@ class UnifiedPanel(QMainWindow):
 
                     current_track_positions[track_id] = (cx, cy, color)
 
-                # 绘制拖影粒子
-                if enable_trail:
-                    # 先绘制拖影（旧的点）
-                    for track_id, positions in track_trail.items():
-                        for j, (fi, px, py, pcolor) in enumerate(positions):
-                            alpha = (j + 1) / len(positions) * 0.6  # 渐变透明度
-                            radius = int(3 + (j / len(positions)) * 5)  # 渐变大小
-                            # 同色系光子粒子效果
-                            for _ in range(3):  # 3个粒子
-                                offset_x = np.random.randint(-3, 4)
-                                offset_y = np.random.randint(-3, 4)
-                                cv2.circle(overlay, (px + offset_x, py + offset_y), radius, pcolor, -1)
-
-                    # 更新轨迹：移除超出范围的帧，添加当前位置
-                    for track_id, (cx, cy, color) in current_track_positions.items():
-                        if track_id not in track_trail:
-                            track_trail[track_id] = []
-                        track_trail[track_id].append((i, cx, cy, color))
-
-                    # 裁剪轨迹长度
-                    for track_id in list(track_trail.keys()):
-                        track_trail[track_id] = [(fi, px, py, c) for fi, px, py, c in track_trail[track_id] if i - fi <= trail_frames]
-                        if not track_trail[track_id]:
-                            del track_trail[track_id]
+                # 绘制粒子效果
+                if enable_particle and self.render_segment_check.isChecked():
+                    # 收集所有多边形用于检测重叠
+                    all_contours = []
+                    for ann in annotations:
+                        polygon = ann.get('segmentation')
+                        if polygon and len(polygon[0]) >= 6:
+                            try:
+                                pts = np.array(polygon[0], dtype=np.int32).reshape(-1, 2)
+                                all_contours.append((pts, color))
+                            except:
+                                pass
+                    
+                    # 检测重叠区域并绘制粒子
+                    current_particles = []  # 当前帧的新粒子
+                    if len(all_contours) >= 2:
+                        # 创建mask用于检测重叠
+                        overlap_mask = np.zeros((height, width), dtype=np.uint8)
+                        for pts, _ in all_contours:
+                            cv2.fillPoly(overlap_mask, [pts], 255)
+                        
+                        # 找到重叠区域（交集）
+                        intersection_mask = overlap_mask.copy()
+                        for pts, _ in all_contours[1:]:
+                            temp_mask = np.zeros((height, width), dtype=np.uint8)
+                            cv2.fillPoly(temp_mask, [pts], 255)
+                            intersection_mask = cv2.bitwise_and(intersection_mask, temp_mask)
+                        
+                        # 在重叠区域生成粒子
+                        if cv2.countNonZero(intersection_mask) > 0:
+                            contours, _ = cv2.findContours(intersection_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                            
+                            np.random.seed(i)
+                            
+                            for cnt in contours:
+                                x, y, w, h = cv2.boundingRect(cnt)
+                                num_particles = min(int(w * h / 500), 50)
+                                for _ in range(num_particles):
+                                    px = np.random.randint(x, x + w)
+                                    py = np.random.randint(y, y + h)
+                                    radius = np.random.randint(3, 13)
+                                    current_particles.append((px, py, radius, color))
+                    
+                    # 绘制消散中的历史粒子
+                    for frame_offset, particles in enumerate(particle_history):
+                        # 越老的粒子透明度越低
+                        alpha = 1.0 - (frame_offset / len(particle_history))
+                        for px, py, radius, pcolor in particles:
+                            faded_radius = max(1, int(radius * alpha))
+                            faded_color = (
+                                int(pcolor[0] * alpha),
+                                int(pcolor[1] * alpha),
+                                int(pcolor[2] * alpha)
+                            )
+                            cv2.circle(overlay, (px, py), faded_radius, faded_color, -1)
+                    
+                    # 添加当前帧粒子到历史
+                    particle_history.append(current_particles)
+                    
+                    # 裁剪历史（只保留fade_frames内的）
+                    if len(particle_history) > fade_frames:
+                        particle_history = particle_history[-fade_frames:]
 
                 cv2.addWeighted(overlay, self.ctrl.alpha, result_frame, 1 - self.ctrl.alpha, 0, result_frame)
                 frame = result_frame
