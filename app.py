@@ -1412,15 +1412,19 @@ class UnifiedPanel(QMainWindow):
         layout.addLayout(color_btn_layout)
 
         self.render_segment_check = QCheckBox("只展示bbox")
-        self.render_segment_check.setChecked(True)
+        self.render_segment_check.setChecked(False)
         self.render_segment_check.setStyleSheet("QCheckBox { font-size: 11px; }")
         layout.addWidget(self.render_segment_check)
 
         trail_layout = QHBoxLayout()
         trail_layout.setSpacing(4)
-        self.trail_check = QCheckBox("拖影粒子")
+        self.trail_check = QCheckBox("粒子效果")
         self.trail_check.setStyleSheet("QCheckBox { font-size: 11px; }")
         trail_layout.addWidget(self.trail_check)
+        self.latex_check = QCheckBox("白色乳胶漆")
+        self.latex_check.setChecked(True)
+        self.latex_check.setStyleSheet("QCheckBox { font-size: 11px; }")
+        trail_layout.addWidget(self.latex_check)
         trail_layout.addWidget(QLabel("时间:"))
         self.trail_duration = QLineEdit("500")
         self.trail_duration.setFixedWidth(40)
@@ -3011,12 +3015,13 @@ class UnifiedPanel(QMainWindow):
 
         # 粒子效果初始化
         enable_particle = self.trail_check.isChecked()
+        enable_latex = self.latex_check.isChecked()
         fade_duration_ms = float(self.trail_duration.text()) if self.trail_duration.text() else 500
         fade_frames = int(fade_duration_ms / 1000 * fps)  # 消散帧数
         particle_history = []  # 保存历史帧的重叠粒子位置
 
         print(f"正在生成视频: {output_path}")
-        print(f"[DEBUG run_save] 粒子效果: {'开启' if enable_particle else '关闭'}, 消散时间: {fade_duration_ms}ms ({fade_frames}帧)")
+        print(f"[DEBUG run_save] 粒子效果: {'开启' if enable_particle else '关闭'}, 白色乳胶漆: {'开启' if enable_latex else '关闭'}, 消散时间: {fade_duration_ms}ms ({fade_frames}帧)")
 
         for i in range(total_frames):
             frame_path = frames_dir / f"frame_{i:06d}.jpg"
@@ -3181,13 +3186,13 @@ class UnifiedPanel(QMainWindow):
                                 new_py = int(cy) + p_off_y
                                 # 确保在bbox范围内
                                 if int(cx) <= new_px <= int(cx + cw) and int(cy) <= new_py <= int(cy + ch):
-                                    # 应用透明度到粒子颜色
+                                    # 直接绘制到result_frame
                                     faded_color = (
                                         int(p_color[0] * alpha),
                                         int(p_color[1] * alpha),
                                         int(p_color[2] * alpha)
                                     )
-                                    cv2.circle(overlay, (new_px, new_py), p_size, faded_color, -1)
+                                    cv2.circle(result_frame, (new_px, new_py), p_size, faded_color, -1, lineType=cv2.LINE_AA)
                     
                     # 添加当前帧粒子到历史
                     particle_history.append(current_particles)
@@ -3199,7 +3204,7 @@ class UnifiedPanel(QMainWindow):
                 cv2.addWeighted(overlay, self.ctrl.alpha, result_frame, 1 - self.ctrl.alpha, 0, result_frame)
                 
                 # 白色乳胶漆效果 - 在下位bbox上叠加半透明白色，边缘模糊
-                if track_ids_with_particles:
+                if enable_latex and track_ids_with_particles:
                     for ann in annotations:
                         if ann.get('track_id', 0) in track_ids_with_particles:
                             bbox = ann.get('bbox', [])
