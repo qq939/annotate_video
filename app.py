@@ -3014,7 +3014,6 @@ class UnifiedPanel(QMainWindow):
         fade_duration_ms = float(self.trail_duration.text()) if self.trail_duration.text() else 500
         fade_frames = int(fade_duration_ms / 1000 * fps)  # 消散帧数
         particle_history = []  # 保存历史帧的重叠粒子位置
-        bottom_bbox_per_pair = {}  # 记录每对bbox最初接触时哪个在下方
 
         print(f"正在生成视频: {output_path}")
         print(f"[DEBUG run_save] 粒子效果: {'开启' if enable_particle else '关闭'}, 消散时间: {fade_duration_ms}ms ({fade_frames}帧)")
@@ -3097,14 +3096,12 @@ class UnifiedPanel(QMainWindow):
                     # 当前帧粒子: (x, y)
                     current_particles = []
                     
-                    # 检测接触面 - 在最初接触时处于下方的bbox内，在segmentation重叠处生成粒子
+                    # 检测接触面 - 在segmentation重叠处生成粒子，根据当前帧判断哪个在下方
                     if len(all_contours) >= 2:
                         for a_idx in range(len(all_contours)):
                             for b_idx in range(a_idx + 1, len(all_contours)):
                                 pts_a, bbox_a, tid_a = all_contours[a_idx], all_bboxes[a_idx], all_track_ids[a_idx]
                                 pts_b, bbox_b, tid_b = all_contours[b_idx], all_bboxes[b_idx], all_track_ids[b_idx]
-                                
-                                pair_key = tuple(sorted([tid_a, tid_b]))
                                 
                                 # 创建mask用于计算segmentation交集
                                 mask_a = np.zeros((height, width), dtype=np.uint8)
@@ -3119,35 +3116,34 @@ class UnifiedPanel(QMainWindow):
                                     # 找到交集区域的轮廓
                                     intersection_contours, _ = cv2.findContours(intersection_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                                     
-                                    # 如果这对之前没记录过，判断哪个在下方
-                                    if pair_key not in bottom_bbox_per_pair:
-                                        # 用segmentation中心点判断相对位置
-                                        m_a = cv2.moments(pts_a)
-                                        m_b = cv2.moments(pts_b)
-                                        if m_a["m00"] > 0 and m_b["m00"] > 0:
-                                            cy_a = m_a["m01"] / m_a["m00"]
-                                            cy_b = m_b["m01"] / m_b["m00"]
-                                            if cy_a > cy_b:
-                                                bottom_bbox_per_pair[pair_key] = (a_idx, bbox_a)
-                                            else:
-                                                bottom_bbox_per_pair[pair_key] = (b_idx, bbox_b)
+                                    # 根据当前帧判断哪个在下方
+                                    m_a = cv2.moments(pts_a)
+                                    m_b = cv2.moments(pts_b)
+                                    if m_a["m00"] > 0 and m_b["m00"] > 0:
+                                        cy_a = m_a["m01"] / m_a["m00"]
+                                        cy_b = m_b["m01"] / m_b["m00"]
+                                        # y值大的在下方
+                                        if cy_a > cy_b:
+                                            bottom_idx, bottom_bbox = a_idx, bbox_a
+                                        else:
+                                            bottom_idx, bottom_bbox = b_idx, bbox_b
+                                    else:
+                                        bottom_idx, bottom_bbox = a_idx, bbox_a
                                     
-                                    # 在记录的下方bbox内生成粒子
-                                    if pair_key in bottom_bbox_per_pair:
-                                        _, bottom_bbox = bottom_bbox_per_pair[pair_key]
-                                        bx, by, bw, bh = bottom_bbox
-                                        bx1, by1, bx2, by2 = int(bx), int(by), int(bx + bw), int(by + bh)
-                                        
-                                        # 在交集区域轮廓内生成粒子
-                                        for cnt in intersection_contours:
-                                            for pt in cnt:
-                                                px, py = int(pt[0][0]), int(pt[0][1])
-                                                # 确保在下方bbox内
-                                                if bx1 <= px <= bx2 and by1 <= py <= by2:
-                                                    for _ in range(3):
-                                                        particle_x = np.random.randint(max(bx1, px - 2), min(bx2, px + 3))
-                                                        particle_y = np.random.randint(max(by1, py - 2), min(by2, py + 3))
-                                                        current_particles.append((particle_x, particle_y))
+                                    # 在当前判断的下方bbox内生成粒子
+                                    bx, by, bw, bh = bottom_bbox
+                                    bx1, by1, bx2, by2 = int(bx), int(by), int(bx + bw), int(by + bh)
+                                    
+                                    # 在交集区域轮廓内生成粒子
+                                    for cnt in intersection_contours:
+                                        for pt in cnt:
+                                            px, py = int(pt[0][0]), int(pt[0][1])
+                                            # 确保在下方bbox内
+                                            if bx1 <= px <= bx2 and by1 <= py <= by2:
+                                                for _ in range(3):
+                                                    particle_x = np.random.randint(max(bx1, px - 2), min(bx2, px + 3))
+                                                    particle_y = np.random.randint(max(by1, py - 2), min(by2, py + 3))
+                                                    current_particles.append((particle_x, particle_y))
                     
                     # 绘制消散中的历史粒子 - 1px，检查是否在当前帧的bbox内
                     for frame_offset, particles in enumerate(particle_history):
