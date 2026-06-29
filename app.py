@@ -1653,7 +1653,8 @@ class UnifiedPanel(QMainWindow):
                 self.reset_prompt_btn()
                 return
             FIRST_ID = available_options[0]
-            print(f"=== 双向标注开始 === 提示帧: {prompt_idx}, 总帧数: {total}, 前向={self.forward_cb.isChecked()}, 后向={self.backward_cb.isChecked()}, FIRST_ID={FIRST_ID}")
+            device_str = "GPU" if device_type == 'cuda' else ("MPS" if device_type == 'mps' else "CPU")
+            print(f"=== 双向标注开始 === 提示帧: {prompt_idx}, 总帧数: {total}, 设备: [{device_str}], 前向={self.forward_cb.isChecked()}, 后向={self.backward_cb.isChecked()}, FIRST_ID={FIRST_ID}")
             forward_annotations = []
             backward_annotations = []
 
@@ -1863,7 +1864,7 @@ class UnifiedPanel(QMainWindow):
                 print(f"[DEBUG {direction}] id范围: {FIRST_ID} ~ {ann_id - 1}")
                 return result_anns
 
-            print(f"=== 双向标注开始 === 提示帧: {prompt_idx}, 总帧数: {total}, 前向={self.forward_cb.isChecked()}, 后向={self.backward_cb.isChecked()}, FIRST_ID={FIRST_ID}")
+            print(f"=== 双向标注开始 === 提示帧: {prompt_idx}, 总帧数: {total}, 设备: [{device_str}], 前向={self.forward_cb.isChecked()}, 后向={self.backward_cb.isChecked()}, FIRST_ID={FIRST_ID}")
             forward_anns = []
             backward_anns = []
             if self.forward_cb.isChecked():
