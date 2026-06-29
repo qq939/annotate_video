@@ -3198,21 +3198,32 @@ class UnifiedPanel(QMainWindow):
 
                 cv2.addWeighted(overlay, self.ctrl.alpha, result_frame, 1 - self.ctrl.alpha, 0, result_frame)
                 
-                # 对下位bbox降低透明度到20%
+                # 白色乳胶漆效果 - 在下位bbox上叠加半透明白色，边缘模糊
                 if track_ids_with_particles:
-                    # 创建只有下位bbox的mask
-                    bbox_mask = np.zeros(result_frame.shape[:2], dtype=np.uint8)
                     for ann in annotations:
                         if ann.get('track_id', 0) in track_ids_with_particles:
                             bbox = ann.get('bbox', [])
                             if bbox:
                                 x, y, w, h = [int(v) for v in bbox]
-                                cv2.rectangle(bbox_mask, (x, y), (x + w, y + h), 255, -1)
-                    # 只在下位bbox区域降低到20%
-                    for c in range(3):
-                        result_frame[:, :, c] = np.where(bbox_mask > 0,
-                            (result_frame[:, :, c] * 0.2).astype(np.uint8),
-                            result_frame[:, :, c])
+                                x, y = max(0, x), max(0, y)
+                                x2, y2 = min(width, x + w), min(height, y + h)
+                                if x2 > x and y2 > y:
+                                    # 创建bbox mask
+                                    mask = np.zeros((y2 - y, x2 - x), dtype=np.float32)
+                                    cv2.rectangle(mask, (0, 0), (x2 - x - 1, y2 - y - 1), 1.0, -1)
+                                    # 高斯模糊模拟边缘
+                                    _kh = int(min(w, h) * 0.3)
+                                    kernel_size = max(7, _kh)
+                                    kernel_size = min(21, kernel_size)
+                                    if kernel_size % 2 == 0:
+                                        kernel_size += 1
+                                    mask = cv2.GaussianBlur(mask, (kernel_size, kernel_size), 0)
+                                    # 叠加半透明白色
+                                    alpha = 0.4
+                                    roi = result_frame[y:y2, x:x2].astype(np.float32)
+                                    white = np.full_like(roi, 255.0)
+                                    roi = roi * (1 - mask * alpha) + white * mask * alpha
+                                    result_frame[y:y2, x:x2] = roi.astype(np.uint8)
                 
                 frame = result_frame
 
