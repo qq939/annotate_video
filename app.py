@@ -3282,9 +3282,9 @@ class UnifiedPanel(QMainWindow):
                                     bx, by, bw, bh = [int(v) for v in bottom_bbox]
                                     intersection_binary = intersection > 0
                                     ys, xs = np.where(intersection_binary)
-                                    for x, y in zip(xs[:100], ys[:100]):  # 限制数量
+                                    for x, y in zip(xs[:100], ys[:100]):
                                         color = (np.random.randint(100, 255), np.random.randint(100, 255), np.random.randint(100, 255))
-                                        cv2.circle(result_frame, (int(x), int(y)), 3, color, -1)
+                                        cv2.circle(result_frame, (int(x), int(y)), 1, color, -1)
                                         current_particles.append((int(x), int(y), bottom_tid))
                         
                         particle_history.append(current_particles)
@@ -3302,7 +3302,7 @@ class UnifiedPanel(QMainWindow):
                                         bx, by, bw, bh = [int(v) for v in bbox]
                                         if bx <= px <= bx + bw and by <= py <= by + bh:
                                             gray = int(255 * alpha)
-                                            cv2.circle(result_frame, (px, py), 2, (gray, gray, gray), -1)
+                                            cv2.circle(result_frame, (px, py), 1, (gray, gray, gray), -1)
                     
                     # 白色乳胶漆效果
                     if enable_latex and track_ids_with_particles:
