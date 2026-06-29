@@ -3014,6 +3014,7 @@ class UnifiedPanel(QMainWindow):
         fade_duration_ms = float(self.trail_duration.text()) if self.trail_duration.text() else 500
         fade_frames = int(fade_duration_ms / 1000 * fps)  # 消散帧数
         particle_history = []  # 保存历史帧的重叠粒子位置
+        bottom_bbox_per_pair = {}  # 记录每对bbox最初接触时哪个在下方
 
         print(f"正在生成视频: {output_path}")
         print(f"[DEBUG run_save] 粒子效果: {'开启' if enable_particle else '关闭'}, 消散时间: {fade_duration_ms}ms ({fade_frames}帧)")
@@ -3079,44 +3080,66 @@ class UnifiedPanel(QMainWindow):
                     # 收集所有多边形和bbox
                     all_contours = []
                     all_bboxes = []
+                    all_track_ids = []
                     for ann in annotations:
                         polygon = ann.get('segmentation')
                         bbox = ann.get('bbox', [])
+                        track_id = ann.get('track_id', 0)
                         if polygon and len(polygon[0]) >= 6 and bbox:
                             try:
                                 pts = np.array(polygon[0], dtype=np.int32).reshape(-1, 2)
                                 all_contours.append(pts)
                                 all_bboxes.append(bbox)
+                                all_track_ids.append(track_id)
                             except:
                                 pass
                     
-                    # 当前帧粒子: (x, y, original_bbox)
+                    # 当前帧粒子: (x, y)
                     current_particles = []
                     
-                    # 检测接触面 - 在下方物体的bbox内
+                    # 检测接触面 - 在最初接触时处于下方的bbox内
                     if len(all_contours) >= 2:
-                        for a_idx, (pts_a, bbox_a) in enumerate(zip(all_contours, all_bboxes)):
-                            for pts_b, bbox_b in zip(all_contours[a_idx + 1:], all_bboxes[a_idx + 1:]):
-                                # 判断哪个是下方物体（y值更大）
-                                if bbox_a[1] > bbox_b[1]:  # a在下方
-                                    bottom_bbox = bbox_a
-                                    top_pts = pts_b
-                                else:  # b在下方
-                                    bottom_bbox = bbox_b
-                                    top_pts = pts_a
+                        for a_idx in range(len(all_contours)):
+                            for b_idx in range(a_idx + 1, len(all_contours)):
+                                pts_a, bbox_a, tid_a = all_contours[a_idx], all_bboxes[a_idx], all_track_ids[a_idx]
+                                pts_b, bbox_b, tid_b = all_contours[b_idx], all_bboxes[b_idx], all_track_ids[b_idx]
                                 
-                                bx, by, bw, bh = bottom_bbox
-                                bx1, by1, bx2, by2 = int(bx), int(by), int(bx + bw), int(by + bh)
+                                # 用track_id对作为key
+                                pair_key = tuple(sorted([tid_a, tid_b]))
                                 
-                                for pt in top_pts:
-                                    px, py = int(pt[0]), int(pt[1])
-                                    # 检查点是否在接触范围内
-                                    if bx1 <= px <= bx2 and by1 <= py <= by2:
+                                # 判断两个bbox是否有接触/重叠
+                                ax1, ay1, aw, ah = bbox_a
+                                ax2, ay2 = ax1 + aw, ay1 + ah
+                                bx1, by1, bw, bh = bbox_b
+                                bx2, by2 = bx1 + bw, by1 + bh
+                                
+                                # 检查是否有交集
+                                if ax2 > bx1 and bx2 > ax1 and ay2 > by1 and by2 > ay1:
+                                    # 计算交集
+                                    ix1, iy1 = max(ax1, bx1), max(ay1, by1)
+                                    ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+                                    
+                                    if ix2 > ix1 and iy2 > iy1:  # 有效交集
+                                        # 如果这对bbox之前没记录过，判断哪个在下方并记录
+                                        if pair_key not in bottom_bbox_per_pair:
+                                            # 根据最初接触时的y位置判断（用交集区域的中心点判断相对位置）
+                                            center_y = (iy1 + iy2) / 2
+                                            # 如果a的bbox中心在b的bbox中心下方，则a在下方
+                                            if (ay1 + ay2) / 2 > (by1 + by2) / 2:
+                                                bottom_bbox_per_pair[pair_key] = (a_idx, bbox_a)
+                                            else:
+                                                bottom_bbox_per_pair[pair_key] = (b_idx, bbox_b)
+                                        
+                                        # 在记录的下方bbox内生成粒子
+                                        _, bottom_bbox = bottom_bbox_per_pair[pair_key]
+                                        bx, by, bw, bh = bottom_bbox
+                                        bx1, by1, bx2, by2 = int(bx), int(by), int(bx + bw), int(by + bh)
+                                        
+                                        # 在交集区域附近生成粒子
                                         for _ in range(3):
-                                            particle_x = np.random.randint(bx1, bx2)
-                                            particle_y = np.random.randint(by1, by2)
-                                            # 保存粒子及其原始bbox
-                                            current_particles.append((particle_x, particle_y, (bx1, by1, bx2, by2)))
+                                            particle_x = np.random.randint(max(bx1, int(ix1)), min(bx2, int(ix2) + 1))
+                                            particle_y = np.random.randint(max(by1, int(iy1)), min(by2, int(iy2) + 1))
+                                            current_particles.append((particle_x, particle_y))
                     
                     # 绘制消散中的历史粒子 - 1px，检查是否在当前帧的bbox内
                     for frame_offset, particles in enumerate(particle_history):
