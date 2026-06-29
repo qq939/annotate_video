@@ -3212,58 +3212,109 @@ class UnifiedPanel(QMainWindow):
 
                 cv2.addWeighted(overlay, self.ctrl.alpha, result_frame, 1 - self.ctrl.alpha, 0, result_frame)
                 
-                # 在混合后的result_frame上绘制效果
-                if enable_particle:
-                    # 绘制消散中的历史粒子 - 随机大小(1或2px)随机颜色，跟随下位bbox轨迹
-                    for frame_offset, particles in enumerate(particle_history):
-                        progress = frame_offset / max(len(particle_history), 1)
-                        alpha = 1.0 - progress * 0.7
-                        
-                        for p in particles:
-                            px, py, p_tid, p_off_x, p_off_y, p_color, p_size = p
-                            # 根据track_id找到当前帧对应bbox
-                            if p_tid in tid_to_bbox:
-                                curr_bbox = tid_to_bbox[p_tid]
-                                cx, cy, cw, ch = curr_bbox
-                                # 计算粒子跟随bbox移动后的新位置
-                                new_px = int(cx) + p_off_x
-                                new_py = int(cy) + p_off_y
-                                # 确保在bbox范围内
-                                if int(cx) <= new_px <= int(cx + cw) and int(cy) <= new_py <= int(cy + ch):
-                                    # 直接绘制到result_frame
-                                    faded_color = (
-                                        int(p_color[0] * alpha),
-                                        int(p_color[1] * alpha),
-                                        int(p_color[2] * alpha)
-                                    )
-                                    cv2.circle(result_frame, (new_px, new_py), p_size, faded_color, -1, lineType=cv2.LINE_AA)
-                
-                # 白色乳胶漆效果 - 在下位bbox上叠加半透明白色，边缘模糊
-                if enable_latex and track_ids_with_particles:
+                # 效果都在addWeighted之后绘制
+                if enable_particle or enable_latex:
+                    # 收集contours
+                    all_contours = []
+                    all_bboxes = []
+                    all_track_ids = []
                     for ann in annotations:
-                        if ann.get('track_id', 0) in track_ids_with_particles:
-                            bbox = ann.get('bbox', [])
-                            if bbox:
-                                x, y, w, h = [int(v) for v in bbox]
-                                x, y = max(0, x), max(0, y)
-                                x2, y2 = min(width, x + w), min(height, y + h)
-                                if x2 > x and y2 > y:
-                                    # 创建bbox mask
-                                    mask = np.zeros((y2 - y, x2 - x), dtype=np.float32)
-                                    cv2.rectangle(mask, (0, 0), (x2 - x - 1, y2 - y - 1), 1.0, -1)
-                                    # 高斯模糊模拟边缘
-                                    _kh = int(min(w, h) * 0.3)
-                                    kernel_size = max(7, _kh)
-                                    kernel_size = min(21, kernel_size)
-                                    if kernel_size % 2 == 0:
-                                        kernel_size += 1
-                                    mask = cv2.GaussianBlur(mask, (kernel_size, kernel_size), 0)
-                                    # 叠加半透明白色
-                                    alpha = 0.4
-                                    roi = result_frame[y:y2, x:x2].astype(np.float32)
-                                    white = np.full_like(roi, 255.0)
-                                    roi = roi * (1 - mask * alpha) + white * mask * alpha
-                                    result_frame[y:y2, x:x2] = roi.astype(np.uint8)
+                        polygon = ann.get('segmentation')
+                        bbox = ann.get('bbox', [])
+                        track_id = ann.get('track_id', 0)
+                        if polygon and len(polygon[0]) >= 6 and bbox:
+                            try:
+                                pts = np.array(polygon[0], dtype=np.int32).reshape(-1, 2)
+                                all_contours.append(pts)
+                                all_bboxes.append(bbox)
+                                all_track_ids.append(track_id)
+                            except:
+                                pass
+                    
+                    # 检测segmentation交集
+                    track_ids_with_particles = set()
+                    tid_to_bbox = {}
+                    if len(all_contours) >= 2:
+                        for a_idx in range(len(all_contours)):
+                            for b_idx in range(a_idx + 1, len(all_contours)):
+                                mask_a = np.zeros((height, width), dtype=np.uint8)
+                                mask_b = np.zeros((height, width), dtype=np.uint8)
+                                cv2.fillPoly(mask_a, [all_contours[a_idx]], 255)
+                                cv2.fillPoly(mask_b, [all_contours[b_idx]], 255)
+                                intersection = cv2.bitwise_and(mask_a, mask_b)
+                                if cv2.countNonZero(intersection) > 0:
+                                    m_a = cv2.moments(all_contours[a_idx])
+                                    m_b = cv2.moments(all_contours[b_idx])
+                                    if m_a["m00"] > 0 and m_b["m00"] > 0:
+                                        if m_a["m01"] / m_a["m00"] > m_b["m01"] / m_b["m00"]:
+                                            track_ids_with_particles.add(all_track_ids[a_idx])
+                                            tid_to_bbox[all_track_ids[a_idx]] = all_bboxes[a_idx]
+                                        else:
+                                            track_ids_with_particles.add(all_track_ids[b_idx])
+                                            tid_to_bbox[all_track_ids[b_idx]] = all_bboxes[b_idx]
+                    
+                    # 粒子效果
+                    if enable_particle and track_ids_with_particles:
+                        current_particles = []
+                        for a_idx in range(len(all_contours)):
+                            for b_idx in range(a_idx + 1, len(all_contours)):
+                                mask_a = np.zeros((height, width), dtype=np.uint8)
+                                mask_b = np.zeros((height, width), dtype=np.uint8)
+                                cv2.fillPoly(mask_a, [all_contours[a_idx]], 255)
+                                cv2.fillPoly(mask_b, [all_contours[b_idx]], 255)
+                                intersection = cv2.bitwise_and(mask_a, mask_b)
+                                if cv2.countNonZero(intersection) > 0:
+                                    # 找下方
+                                    m_a = cv2.moments(all_contours[a_idx])
+                                    m_b = cv2.moments(all_contours[b_idx])
+                                    if m_a["m00"] > 0 and m_b["m00"] > 0:
+                                        if m_a["m01"] / m_a["m00"] > m_b["m01"] / m_b["m00"]:
+                                            bottom_tid = all_track_ids[a_idx]
+                                            bottom_bbox = all_bboxes[a_idx]
+                                        else:
+                                            bottom_tid = all_track_ids[b_idx]
+                                            bottom_bbox = all_bboxes[b_idx]
+                                    else:
+                                        bottom_tid = all_track_ids[a_idx]
+                                        bottom_bbox = all_bboxes[a_idx]
+                                    
+                                    # 在交集处画粒子
+                                    bx, by, bw, bh = [int(v) for v in bottom_bbox]
+                                    intersection_binary = intersection > 0
+                                    ys, xs = np.where(intersection_binary)
+                                    for x, y in zip(xs[:100], ys[:100]):  # 限制数量
+                                        color = (np.random.randint(100, 255), np.random.randint(100, 255), np.random.randint(100, 255))
+                                        cv2.circle(result_frame, (int(x), int(y)), 3, color, -1)
+                                        current_particles.append((int(x), int(y), bottom_tid))
+                        
+                        particle_history.append(current_particles)
+                        if len(particle_history) > fade_frames:
+                            particle_history = particle_history[-fade_frames:]
+                        
+                        # 画历史粒子
+                        for fo, particles in enumerate(particle_history):
+                            alpha = 1.0 - (fo / max(len(particle_history), 1) * 0.7)
+                            for px, py, p_tid in particles:
+                                if p_tid in tid_to_bbox:
+                                    bbox = tid_to_bbox[p_tid]
+                                    bx, by, bw, bh = [int(v) for v in bbox]
+                                    if bx <= px <= bx + bw and by <= py <= by + bh:
+                                        gray = int(255 * alpha)
+                                        cv2.circle(result_frame, (px, py), 2, (gray, gray, gray), -1)
+                    
+                    # 白色乳胶漆效果
+                    if enable_latex and track_ids_with_particles:
+                        for ann in annotations:
+                            if ann.get('track_id', 0) in track_ids_with_particles:
+                                bbox = ann.get('bbox', [])
+                                if bbox:
+                                    x, y, w, h = [int(v) for v in bbox]
+                                    x, y = max(0, x), max(0, y)
+                                    x2, y2 = min(width, x + w), min(height, y + h)
+                                    if x2 > x and y2 > y:
+                                        # 白色半透明覆盖
+                                        white = np.full((y2 - y, x2 - x, 3), 255, dtype=np.uint8)
+                                        result_frame[y:y2, x:x2] = cv2.addWeighted(result_frame[y:y2, x:x2], 0.5, white, 0.5, 0)
                 
                 frame = result_frame
 
