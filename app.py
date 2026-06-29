@@ -3073,10 +3073,16 @@ class UnifiedPanel(QMainWindow):
 
                 # 绘制粒子效果 - 在接触面上绘制渐变圆点
                 if enable_particle and not self.render_segment_check.isChecked():
-                    # 随机颜色粒子
+                    # 随机颜色粒子，闪烁效果用帧索引作为种子
                     np.random.seed(i)  # 固定随机种子保证可复现
                     def random_color():
                         return (np.random.randint(0, 256), np.random.randint(0, 256), np.random.randint(0, 256))
+                    
+                    # 闪烁：每3帧闪烁一次
+                    show_particles = (i % 3 == 0)
+                    
+                    # 记录有粒子的track_id
+                    track_ids_with_particles = set()
                     
                     # 收集所有多边形和bbox
                     all_contours = []
@@ -3151,16 +3157,18 @@ class UnifiedPanel(QMainWindow):
                                                 # 计算相对偏移量
                                                 offset_x = particle_x - bx1
                                                 offset_y = particle_y - by1
-                                                # 保存粒子：位置、track_id、偏移量、颜色
-                                                current_particles.append((particle_x, particle_y, bottom_tid, offset_x, offset_y, random_color()))
+                                                # 保存粒子：位置、track_id、偏移量、颜色、大小(1或2px)
+                                                particle_size = 1 if np.random.randint(0, 2) == 0 else 2
+                                                current_particles.append((particle_x, particle_y, bottom_tid, offset_x, offset_y, random_color(), particle_size))
+                                                track_ids_with_particles.add(bottom_tid)
                     
-                    # 绘制消散中的历史粒子 - 2px随机颜色，跟随下位bbox轨迹
+                    # 绘制消散中的历史粒子 - 随机大小(1或2px)随机颜色，跟随下位bbox轨迹
                     for frame_offset, particles in enumerate(particle_history):
                         progress = frame_offset / max(len(particle_history), 1)
                         alpha = 1.0 - progress * 0.7
                         
                         for p in particles:
-                            px, py, p_tid, p_off_x, p_off_y, p_color = p
+                            px, py, p_tid, p_off_x, p_off_y, p_color, p_size = p
                             # 根据track_id找到当前帧对应bbox
                             if p_tid in tid_to_bbox:
                                 curr_bbox = tid_to_bbox[p_tid]
@@ -3176,7 +3184,7 @@ class UnifiedPanel(QMainWindow):
                                         int(p_color[1] * alpha),
                                         int(p_color[2] * alpha)
                                     )
-                                    cv2.circle(overlay, (new_px, new_py), 2, faded_color, -1)
+                                    cv2.circle(overlay, (new_px, new_py), p_size, faded_color, -1)
                     
                     # 添加当前帧粒子到历史
                     particle_history.append(current_particles)
@@ -3186,6 +3194,21 @@ class UnifiedPanel(QMainWindow):
                         particle_history = particle_history[-fade_frames:]
 
                 cv2.addWeighted(overlay, self.ctrl.alpha, result_frame, 1 - self.ctrl.alpha, 0, result_frame)
+                
+                # 对有粒子的segmentation降低透明度到80%
+                if track_ids_with_particles:
+                    dim_overlay = result_frame.copy()
+                    for ann in annotations:
+                        if ann.get('track_id', 0) in track_ids_with_particles:
+                            polygon = ann.get('segmentation')
+                            if polygon and len(polygon[0]) >= 6:
+                                try:
+                                    pts = np.array(polygon[0], dtype=np.int32).reshape(-1, 2)
+                                    cv2.fillPoly(dim_overlay, [pts], (0, 0, 0))
+                                except:
+                                    pass
+                    cv2.addWeighted(dim_overlay, 0.2, result_frame, 0.8, 0, frame)
+                
                 frame = result_frame
 
             out.write(frame)
