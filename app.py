@@ -686,7 +686,7 @@ class UnifiedPanel(QMainWindow):
 
         iou_layout = QHBoxLayout()
         iou_layout.setSpacing(4)
-        iou_layout.addWidget(QLabel("帧IoU:"))
+        iou_layout.addWidget(QLabel("帧IoU合并:"))
         self.merge_iou_input = QLineEdit("0.5")
         self.merge_iou_input.setFixedWidth(40)
         self.merge_iou_input.setFixedHeight(22)
