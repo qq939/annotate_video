@@ -2869,7 +2869,51 @@ class UnifiedPanel(QMainWindow):
                 with open(label_file) as f:
                     annotations = json.load(f)
 
-                for ann in annotations:
+                # IoU去重：根据traceId和IoU过滤
+                iou_threshold = float(self.merge_iou_input.text()) if self.merge_iou_input.text() else 0.5
+                filtered_anns = []
+                
+                for i, ann in enumerate(annotations):
+                    bbox = ann.get('bbox', [])
+                    if not bbox:
+                        continue
+                    
+                    track_id = ann.get('track_id', 0)
+                    should_keep = True
+                    
+                    for j, existing in enumerate(filtered_anns):
+                        existing_bbox = existing.get('bbox', [])
+                        if not existing_bbox:
+                            continue
+                        
+                        # 计算IoU
+                        x1 = max(bbox[0], existing_bbox[0])
+                        y1 = max(bbox[1], existing_bbox[1])
+                        x2 = min(bbox[0] + bbox[2], existing_bbox[0] + existing_bbox[2])
+                        y2 = min(bbox[1] + bbox[3], existing_bbox[1] + existing_bbox[3])
+                        inter = max(0, x2 - x1) * max(0, y2 - y1)
+                        area1 = bbox[2] * bbox[3]
+                        area2 = existing_bbox[2] * existing_bbox[3]
+                        union = area1 + area2 - inter
+                        iou = inter / union if union > 0 else 0
+                        
+                        if iou > iou_threshold:
+                            # IoU超过阈值，保留traceId大的
+                            existing_tid = existing.get('track_id', 0)
+                            if track_id > existing_tid:
+                                # 用当前替换已有的
+                                filtered_anns[j] = ann
+                                should_keep = False
+                                break
+                            else:
+                                # 丢弃当前的
+                                should_keep = False
+                                break
+                    
+                    if should_keep:
+                        filtered_anns.append(ann)
+                
+                for ann in filtered_anns:
                     bbox = ann.get('bbox', [])
                     if not bbox:
                         continue
