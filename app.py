@@ -1430,6 +1430,16 @@ class UnifiedPanel(QMainWindow):
         trail_layout.addStretch()
         layout.addLayout(trail_layout)
 
+        overlap_layout = QHBoxLayout()
+        overlap_layout.setSpacing(4)
+        overlap_layout.addWidget(QLabel("重叠IoU:"))
+        self.overlap_iou_input = QLineEdit("0.8")
+        self.overlap_iou_input.setFixedWidth(50)
+        self.overlap_iou_input.setFixedHeight(22)
+        overlap_layout.addWidget(self.overlap_iou_input)
+        overlap_layout.addStretch()
+        layout.addLayout(overlap_layout)
+
         self.save_btn = QPushButton("💾 保存视频并上传OBS")
         self.save_btn.setFixedHeight(28)
         self.save_btn.clicked.connect(self.run_save)
@@ -2870,7 +2880,7 @@ class UnifiedPanel(QMainWindow):
                     annotations = json.load(f)
 
                 # IoU去重：根据traceId和IoU过滤
-                iou_threshold = float(self.merge_iou_input.text()) if self.merge_iou_input.text() else 0.5
+                iou_threshold = float(self.overlap_iou_input.text()) if self.overlap_iou_input.text() else 0.8
                 filtered_anns = []
                 
                 for i, ann in enumerate(annotations):
