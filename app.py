@@ -3140,10 +3140,9 @@ class UnifiedPanel(QMainWindow):
                                             px, py = int(pt[0][0]), int(pt[0][1])
                                             # 确保在下方bbox内
                                             if bx1 <= px <= bx2 and by1 <= py <= by2:
-                                                for _ in range(3):
-                                                    particle_x = np.random.randint(max(bx1, px - 2), min(bx2, px + 3))
-                                                    particle_y = np.random.randint(max(by1, py - 2), min(by2, py + 3))
-                                                    current_particles.append((particle_x, particle_y))
+                                                particle_x = np.random.randint(max(bx1, px - 2), min(bx2, px + 3))
+                                                particle_y = np.random.randint(max(by1, py - 2), min(by2, py + 3))
+                                                current_particles.append((particle_x, particle_y))
                     
                     # 绘制消散中的历史粒子 - 1px，检查是否在当前帧的bbox内
                     for frame_offset, particles in enumerate(particle_history):
