@@ -3071,7 +3071,7 @@ class UnifiedPanel(QMainWindow):
 
                     current_track_positions[track_id] = (cx, cy, color)
 
-                # 绘制粒子效果 - 在接触面上绘制小圆点
+                # 绘制粒子效果 - 在接触面上绘制渐变圆点
                 if enable_particle and self.render_segment_check.isChecked():
                     # 紫色粒子
                     particle_color = (128, 0, 128)  # BGR 紫色
@@ -3090,45 +3090,44 @@ class UnifiedPanel(QMainWindow):
                             except:
                                 pass
                     
-                    current_particles = []  # 当前帧的新粒子
+                    current_particles = []  # 当前帧的新粒子 (x, y, color)
                     
-                    # 检测接触面（多边形边缘在另一个多边形内部的部分）
+                    # 检测接触面
                     if len(all_contours) >= 2:
                         for a_idx, (pts_a, bbox_a) in enumerate(zip(all_contours, all_bboxes)):
                             for pts_b, bbox_b in zip(all_contours[a_idx + 1:], all_bboxes[a_idx + 1:]):
-                                # 计算两个bbox的交集区域
                                 x1 = max(bbox_a[0], bbox_b[0])
                                 y1 = max(bbox_a[1], bbox_b[1])
                                 x2 = min(bbox_a[0] + bbox_a[2], bbox_b[0] + bbox_b[2])
                                 y2 = min(bbox_a[1] + bbox_a[3], bbox_b[1] + bbox_b[3])
                                 
-                                if x2 > x1 and y2 > y1:  # 有交集
-                                    # 在交集区域内找A多边形的边缘点
+                                if x2 > x1 and y2 > y1:
                                     for pt in pts_a:
                                         px, py = int(pt[0]), int(pt[1])
-                                        # 检查点是否在交集区域内（接触面）
                                         if x1 <= px <= x2 and y1 <= py <= y2:
-                                            # 限制在小范围内生成粒子
-                                            for _ in range(3):  # 每个接触点生成3个粒子
+                                            for _ in range(3):
                                                 offset_x = np.random.randint(-2, 3)
                                                 offset_y = np.random.randint(-2, 3)
                                                 particle_x = px + offset_x
                                                 particle_y = py + offset_y
-                                                # 确保在交集区域内
                                                 if x1 <= particle_x <= x2 and y1 <= particle_y <= y2:
                                                     current_particles.append((particle_x, particle_y, particle_color))
                     
-                    # 绘制消散中的历史粒子
+                    # 绘制消散中的历史粒子 - 大小渐变 5px -> 1px
                     for frame_offset, particles in enumerate(particle_history):
-                        alpha = 1.0 - (frame_offset / len(particle_history))
-                        for px, py, pcolor in particles:
-                            faded_color = (
-                                int(pcolor[0] * alpha),
-                                int(pcolor[1] * alpha),
-                                int(pcolor[2] * alpha)
-                            )
-                            # 很小的圆点
-                            cv2.circle(overlay, (px, py), 1, faded_color, -1)
+                        # 越老的粒子越小: 从5px渐变到1px
+                        progress = frame_offset / max(len(particle_history), 1)
+                        size = max(1, int(5 - progress * 4))  # 5 -> 1
+                        alpha = 1.0 - progress * 0.7  # 透明度逐渐降低
+                        
+                        faded_color = (
+                            int(particle_color[0] * alpha),
+                            int(particle_color[1] * alpha),
+                            int(particle_color[2] * alpha)
+                        )
+                        
+                        for px, py, _ in particles:
+                            cv2.circle(overlay, (px, py), size, faded_color, -1)
                     
                     # 添加当前帧粒子到历史
                     particle_history.append(current_particles)
