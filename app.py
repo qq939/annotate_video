@@ -2,6 +2,7 @@
 """视频标注工具 - 统一控制面板，控制逻辑委托给 video_control.VideoController"""
 
 import sys
+import time
 import random
 import shutil
 import cv2
@@ -102,6 +103,57 @@ BOX_COLORS = [
     (255, 255, 0), (255, 0, 255), (0, 255, 255),
     (255, 128, 0), (128, 0, 255),
 ]
+
+
+def extract_video_segment(src_video, output_video, start_time=0, max_frames=1000):
+    """
+    从视频中提取片段生成临时视频。
+    用于视频标注时，根据起始秒数和最大帧数生成标注用的临时视频。
+    
+    Args:
+        src_video: 源视频路径
+        output_video: 输出临时视频路径
+        start_time: 起始秒数（行723, 行739-748）
+        max_frames: 最大帧数（行723, 行739-748）
+    
+    Returns:
+        输出视频路径
+    """
+    cap = cv2.VideoCapture(src_video)
+    if not cap.isOpened():
+        raise ValueError(f"无法打开视频: {src_video}")
+    
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    
+    # 计算起始帧
+    start_frame = int(start_time * fps) if start_time > 0 else 0
+    if start_frame >= total_frames:
+        cap.release()
+        raise ValueError(f"起始秒数 {start_time}s 对应的帧 {start_frame} 超出视频总帧数 {total_frames}")
+    
+    # 跳转到起始帧
+    cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+    
+    # 创建输出视频
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(output_video, fourcc, fps, (width, height))
+    
+    frame_count = 0
+    while frame_count < max_frames:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        out.write(frame)
+        frame_count += 1
+    
+    cap.release()
+    out.release()
+    
+    print(f"[extract_video_segment] 生成临时视频: {output_video}, 帧数: {frame_count}")
+    return output_video
 
 
 class RotatableBBoxEditorWidget(QWidget):
@@ -735,8 +787,23 @@ class UnifiedPanel(QMainWindow):
             print(f"已拷贝到src: {dst_video}")
 
         src_video = str(src_dir / video_name)
+        
+        # 获取起始秒数和最大帧数
+        start_time = float(self.start_time_input.text()) if self.start_time_input.text() else 0
+        max_frames = int(self.max_frames_input.text()) if self.max_frames_input.text() else 1000
+        
+        # 如果有起始秒数或最大帧数限制，先生成临时视频用于标注
+        if start_time > 0 or max_frames < 1000:
+            temp_video_name = f"_temp_annotate_{int(time.time())}.mp4"
+            temp_video_path = str(src_dir / temp_video_name)
+            print(f"[run_annotate] 起始秒数={start_time}, 最大帧数={max_frames}, 生成临时视频: {temp_video_path}")
+            extract_video_segment(src_video, temp_video_path, start_time, max_frames)
+            annotate_video_for_dialog = temp_video_path
+        else:
+            annotate_video_for_dialog = src_video
+        
         scale = self.scale_slider.value() / 100.0
-        dialog = AnnotationDialog(src_video, self, scale=scale)
+        dialog = AnnotationDialog(annotate_video_for_dialog, self, scale=scale)
         if dialog.exec_() != QDialog.Accepted:
             return
         boxes = dialog.get_boxes()
