@@ -3071,6 +3071,9 @@ class UnifiedPanel(QMainWindow):
 
                     current_track_positions[track_id] = (cx, cy, color)
 
+                # 初始化track_ids_with_particles
+                track_ids_with_particles = set()
+
                 # 绘制粒子效果 - 在接触面上绘制渐变圆点
                 if enable_particle and not self.render_segment_check.isChecked():
                     # 随机颜色粒子，闪烁效果用帧索引作为种子
