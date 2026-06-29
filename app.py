@@ -654,25 +654,35 @@ class UnifiedPanel(QMainWindow):
         select_btn.setFixedWidth(50)
         select_btn.clicked.connect(self.select_video)
         video_layout.addWidget(select_btn)
-        video_layout.addWidget(QLabel("起始"))
+        layout.addLayout(video_layout)
+
+        # 前处理参数行
+        preprocess_layout = QHBoxLayout()
+        preprocess_layout.setSpacing(4)
+        preprocess_layout.addWidget(QLabel("起始"))
         self.start_time_input = QLineEdit("0")
         self.start_time_input.setFixedWidth(50)
         self.start_time_input.setFixedHeight(22)
-        video_layout.addWidget(self.start_time_input)
-        video_layout.addWidget(QLabel("秒"))
-        video_layout.addWidget(QLabel("取前"))
+        preprocess_layout.addWidget(self.start_time_input)
+        preprocess_layout.addWidget(QLabel("秒"))
+        preprocess_layout.addWidget(QLabel("取前"))
         self.max_frames_input = QLineEdit("1000")
         self.max_frames_input.setFixedWidth(60)
         self.max_frames_input.setFixedHeight(22)
-        video_layout.addWidget(self.max_frames_input)
-        video_layout.addWidget(QLabel("帧"))
-        video_layout.addWidget(QLabel("每隔"))
+        preprocess_layout.addWidget(self.max_frames_input)
+        preprocess_layout.addWidget(QLabel("帧"))
+        preprocess_layout.addWidget(QLabel("每隔"))
         self.skip_frames_input = QLineEdit("1")
         self.skip_frames_input.setFixedWidth(40)
         self.skip_frames_input.setFixedHeight(22)
-        video_layout.addWidget(self.skip_frames_input)
-        video_layout.addWidget(QLabel("帧取1"))
-        layout.addLayout(video_layout)
+        preprocess_layout.addWidget(self.skip_frames_input)
+        preprocess_layout.addWidget(QLabel("帧取1"))
+        preprocess_layout.addWidget(QLabel("缩放"))
+        self.resize_ratio_input = QLineEdit("1.0")
+        self.resize_ratio_input.setFixedWidth(50)
+        self.resize_ratio_input.setFixedHeight(22)
+        preprocess_layout.addWidget(self.resize_ratio_input)
+        layout.addLayout(preprocess_layout)
 
         iou_layout = QHBoxLayout()
         iou_layout.setSpacing(4)
@@ -723,8 +733,11 @@ class UnifiedPanel(QMainWindow):
         if file_path:
             self.video_input.setText(file_path)
 
-    def create_temp_video(self, video_path, start_time=0, max_frames=1000, skip_frames=1):
+    def create_temp_video(self, video_path, start_time=0, max_frames=1000, skip_frames=1, resize_ratio=1.0):
         """根据起始时间、帧数和抽帧间隔生成临时视频
+        
+        Args:
+            resize_ratio: 缩放比例，如0.5表示缩小到一半
         
         Returns:
             tuple: (临时视频路径, fps, 总帧数) 或 None如果失败
@@ -737,8 +750,12 @@ class UnifiedPanel(QMainWindow):
         
         fps = cap.get(cv2.CAP_PROP_FPS)
         total_original = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        orig_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        orig_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        
+        # 计算缩放后的尺寸
+        width = int(orig_width * resize_ratio)
+        height = int(orig_height * resize_ratio)
         
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         
@@ -774,6 +791,10 @@ class UnifiedPanel(QMainWindow):
             if output_count >= max_frames:
                 break
             
+            # 缩放帧
+            if resize_ratio != 1.0:
+                frame = cv2.resize(frame, (width, height))
+            
             out.write(frame)
             output_count += 1
             frame_idx += 1
@@ -793,10 +814,11 @@ class UnifiedPanel(QMainWindow):
         start_time = float(self.start_time_input.text()) if self.start_time_input.text() else 0
         max_frames = int(self.max_frames_input.text()) if self.max_frames_input.text() else 1000
         skip_frames = int(self.skip_frames_input.text()) if self.skip_frames_input.text() else 1
+        resize_ratio = float(self.resize_ratio_input.text()) if self.resize_ratio_input.text() else 1.0
 
         # 生成临时视频（包含起始时间、抽帧等处理）
-        print(f"[run_annotate] 生成临时视频: 起始={start_time}秒, 取{max_frames}帧, 每隔{skip_frames}帧取1")
-        temp_result = self.create_temp_video(video_path, start_time, max_frames, skip_frames)
+        print(f"[run_annotate] 生成临时视频: 起始={start_time}秒, 取{max_frames}帧, 每隔{skip_frames}帧取1, 缩放={resize_ratio}")
+        temp_result = self.create_temp_video(video_path, start_time, max_frames, skip_frames, resize_ratio)
         if temp_result is None:
             QMessageBox.warning(self, "错误", "无法打开视频文件")
             return
@@ -2334,10 +2356,11 @@ class UnifiedPanel(QMainWindow):
             start_time = float(self.start_time_input.text()) if self.start_time_input.text() else 0
             max_frames = int(self.max_frames_input.text()) if self.max_frames_input.text() else 1000
             skip_frames = int(self.skip_frames_input.text()) if self.skip_frames_input.text() else 1
+            resize_ratio = float(self.resize_ratio_input.text()) if self.resize_ratio_input.text() else 1.0
             
             # 生成临时视频
-            print(f"[DEBUG] 生成临时视频: 起始={start_time}秒, 取{max_frames}帧, 每隔{skip_frames}帧取1")
-            temp_result = self.create_temp_video(video_path, start_time, max_frames, skip_frames)
+            print(f"[DEBUG] 生成临时视频: 起始={start_time}秒, 取{max_frames}帧, 每隔{skip_frames}帧取1, 缩放={resize_ratio}")
+            temp_result = self.create_temp_video(video_path, start_time, max_frames, skip_frames, resize_ratio)
             if temp_result is None:
                 QMessageBox.warning(self, "错误", "无法打开视频文件")
                 return
