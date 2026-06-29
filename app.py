@@ -1411,7 +1411,7 @@ class UnifiedPanel(QMainWindow):
             color_btn_layout.addWidget(btn)
         layout.addLayout(color_btn_layout)
 
-        self.render_segment_check = QCheckBox("渲染分割")
+        self.render_segment_check = QCheckBox("只展示bbox")
         self.render_segment_check.setChecked(True)
         self.render_segment_check.setStyleSheet("QCheckBox { font-size: 11px; }")
         layout.addWidget(self.render_segment_check)
@@ -3056,7 +3056,7 @@ class UnifiedPanel(QMainWindow):
                         else:
                             color = self.palette_colors[color_idx_in_remapped + 1]
 
-                    if polygon and self.render_segment_check.isChecked():
+                    if polygon and not self.render_segment_check.isChecked():
                         pts = np.array(polygon[0], dtype=np.int32).reshape(-1, 2)
                         cv2.fillPoly(overlay, [pts], color)
                         cv2.polylines(overlay, [pts], True, (255, 255, 255), 2)
@@ -3072,7 +3072,7 @@ class UnifiedPanel(QMainWindow):
                     current_track_positions[track_id] = (cx, cy, color)
 
                 # 绘制粒子效果 - 在接触面上绘制渐变圆点
-                if enable_particle and self.render_segment_check.isChecked():
+                if enable_particle and not self.render_segment_check.isChecked():
                     # 宝格丽蓝粒子
                     particle_color = (171, 71, 0)  # BGR 宝格丽蓝
                     
