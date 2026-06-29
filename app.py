@@ -3092,26 +3092,30 @@ class UnifiedPanel(QMainWindow):
                     
                     current_particles = []  # 当前帧的新粒子 (x, y, color)
                     
-                    # 检测接触面
+                    # 检测接触面 - 在下方物体的bbox内
                     if len(all_contours) >= 2:
                         for a_idx, (pts_a, bbox_a) in enumerate(zip(all_contours, all_bboxes)):
                             for pts_b, bbox_b in zip(all_contours[a_idx + 1:], all_bboxes[a_idx + 1:]):
-                                x1 = max(bbox_a[0], bbox_b[0])
-                                y1 = max(bbox_a[1], bbox_b[1])
-                                x2 = min(bbox_a[0] + bbox_a[2], bbox_b[0] + bbox_b[2])
-                                y2 = min(bbox_a[1] + bbox_a[3], bbox_b[1] + bbox_b[3])
+                                # 判断哪个是下方物体（y值更大）
+                                if bbox_a[1] > bbox_b[1]:  # a在下方
+                                    bottom_bbox = bbox_a
+                                    top_pts = pts_b
+                                else:  # b在下方
+                                    bottom_bbox = bbox_b
+                                    top_pts = pts_a
                                 
-                                if x2 > x1 and y2 > y1:
-                                    for pt in pts_a:
-                                        px, py = int(pt[0]), int(pt[1])
-                                        if x1 <= px <= x2 and y1 <= py <= y2:
-                                            for _ in range(3):
-                                                offset_x = np.random.randint(-2, 3)
-                                                offset_y = np.random.randint(-2, 3)
-                                                particle_x = px + offset_x
-                                                particle_y = py + offset_y
-                                                if x1 <= particle_x <= x2 and y1 <= particle_y <= y2:
-                                                    current_particles.append((particle_x, particle_y, particle_color))
+                                # 在下方bbox内生成粒子
+                                bx, by, bw, bh = bottom_bbox
+                                for pt in top_pts:
+                                    px, py = int(pt[0]), int(pt[1])
+                                    # 检查点是否在上方物体，也在下方bbox内
+                                    intersection_x = max(bx, min(px, bx + bw))
+                                    intersection_y = max(by, min(py, by + bh))
+                                    if abs(intersection_x - px) < 50 and abs(intersection_y - py) < 50:  # 在接触范围内
+                                        for _ in range(3):
+                                            particle_x = np.random.randint(int(bx), int(bx + bw))
+                                            particle_y = np.random.randint(int(by), int(by + bh))
+                                            current_particles.append((particle_x, particle_y, particle_color))
                     
                     # 绘制消散中的历史粒子 - 大小渐变 5px -> 1px
                     for frame_offset, particles in enumerate(particle_history):
