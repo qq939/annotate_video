@@ -3076,11 +3076,44 @@ class UnifiedPanel(QMainWindow):
 
                     current_track_positions[track_id] = (cx, cy, color)
 
-                # 初始化track_ids_with_particles
+                # 收集所有contours和bbox
+                all_contours = []
+                all_bboxes = []
+                all_track_ids = []
+                for ann in annotations:
+                    polygon = ann.get('segmentation')
+                    bbox = ann.get('bbox', [])
+                    track_id = ann.get('track_id', 0)
+                    if polygon and len(polygon[0]) >= 6 and bbox:
+                        try:
+                            pts = np.array(polygon[0], dtype=np.int32).reshape(-1, 2)
+                            all_contours.append(pts)
+                            all_bboxes.append(bbox)
+                            all_track_ids.append(track_id)
+                        except:
+                            pass
+                
+                # 检测接触面
                 track_ids_with_particles = set()
+                if len(all_contours) >= 2:
+                    for a_idx in range(len(all_contours)):
+                        for b_idx in range(a_idx + 1, len(all_contours)):
+                            mask_a = np.zeros((height, width), dtype=np.uint8)
+                            mask_b = np.zeros((height, width), dtype=np.uint8)
+                            cv2.fillPoly(mask_a, [all_contours[a_idx]], 255)
+                            cv2.fillPoly(mask_b, [all_contours[b_idx]], 255)
+                            intersection = cv2.bitwise_and(mask_a, mask_b)
+                            if cv2.countNonZero(intersection) > 0:
+                                m_a = cv2.moments(all_contours[a_idx])
+                                m_b = cv2.moments(all_contours[b_idx])
+                                if m_a["m00"] > 0 and m_b["m00"] > 0:
+                                    if m_a["m01"] / m_a["m00"] > m_b["m01"] / m_b["m00"]:
+                                        track_ids_with_particles.add(all_track_ids[a_idx])
+                                    else:
+                                        track_ids_with_particles.add(all_track_ids[b_idx])
 
-                # 绘制粒子效果 - 在接触面上绘制渐变圆点
-                if enable_particle and not self.render_segment_check.isChecked():
+                # 粒子效果
+                if enable_particle and track_ids_with_particles:
                     # 随机颜色粒子，闪烁效果用帧索引作为种子
                     np.random.seed(i)  # 固定随机种子保证可复现
                     def random_color():
