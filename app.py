@@ -1422,11 +1422,11 @@ class UnifiedPanel(QMainWindow):
         self.trail_check.setStyleSheet("QCheckBox { font-size: 11px; }")
         trail_layout.addWidget(self.trail_check)
         trail_layout.addWidget(QLabel("时间:"))
-        self.trail_duration = QLineEdit("1")
+        self.trail_duration = QLineEdit("500")
         self.trail_duration.setFixedWidth(40)
         self.trail_duration.setFixedHeight(22)
         trail_layout.addWidget(self.trail_duration)
-        trail_layout.addWidget(QLabel("秒"))
+        trail_layout.addWidget(QLabel("ms"))
         trail_layout.addStretch()
         layout.addLayout(trail_layout)
 
@@ -3011,12 +3011,12 @@ class UnifiedPanel(QMainWindow):
 
         # 粒子效果初始化
         enable_particle = self.trail_check.isChecked()
-        fade_duration = float(self.trail_duration.text()) if self.trail_duration.text() else 1.0
-        fade_frames = int(fade_duration * fps)  # 消散帧数
+        fade_duration_ms = float(self.trail_duration.text()) if self.trail_duration.text() else 500
+        fade_frames = int(fade_duration_ms / 1000 * fps)  # 消散帧数
         particle_history = []  # 保存历史帧的重叠粒子位置
 
         print(f"正在生成视频: {output_path}")
-        print(f"[DEBUG run_save] 粒子效果: {'开启' if enable_particle else '关闭'}, 消散时间: {fade_duration}秒 ({fade_frames}帧)")
+        print(f"[DEBUG run_save] 粒子效果: {'开启' if enable_particle else '关闭'}, 消散时间: {fade_duration_ms}ms ({fade_frames}帧)")
 
         for i in range(total_frames):
             frame_path = frames_dir / f"frame_{i:06d}.jpg"
@@ -3090,7 +3090,7 @@ class UnifiedPanel(QMainWindow):
                             except:
                                 pass
                     
-                    # 当前帧粒子: (x, y, bbox_x1, bbox_y1, bbox_x2, bbox_y2)
+                    # 当前帧粒子: (x, y, original_bbox)
                     current_particles = []
                     
                     # 检测接触面 - 在下方物体的bbox内
@@ -3115,13 +3115,12 @@ class UnifiedPanel(QMainWindow):
                                         for _ in range(3):
                                             particle_x = np.random.randint(bx1, bx2)
                                             particle_y = np.random.randint(by1, by2)
-                                            # 保存粒子及其原始边界
-                                            current_particles.append((particle_x, particle_y, bx1, by1, bx2, by2))
+                                            # 保存粒子及其原始bbox
+                                            current_particles.append((particle_x, particle_y, (bx1, by1, bx2, by2)))
                     
-                    # 绘制消散中的历史粒子 - 大小渐变 3px -> 1px
+                    # 绘制消散中的历史粒子 - 1px，检查是否在当前帧的bbox内
                     for frame_offset, particles in enumerate(particle_history):
                         progress = frame_offset / max(len(particle_history), 1)
-                        size = max(1, int(3 - progress * 2))  # 3 -> 1
                         alpha = 1.0 - progress * 0.7
                         
                         faded_color = (
@@ -3131,8 +3130,16 @@ class UnifiedPanel(QMainWindow):
                         )
                         
                         for p in particles:
-                            px, py = p[0], p[1]
-                            cv2.circle(overlay, (px, py), size, faded_color, -1)
+                            px, py, orig_bbox = p[0], p[1], p[2]
+                            # 检查粒子是否在当前帧的任意bbox内
+                            in_bbox = False
+                            for curr_bbox in all_bboxes:
+                                cbx, cby, cbw, cbh = curr_bbox
+                                if int(cbx) <= px <= int(cbx + cbw) and int(cby) <= py <= int(cby + cbh):
+                                    in_bbox = True
+                                    break
+                            if in_bbox:
+                                cv2.circle(overlay, (px, py), 1, faded_color, -1)
                     
                     # 添加当前帧粒子到历史
                     particle_history.append(current_particles)
