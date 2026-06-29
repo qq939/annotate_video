@@ -3073,8 +3073,10 @@ class UnifiedPanel(QMainWindow):
 
                 # 绘制粒子效果 - 在接触面上绘制渐变圆点
                 if enable_particle and not self.render_segment_check.isChecked():
-                    # 白色粒子
-                    particle_color = (255, 255, 255)  # BGR 白色
+                    # 随机颜色粒子
+                    np.random.seed(i)  # 固定随机种子保证可复现
+                    def random_color():
+                        return (np.random.randint(0, 256), np.random.randint(0, 256), np.random.randint(0, 256))
                     
                     # 收集所有多边形和bbox
                     all_contours = []
@@ -3149,22 +3151,16 @@ class UnifiedPanel(QMainWindow):
                                                 # 计算相对偏移量
                                                 offset_x = particle_x - bx1
                                                 offset_y = particle_y - by1
-                                                # 保存粒子：位置、track_id、偏移量
-                                                current_particles.append((particle_x, particle_y, bottom_tid, offset_x, offset_y))
+                                                # 保存粒子：位置、track_id、偏移量、颜色
+                                                current_particles.append((particle_x, particle_y, bottom_tid, offset_x, offset_y, random_color()))
                     
-                    # 绘制消散中的历史粒子 - 1px，跟随下位bbox轨迹
+                    # 绘制消散中的历史粒子 - 2px随机颜色，跟随下位bbox轨迹
                     for frame_offset, particles in enumerate(particle_history):
                         progress = frame_offset / max(len(particle_history), 1)
                         alpha = 1.0 - progress * 0.7
                         
-                        faded_color = (
-                            int(particle_color[0] * alpha),
-                            int(particle_color[1] * alpha),
-                            int(particle_color[2] * alpha)
-                        )
-                        
                         for p in particles:
-                            px, py, p_tid, p_off_x, p_off_y = p
+                            px, py, p_tid, p_off_x, p_off_y, p_color = p
                             # 根据track_id找到当前帧对应bbox
                             if p_tid in tid_to_bbox:
                                 curr_bbox = tid_to_bbox[p_tid]
@@ -3174,7 +3170,13 @@ class UnifiedPanel(QMainWindow):
                                 new_py = int(cy) + p_off_y
                                 # 确保在bbox范围内
                                 if int(cx) <= new_px <= int(cx + cw) and int(cy) <= new_py <= int(cy + ch):
-                                    cv2.circle(overlay, (new_px, new_py), 1, faded_color, -1)
+                                    # 应用透明度到粒子颜色
+                                    faded_color = (
+                                        int(p_color[0] * alpha),
+                                        int(p_color[1] * alpha),
+                                        int(p_color[2] * alpha)
+                                    )
+                                    cv2.circle(overlay, (new_px, new_py), 2, faded_color, -1)
                     
                     # 添加当前帧粒子到历史
                     particle_history.append(current_particles)
