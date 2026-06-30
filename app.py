@@ -3254,7 +3254,7 @@ class UnifiedPanel(QMainWindow):
                         if len(positions) >= 2:
                             color = tid_to_color.get(tid, (0, 255, 0))
                             for j in range(len(positions) - 1):
-                                thickness = 5
+                                thickness = 2
                                 cv2.line(result_frame, positions[j], positions[j+1], color, thickness)
                 
                 # 效果都在addWeighted之后绘制
