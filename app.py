@@ -3289,7 +3289,7 @@ class UnifiedPanel(QMainWindow):
                                     ys, xs = np.where(intersection_binary)
                                     for x, y in zip(xs[::5], ys[::5]):
                                         # 灰白1px粒子
-                                        cv2.circle(result_frame, (int(x), int(y)), 1, (200, 200, 200), -1)
+                                        cv2.circle(result_frame, (int(x), int(y)), 1, (0, 255, 0), -1)
                                         current_particles.append((int(x), int(y), bottom_tid))
                         
                         particle_history.append(current_particles)
