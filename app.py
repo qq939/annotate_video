@@ -1425,6 +1425,10 @@ class UnifiedPanel(QMainWindow):
         self.latex_check.setChecked(True)
         self.latex_check.setStyleSheet("QCheckBox { font-size: 11px; }")
         trail_layout.addWidget(self.latex_check)
+        self.trail_line_check = QCheckBox("轨迹")
+        self.trail_line_check.setChecked(False)
+        self.trail_line_check.setStyleSheet("QCheckBox { font-size: 11px; }")
+        trail_layout.addWidget(self.trail_line_check)
         trail_layout.addWidget(QLabel("时间:"))
         self.trail_duration = QLineEdit("500")
         self.trail_duration.setFixedWidth(40)
@@ -3016,12 +3020,14 @@ class UnifiedPanel(QMainWindow):
         # 粒子效果初始化
         enable_particle = self.trail_check.isChecked()
         enable_latex = self.latex_check.isChecked()
+        enable_trail_line = self.trail_line_check.isChecked()
         fade_duration_ms = float(self.trail_duration.text()) if self.trail_duration.text() else 500
         fade_frames = int(fade_duration_ms / 1000 * fps)  # 消散帧数
         particle_history = []  # 保存历史帧的重叠粒子位置
+        trail_history = {}  # 保存历史轨迹 track_id -> [(frame_idx, x, y), ...]
 
         print(f"正在生成视频: {output_path}")
-        print(f"[DEBUG run_save] 粒子效果: {'开启' if enable_particle else '关闭'}, 白色乳胶漆: {'开启' if enable_latex else '关闭'}, 消散时间: {fade_duration_ms}ms ({fade_frames}帧)")
+        print(f"[DEBUG run_save] 粒子效果: {'开启' if enable_particle else '关闭'}, 白色乳胶漆: {'开启' if enable_latex else '关闭'}, 轨迹: {'开启' if enable_trail_line else '关闭'}, 消散时间: {fade_duration_ms}ms ({fade_frames}帧)")
 
         for i in range(total_frames):
             frame_path = frames_dir / f"frame_{i:06d}.jpg"
@@ -3279,12 +3285,11 @@ class UnifiedPanel(QMainWindow):
                                         bottom_bbox = all_bboxes[a_idx]
                                     
                                     # 在交集处画粒子
-                                    bx, by, bw, bh = [int(v) for v in bottom_bbox]
                                     intersection_binary = intersection > 0
                                     ys, xs = np.where(intersection_binary)
-                                    for x, y in zip(xs[:100], ys[:100]):
-                                        color = (np.random.randint(100, 255), np.random.randint(100, 255), np.random.randint(100, 255))
-                                        cv2.circle(result_frame, (int(x), int(y)), 1, color, -1)
+                                    for x, y in zip(xs[::5], ys[::5]):
+                                        # 灰白1px粒子
+                                        cv2.circle(result_frame, (int(x), int(y)), 1, (200, 200, 200), -1)
                                         current_particles.append((int(x), int(y), bottom_tid))
                         
                         particle_history.append(current_particles)
@@ -3304,19 +3309,45 @@ class UnifiedPanel(QMainWindow):
                                             gray = int(255 * alpha)
                                             cv2.circle(result_frame, (px, py), 1, (gray, gray, gray), -1)
                     
-                    # 白色乳胶漆效果
+                    # 白色乳胶漆效果 - 只覆盖下位bbox的segmentation区域
                     if enable_latex and track_ids_with_particles:
-                        for ann in annotations:
-                            if ann.get('track_id', 0) in track_ids_with_particles:
-                                bbox = ann.get('bbox', [])
-                                if bbox:
-                                    x, y, w, h = [int(v) for v in bbox]
-                                    x, y = max(0, x), max(0, y)
-                                    x2, y2 = min(width, x + w), min(height, y + h)
-                                    if x2 > x and y2 > y:
-                                        # 白色半透明覆盖
-                                        white = np.full((y2 - y, x2 - x, 3), 255, dtype=np.uint8)
-                                        result_frame[y:y2, x:x2] = cv2.addWeighted(result_frame[y:y2, x:x2], 0.5, white, 0.5, 0)
+                        for a_idx, ann in enumerate(annotations):
+                            if all_track_ids[a_idx] in track_ids_with_particles:
+                                polygon = ann.get('segmentation')
+                                if polygon and len(polygon[0]) >= 6:
+                                    try:
+                                        pts = np.array(polygon[0], dtype=np.int32).reshape(-1, 2)
+                                        # 创建白色mask
+                                        mask_white = np.zeros((height, width), dtype=np.uint8)
+                                        cv2.fillPoly(mask_white, [pts], 255)
+                                        # 只在segmentation区域填白色
+                                        result_frame[mask_white > 0] = 255
+                                    except:
+                                        pass
+                    
+                    # 轨迹效果 - 粗线条跟随下位bbox
+                    if enable_trail_line and track_ids_with_particles:
+                        # 记录下位bbox中心点轨迹
+                        for a_idx, ann in enumerate(annotations):
+                            tid = all_track_ids[a_idx]
+                            if tid in track_ids_with_particles:
+                                bbox = all_bboxes[a_idx]
+                                cx = int(bbox[0] + bbox[2] / 2)
+                                cy = int(bbox[1] + bbox[3] / 2)
+                                if tid not in trail_history:
+                                    trail_history[tid] = []
+                                trail_history[tid].append((cx, cy))
+                                # 裁剪历史
+                                if len(trail_history[tid]) > fade_frames:
+                                    trail_history[tid] = trail_history[tid][-fade_frames:]
+                        
+                        # 绘制轨迹线条
+                        for tid, positions in trail_history.items():
+                            if len(positions) >= 2:
+                                for j in range(len(positions) - 1):
+                                    alpha = (j + 1) / len(positions)
+                                    thickness = max(1, int(3 * alpha))
+                                    cv2.line(result_frame, positions[j], positions[j+1], (150, 150, 150), thickness)
                 
                 frame = result_frame
 
