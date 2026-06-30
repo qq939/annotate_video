@@ -3218,6 +3218,27 @@ class UnifiedPanel(QMainWindow):
 
                 cv2.addWeighted(overlay, self.ctrl.alpha, result_frame, 1 - self.ctrl.alpha, 0, result_frame)
                 
+                # 轨迹效果在addWeighted之后立即绘制（不被覆盖）
+                if enable_trail_line:
+                    for a_idx, ann in enumerate(annotations):
+                        bbox = ann.get('bbox', [])
+                        track_id = ann.get('track_id', 0)
+                        if bbox:
+                            cx = int(bbox[0] + bbox[2] / 2)
+                            cy = int(bbox[1] + bbox[3] / 2)
+                            if track_id not in trail_history:
+                                trail_history[track_id] = []
+                            trail_history[track_id].append((cx, cy))
+                            if len(trail_history[track_id]) > fade_frames:
+                                trail_history[track_id] = trail_history[track_id][-fade_frames:]
+                    # 绘制轨迹线条
+                    for tid, positions in trail_history.items():
+                        if len(positions) >= 2:
+                            for j in range(len(positions) - 1):
+                                color = (0, 255, 0)  # BGR纯绿色
+                                thickness = 5
+                                cv2.line(result_frame, positions[j], positions[j+1], color, thickness)
+                
                 # 效果都在addWeighted之后绘制
                 if enable_particle or enable_latex:
                     # 收集contours
@@ -3324,33 +3345,6 @@ class UnifiedPanel(QMainWindow):
                                         result_frame[mask_white > 0] = 255
                                     except:
                                         pass
-                    
-                    # 轨迹效果 - 所有bbox中心点走过的轨迹（不限于下位bbox）
-                    if enable_trail_line:
-                        # 记录所有bbox中心点轨迹
-                        for a_idx, ann in enumerate(annotations):
-                            if a_idx < len(all_track_ids):
-                                tid = all_track_ids[a_idx]
-                                if a_idx < len(all_bboxes):
-                                    bbox = all_bboxes[a_idx]
-                                    cx = int(bbox[0] + bbox[2] / 2)
-                                    cy = int(bbox[1] + bbox[3] / 2)
-                                    if tid not in trail_history:
-                                        trail_history[tid] = []
-                                    trail_history[tid].append((cx, cy))
-                                    if len(trail_history[tid]) > fade_frames:
-                                        trail_history[tid] = trail_history[tid][-fade_frames:]
-                        
-                        # 绘制轨迹线条 - 5px绿色
-                        for tid, positions in trail_history.items():
-                            if len(positions) >= 2:
-                                for j in range(len(positions) - 1):
-                                    # 纯绿色线条
-                                    color = (0, 255, 0)  # BGR纯绿色
-                                    thickness = 5
-                                    p1 = positions[j]
-                                    p2 = positions[j+1]
-                                    cv2.line(result_frame, (p1[0], p1[1]), (p2[0], p2[1]), color, thickness)
                 
                 frame = result_frame
 
