@@ -3329,27 +3329,24 @@ class UnifiedPanel(QMainWindow):
                     if enable_trail_line:
                         # 记录所有bbox中心点轨迹
                         for a_idx, ann in enumerate(annotations):
-                            tid = all_track_ids[a_idx]
-                            bbox = all_bboxes[a_idx]
-                            cx = int(bbox[0] + bbox[2] / 2)
-                            cy = int(bbox[1] + bbox[3] / 2)
-                            if tid not in trail_history:
-                                trail_history[tid] = []
-                            trail_history[tid].append((cx, cy))
-                            # 裁剪历史
-                            if len(trail_history[tid]) > fade_frames:
-                                trail_history[tid] = trail_history[tid][-fade_frames:]
+                            if a_idx < len(all_track_ids):
+                                tid = all_track_ids[a_idx]
+                                if a_idx < len(all_bboxes):
+                                    bbox = all_bboxes[a_idx]
+                                    cx = int(bbox[0] + bbox[2] / 2)
+                                    cy = int(bbox[1] + bbox[3] / 2)
+                                    if tid not in trail_history:
+                                        trail_history[tid] = []
+                                    trail_history[tid].append((cx, cy))
+                                    if len(trail_history[tid]) > fade_frames:
+                                        trail_history[tid] = trail_history[tid][-fade_frames:]
                         
-                        # 绘制轨迹线条 - 5px渐变高光绿色
+                        # 绘制轨迹线条 - 5px绿色
                         for tid, positions in trail_history.items():
                             if len(positions) >= 2:
                                 for j in range(len(positions) - 1):
-                                    alpha = (j + 1) / len(positions)
-                                    # 渐变绿色 + 高光效果 BGR格式: 绿色为主，高光为辅
-                                    b = int(50 * alpha)  # 蓝色高光
-                                    g = 255  # 绿色
-                                    r = int(50 * alpha)  # 红色高光
-                                    color = (b, g, r)  # BGR 高光绿色
+                                    # 纯绿色线条
+                                    color = (0, 255, 0)  # BGR纯绿色
                                     thickness = 5
                                     p1 = positions[j]
                                     p2 = positions[j+1]
