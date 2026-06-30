@@ -3220,28 +3220,29 @@ class UnifiedPanel(QMainWindow):
                 
                 # 轨迹效果在addWeighted之后立即绘制（不被覆盖）
                 if enable_trail_line:
-                    # 先收集track_id到颜色的映射
-                    tid_to_color = {}
+                    # 只给最小的track_id用
+                    min_tid = float('inf')
+                    min_tid_color = None
                     for ann in annotations:
                         tid = ann.get('track_id', 0)
-                        if tid not in tid_to_color:
-                            # 使用bbox边框颜色
+                        if tid < min_tid:
+                            min_tid = tid
+                            # 获取颜色
                             if tid == 1000000:
-                                color = self.palette_colors[self.selected_color_index]
+                                min_tid_color = self.palette_colors[self.selected_color_index]
                             else:
                                 n_colors = len(self.palette_colors) - 1
                                 color_idx = tid % n_colors
                                 selected_idx = self.selected_color_index
                                 if color_idx < selected_idx:
-                                    color = self.palette_colors[color_idx]
+                                    min_tid_color = self.palette_colors[color_idx]
                                 else:
-                                    color = self.palette_colors[color_idx + 1]
-                            tid_to_color[tid] = color
+                                    min_tid_color = self.palette_colors[color_idx + 1]
                     # 记录和绘制轨迹
                     for ann in annotations:
                         bbox = ann.get('bbox', [])
                         track_id = ann.get('track_id', 0)
-                        if bbox:
+                        if bbox and track_id == min_tid:
                             cx = int(bbox[0] + bbox[2] / 2)
                             cy = int(bbox[1] + bbox[3] / 2)
                             if track_id not in trail_history:
@@ -3251,8 +3252,8 @@ class UnifiedPanel(QMainWindow):
                                 trail_history[track_id] = trail_history[track_id][-fade_frames:]
                     # 绘制轨迹线条
                     for tid, positions in trail_history.items():
-                        if len(positions) >= 2:
-                            color = tid_to_color.get(tid, (0, 255, 0))
+                        if len(positions) >= 2 and tid == min_tid:
+                            color = min_tid_color
                             for j in range(len(positions) - 1):
                                 thickness = 2
                                 cv2.line(result_frame, positions[j], positions[j+1], color, thickness)
