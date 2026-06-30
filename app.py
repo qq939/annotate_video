@@ -3238,6 +3238,10 @@ class UnifiedPanel(QMainWindow):
                                     min_tid_color = self.palette_colors[color_idx]
                                 else:
                                     min_tid_color = self.palette_colors[color_idx + 1]
+                    # 清除其他tid的历史，只保留当前最小tid
+                    for tid in list(trail_history.keys()):
+                        if tid != min_tid:
+                            del trail_history[tid]
                     # 记录和绘制轨迹
                     for ann in annotations:
                         bbox = ann.get('bbox', [])
@@ -3251,12 +3255,12 @@ class UnifiedPanel(QMainWindow):
                             if len(trail_history[track_id]) > fade_frames:
                                 trail_history[track_id] = trail_history[track_id][-fade_frames:]
                     # 绘制轨迹线条
-                    for tid, positions in trail_history.items():
-                        if len(positions) >= 2 and tid == min_tid:
-                            color = min_tid_color
-                            for j in range(len(positions) - 1):
-                                thickness = 2
-                                cv2.line(result_frame, positions[j], positions[j+1], color, thickness)
+                    if min_tid in trail_history and len(trail_history[min_tid]) >= 2:
+                        positions = trail_history[min_tid]
+                        color = min_tid_color
+                        for j in range(len(positions) - 1):
+                            thickness = 2
+                            cv2.line(result_frame, positions[j], positions[j+1], color, thickness)
                 
                 # 效果都在addWeighted之后绘制
                 if enable_particle or enable_latex:
