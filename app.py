@@ -3351,7 +3351,9 @@ class UnifiedPanel(QMainWindow):
                                     r = int(50 * alpha)  # 红色高光
                                     color = (b, g, r)  # BGR 高光绿色
                                     thickness = 5
-                                    cv2.line(result_frame, positions[j], positions[j+1], color, thickness)
+                                    p1 = positions[j]
+                                    p2 = positions[j+1]
+                                    cv2.line(result_frame, (p1[0], p1[1]), (p2[0], p2[1]), color, thickness)
                 
                 frame = result_frame
 
