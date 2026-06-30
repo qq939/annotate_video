@@ -3325,29 +3325,33 @@ class UnifiedPanel(QMainWindow):
                                     except:
                                         pass
                     
-                    # 轨迹效果 - 粗线条跟随下位bbox
-                    if enable_trail_line and track_ids_with_particles:
-                        # 记录下位bbox中心点轨迹
+                    # 轨迹效果 - 所有bbox中心点走过的轨迹（不限于下位bbox）
+                    if enable_trail_line:
+                        # 记录所有bbox中心点轨迹
                         for a_idx, ann in enumerate(annotations):
                             tid = all_track_ids[a_idx]
-                            if tid in track_ids_with_particles:
-                                bbox = all_bboxes[a_idx]
-                                cx = int(bbox[0] + bbox[2] / 2)
-                                cy = int(bbox[1] + bbox[3] / 2)
-                                if tid not in trail_history:
-                                    trail_history[tid] = []
-                                trail_history[tid].append((cx, cy))
-                                # 裁剪历史
-                                if len(trail_history[tid]) > fade_frames:
-                                    trail_history[tid] = trail_history[tid][-fade_frames:]
+                            bbox = all_bboxes[a_idx]
+                            cx = int(bbox[0] + bbox[2] / 2)
+                            cy = int(bbox[1] + bbox[3] / 2)
+                            if tid not in trail_history:
+                                trail_history[tid] = []
+                            trail_history[tid].append((cx, cy))
+                            # 裁剪历史
+                            if len(trail_history[tid]) > fade_frames:
+                                trail_history[tid] = trail_history[tid][-fade_frames:]
                         
-                        # 绘制轨迹线条
+                        # 绘制轨迹线条 - 5px渐变高光绿色
                         for tid, positions in trail_history.items():
                             if len(positions) >= 2:
                                 for j in range(len(positions) - 1):
                                     alpha = (j + 1) / len(positions)
-                                    thickness = max(1, int(3 * alpha))
-                                    cv2.line(result_frame, positions[j], positions[j+1], (150, 150, 150), thickness)
+                                    # 渐变绿色 + 高光效果 BGR格式: 绿色为主，高光为辅
+                                    b = int(50 * alpha)  # 蓝色高光
+                                    g = 255  # 绿色
+                                    r = int(50 * alpha)  # 红色高光
+                                    color = (b, g, r)  # BGR 高光绿色
+                                    thickness = 5
+                                    cv2.line(result_frame, positions[j], positions[j+1], color, thickness)
                 
                 frame = result_frame
 
