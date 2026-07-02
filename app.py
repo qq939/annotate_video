@@ -2551,7 +2551,31 @@ class UnifiedPanel(QMainWindow):
         all_annotations = []
         ann_id = 0
         all_images = []
-
+        
+        # 扫描现有track_ids，找出可用的"提示帧"track_id范围（3000档）
+        used_track_ids = set()
+        for json_file in json_files:
+            with open(json_file) as f:
+                data = json.load(f)
+            shapes = data.get('shapes', [])
+            for shape in shapes:
+                for pt in shape.get('points', []):
+                    # 检查是否有track_id标注（label格式: category_name:track_id）
+                    label = shape.get('label', '')
+                    if ':' in label:
+                        try:
+                            tid = int(label.split(':')[-1])
+                            used_track_ids.add(tid)
+                        except:
+                            pass
+        
+        # 找到可用的提示帧track_id（从3000开始，每1000为一档）
+        prompt_tid = 3000
+        while prompt_tid in used_track_ids:
+            prompt_tid += 1000
+        print(f"[DEBUG] 使用提示帧track_id: {prompt_tid}")
+        
+        # 遍历所有文件
         for json_file in json_files:
             with open(json_file) as f:
                 data = json.load(f)
@@ -2625,7 +2649,7 @@ class UnifiedPanel(QMainWindow):
                 area = float(w * h)
                 ann = {
                     'id': ann_id,
-                    'track_id': 1000000,  # 默认track_id
+                    'track_id': prompt_tid,  # 默认track_id
                     'image_id': frame_idx,
                     'category_id': 0,
                     'bbox': bbox,
@@ -2738,7 +2762,20 @@ class UnifiedPanel(QMainWindow):
         if total_frames == 0:
             QMessageBox.warning(self, "错误", "没有帧数据")
             return
-
+        
+        # 扫描现有track_ids，找出可用的"提示帧"track_id范围（3000档）
+        used_track_ids = set()
+        for ann in coco_data.get('annotations', []):
+            tid = ann.get('track_id', 0)
+            if tid >= 3000 and tid < 4000:
+                used_track_ids.add(tid)
+        
+        # 找到可用的提示帧track_id（从3000开始，每1000为一档）
+        prompt_tid = 3000
+        while prompt_tid in used_track_ids:
+            prompt_tid += 1000
+        print(f"[DEBUG] 使用提示帧track_id: {prompt_tid}")
+        
         # 清空temp_data_post
         import shutil
         output_path = Path("temp_data_post")
@@ -2769,7 +2806,8 @@ class UnifiedPanel(QMainWindow):
                     annotations = json.load(f)
 
                 filtered = self.ctrl.filter_annotations(annotations)
-                track_id_filtered = [ann for ann in filtered if ann.get('track_id', 0) > 999998]
+                # 只保留提示帧track_id（3000档）
+                track_id_filtered = [ann for ann in filtered if ann.get('track_id', 0) >= 3000 and ann.get('track_id', 0) < 4000]
 
                 # 根据bbox去重（完全相同的bbox只保留一个）
                 seen_bboxes = set()
@@ -3056,7 +3094,7 @@ class UnifiedPanel(QMainWindow):
                     cat_name = ann.get('category', 'Unknown')
                     conf = ann.get('confidence', 1.0)
                     track_id = ann.get('track_id', 0)
-                    if track_id == 1000000:
+                    if track_id >= 3000 and track_id < 4000:
                         color = self.palette_colors[self.selected_color_index]
                     else:
                         n_colors = len(self.palette_colors) - 1
@@ -3228,7 +3266,7 @@ class UnifiedPanel(QMainWindow):
                         if tid < min_tid:
                             min_tid = tid
                             # 获取颜色
-                            if tid == 1000000:
+                            if tid >= 3000 and tid < 4000:
                                 min_tid_color = self.palette_colors[self.selected_color_index]
                             else:
                                 n_colors = len(self.palette_colors) - 1
