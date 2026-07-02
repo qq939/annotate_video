@@ -707,15 +707,13 @@ class UnifiedPanel(QMainWindow):
         
         control_layout.addStretch()
         
-        self.trim_mark_a_btn = QPushButton("标记A")
-        self.trim_mark_a_btn.setFixedHeight(30)
-        self.trim_mark_a_btn.clicked.connect(self.trim_mark_a)
-        control_layout.addWidget(self.trim_mark_a_btn)
+        self.trim_selecting = False  # 是否正在选择
+        self.trim_select_start = None  # 选择起始点
         
-        self.trim_mark_b_btn = QPushButton("标记B")
-        self.trim_mark_b_btn.setFixedHeight(30)
-        self.trim_mark_b_btn.clicked.connect(self.trim_mark_b)
-        control_layout.addWidget(self.trim_mark_b_btn)
+        self.trim_clear_btn = QPushButton("清空")
+        self.trim_clear_btn.setFixedHeight(30)
+        self.trim_clear_btn.clicked.connect(self.trim_clear_list)
+        control_layout.addWidget(self.trim_clear_btn)
         
         layout.addLayout(control_layout)
         
@@ -730,21 +728,6 @@ class UnifiedPanel(QMainWindow):
         
         # 按钮行
         btn_layout = QHBoxLayout()
-        self.trim_delete_range_btn = QPushButton("删除当前片段(A→B)")
-        self.trim_delete_range_btn.setFixedHeight(24)
-        self.trim_delete_range_btn.clicked.connect(self.trim_delete_range)
-        btn_layout.addWidget(self.trim_delete_range_btn)
-        
-        self.trim_delete_frame_btn = QPushButton("删除当前帧")
-        self.trim_delete_frame_btn.setFixedHeight(24)
-        self.trim_delete_frame_btn.clicked.connect(self.trim_delete_frame)
-        btn_layout.addWidget(self.trim_delete_frame_btn)
-        
-        self.trim_clear_btn = QPushButton("清空")
-        self.trim_clear_btn.setFixedHeight(24)
-        self.trim_clear_btn.clicked.connect(self.trim_clear_list)
-        btn_layout.addWidget(self.trim_clear_btn)
-        
         self.trim_generate_btn = QPushButton("生成裁剪视频")
         self.trim_generate_btn.setFixedHeight(24)
         self.trim_generate_btn.clicked.connect(self.trim_generate)
@@ -759,8 +742,6 @@ class UnifiedPanel(QMainWindow):
         self.trim_fps = 30
         self.trim_is_playing = False
         self.trim_timer = None
-        self.trim_mark_a = None
-        self.trim_mark_b = None
         self.trim_delete_ranges = []  # [(start, end), ...]
         self.trim_deleted_frames = set()  # 单帧删除
         
@@ -786,11 +767,13 @@ class UnifiedPanel(QMainWindow):
         self.trim_cap.release()
         self.trim_cap = None
         self.trim_show_frame(0)
-        self.trim_mark_a = None
-        self.trim_mark_b = None
         self.trim_delete_ranges = []
         self.trim_deleted_frames = set()
         self.trim_delete_list.clear()
+        self.trim_select_start = None
+        self.trim_selecting = False
+        self.trim_clear_btn.setText("清空")
+        self.trim_clear_btn.setStyleSheet("")
     
     def trim_show_frame(self, frame_idx):
         if not self.trim_video_path:
@@ -842,50 +825,34 @@ class UnifiedPanel(QMainWindow):
         if current < self.trim_total_frames - 1:
             self.trim_seek(current + 1)
     
-    def trim_mark_a(self):
-        self.trim_mark_a = self.trim_slider.value()
-        self.trim_mark_a_btn.setStyleSheet("QPushButton { background-color: #ff6600; color: white; }")
-        QMessageBox.information(self, "标记A", f"已标记A点: 帧 {self.trim_mark_a}")
-    
-    def trim_mark_b(self):
-        self.trim_mark_b = self.trim_slider.value()
-        self.trim_mark_b_btn.setStyleSheet("QPushButton { background-color: #ff6600; color: white; }")
-        QMessageBox.information(self, "标记B", f"已标记B点: 帧 {self.trim_mark_b}")
-    
     def trim_label_click(self, event):
-        # 点击画面标记B点
-        if self.trim_mark_a is None:
-            self.trim_mark_a = self.trim_slider.value()
-            self.trim_mark_a_btn.setStyleSheet("QPushButton { background-color: #ff6600; color: white; }")
-        else:
-            self.trim_mark_b = self.trim_slider.value()
-            self.trim_mark_b_btn.setStyleSheet("QPushButton { background-color: #ff6600; color: white; }")
-            # 自动添加到删除列表
-            self.trim_delete_range()
-    
-    def trim_delete_range(self):
-        if self.trim_mark_a is None or self.trim_mark_b is None:
-            QMessageBox.warning(self, "提示", "请先标记A和B点")
-            return
-        start = min(self.trim_mark_a, self.trim_mark_b)
-        end = max(self.trim_mark_a, self.trim_mark_b)
-        self.trim_delete_ranges.append((start, end))
-        self.trim_delete_list.addItem(f"帧 {start} → {end} ({end - start + 1}帧)")
-        self.trim_mark_a = None
-        self.trim_mark_b = None
-        self.trim_mark_a_btn.setStyleSheet("")
-        self.trim_mark_b_btn.setStyleSheet("")
-    
-    def trim_delete_frame(self):
+        # 点击画面开始/结束选择
         current = self.trim_slider.value()
-        if current not in self.trim_deleted_frames:
-            self.trim_deleted_frames.add(current)
-            self.trim_delete_list.addItem(f"帧 {current} (单帧)")
+        if self.trim_select_start is None:
+            # 开始选择
+            self.trim_select_start = current
+            self.trim_selecting = True
+            self.trim_clear_btn.setText(f"取消选择(帧{current})")
+            self.trim_clear_btn.setStyleSheet("QPushButton { background-color: #ff6600; color: white; }")
+        else:
+            # 结束选择，添加到删除列表
+            start = min(self.trim_select_start, current)
+            end = max(self.trim_select_start, current)
+            self.trim_delete_ranges.append((start, end))
+            self.trim_delete_list.addItem(f"帧 {start} → {end} ({end - start + 1}帧)")
+            self.trim_select_start = None
+            self.trim_selecting = False
+            self.trim_clear_btn.setText("清空")
+            self.trim_clear_btn.setStyleSheet("")
     
     def trim_clear_list(self):
         self.trim_delete_ranges = []
         self.trim_deleted_frames = set()
         self.trim_delete_list.clear()
+        self.trim_select_start = None
+        self.trim_selecting = False
+        self.trim_clear_btn.setText("清空")
+        self.trim_clear_btn.setStyleSheet("")
     
     def trim_list_item_clicked(self, item):
         text = item.text()
