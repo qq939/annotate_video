@@ -104,6 +104,116 @@ BOX_COLORS = [
 ]
 
 
+class ClipTimelineWidget(QWidget):
+    """带缩略图的视频时间轴控件"""
+    frame_deleted = pyqtSignal(int)  # 发出已删除帧数
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.frames = []  # 帧图像列表
+        self.thumbnails = []  # 缩略图列表
+        self.deleted_ranges = []  # [(start, end), ...] 已删除区间
+        self.point_a = -1  # A点
+        self.point_b = -1  # B点
+        self.current_frame = 0
+        self.thumb_width = 4  # 每帧缩略图宽度
+        self.setMinimumHeight(60)
+        
+    def set_frames(self, frames):
+        """设置帧列表"""
+        self.frames = frames
+        self.thumbnails = []
+        for frame in frames:
+            # 生成缩略图
+            h, w = frame.shape[:2]
+            thumb_h = 50
+            thumb_w = int(w * thumb_h / h)
+            thumb = cv2.resize(frame, (thumb_w, thumb_h))
+            thumb = cv2.cvtColor(thumb, cv2.COLOR_BGR2RGB)
+            qimg = QImage(thumb.data, thumb_w, thumb_h, thumb_w * 3, QImage.Format_RGB888)
+            self.thumbnails.append(QPixmap.fromImage(qimg))
+        self.thumb_width = max(4, thumb_w)
+        self.update()
+        
+    def set_deleted_ranges(self, ranges):
+        """设置已删除区间"""
+        self.deleted_ranges = ranges
+        self.update()
+        
+    def set_points(self, a, b):
+        """设置A、B点"""
+        self.point_a = a
+        self.point_b = b
+        self.update()
+        
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        
+        if not self.thumbnails:
+            painter.fillRect(self.rect(), QColor(40, 40, 40))
+            painter.setPen(QColor(100, 100, 100))
+            painter.drawText(self.rect(), Qt.AlignCenter, "选择视频后显示时间轴")
+            return
+        
+        # 绘制缩略图
+        x = 0
+        for i, thumb in enumerate(self.thumbnails):
+            # 判断是否在已删除区间
+            is_deleted = False
+            for start, end in self.deleted_ranges:
+                if start <= i <= end:
+                    is_deleted = True
+                    break
+            
+            # 判断是否在A-B区间
+            is_in_range = False
+            if self.point_a >= 0 and self.point_b >= 0:
+                if min(self.point_a, self.point_b) <= i <= max(self.point_a, self.point_b):
+                    is_in_range = True
+            
+            # 绘制缩略图
+            if is_deleted:
+                painter.fillRect(x, 0, self.thumb_width, 50, QColor(100, 100, 100))
+            elif is_in_range:
+                painter.fillRect(x, 0, self.thumb_width, 50, QColor(255, 100, 100))
+            else:
+                painter.drawPixmap(x, 0, thumb)
+            
+            x += self.thumb_width
+        
+        # 绘制当前帧指示线
+        if self.current_frame < len(self.thumbnails):
+            indicator_x = self.current_frame * self.thumb_width + self.thumb_width // 2
+            painter.setPen(QColor(0, 255, 0))
+            painter.drawLine(indicator_x, 0, indicator_x, 50)
+        
+        # 绘制A点
+        if self.point_a >= 0:
+            ax = self.point_a * self.thumb_width
+            painter.setPen(QColor(255, 0, 0))
+            painter.drawLine(ax, 0, ax, 50)
+            painter.setBrush(QColor(255, 0, 0))
+            painter.drawRect(ax - 5, 0, 10, 10)
+        
+        # 绘制B点
+        if self.point_b >= 0:
+            bx = self.point_b * self.thumb_width
+            painter.setPen(QColor(0, 200, 200))
+            painter.drawLine(bx, 0, bx, 50)
+            painter.setBrush(QColor(0, 200, 200))
+            painter.drawRect(bx - 5, 0, 10, 10)
+    
+    def mousePressEvent(self, event):
+        """点击跳转到帧"""
+        x = event.x()
+        frame = x // self.thumb_width
+        if 0 <= frame < len(self.frames):
+            self.current_frame = frame
+            self.update()
+            self.frame_deleted.emit(frame)
+
+
 class RotatableBBoxEditorWidget(QWidget):
     """可旋转的bbox编辑器，支持调整倾斜角度"""
     bbox_changed = pyqtSignal(int, dict)
@@ -1464,6 +1574,74 @@ class UnifiedPanel(QMainWindow):
         self.save_btn.clicked.connect(self.run_save)
         layout.addWidget(self.save_btn)
 
+        # ========== 视频帧剔除模块 ==========
+        clip_group = QGroupBox("0、视频帧剔除")
+        clip_group.setStyleSheet("QGroupBox { font-weight: bold; }")
+        clip_layout = QVBoxLayout()
+        clip_group.setLayout(clip_layout)
+        
+        # 工具栏
+        clip_tool_layout = QHBoxLayout()
+        self.clip_video_btn = QPushButton("📂 选择视频")
+        self.clip_video_btn.setFixedHeight(28)
+        self.clip_video_btn.clicked.connect(self.select_clip_video)
+        clip_tool_layout.addWidget(self.clip_video_btn)
+        
+        self.clip_preview_label = QLabel("未选择视频")
+        self.clip_preview_label.setStyleSheet("QLabel { color: #888; font-size: 11px; }")
+        clip_tool_layout.addWidget(self.clip_preview_label)
+        clip_tool_layout.addStretch()
+        clip_layout.addLayout(clip_tool_layout)
+        
+        # 进度条区域
+        self.clip_timeline = ClipTimelineWidget()
+        self.clip_timeline.setFixedHeight(60)
+        self.clip_timeline.frame_deleted.connect(self.on_frame_deleted)
+        clip_layout.addWidget(self.clip_timeline)
+        
+        # 控制栏
+        clip_ctrl_layout = QHBoxLayout()
+        self.clip_a_btn = QPushButton("A")
+        self.clip_a_btn.setFixedSize(40, 28)
+        self.clip_a_btn.setStyleSheet("QPushButton { background-color: #FF6B6B; color: white; font-weight: bold; }")
+        self.clip_a_btn.clicked.connect(self.set_clip_point_a)
+        clip_ctrl_layout.addWidget(self.clip_a_btn)
+        
+        self.clip_b_btn = QPushButton("B")
+        self.clip_b_btn.setFixedSize(40, 28)
+        self.clip_b_btn.setStyleSheet("QPushButton { background-color: #4ECDC4; color: white; font-weight: bold; }")
+        self.clip_b_btn.clicked.connect(self.set_clip_point_b)
+        clip_ctrl_layout.addWidget(self.clip_b_btn)
+        
+        self.clip_delete_btn = QPushButton("🗑️ 删除A-B区间")
+        self.clip_delete_btn.setFixedHeight(28)
+        self.clip_delete_btn.setStyleSheet("QPushButton { background-color: #CC0000; color: white; }")
+        self.clip_delete_btn.clicked.connect(self.delete_clip_range)
+        clip_ctrl_layout.addWidget(self.clip_delete_btn)
+        
+        self.clip_undo_btn = QPushButton("↩️ 撤销删除")
+        self.clip_undo_btn.setFixedHeight(28)
+        self.clip_undo_btn.clicked.connect(self.undo_clip_delete)
+        clip_ctrl_layout.addWidget(self.clip_undo_btn)
+        
+        self.clip_undo_btn.setEnabled(False)
+        
+        self.clip_export_btn = QPushButton("📹 导出裁剪视频")
+        self.clip_export_btn.setFixedHeight(28)
+        self.clip_export_btn.setStyleSheet("QPushButton { background-color: #28A745; color: white; }")
+        self.clip_export_btn.clicked.connect(self.export_clip_video)
+        clip_ctrl_layout.addWidget(self.clip_export_btn)
+        
+        clip_ctrl_layout.addStretch()
+        clip_layout.addLayout(clip_ctrl_layout)
+        
+        layout.addWidget(clip_group)
+        
+        # 存储视频信息
+        self.clip_video_path = None
+        self.clip_frames = []
+        self.clip_deleted_ranges = []  # [(start, end), ...]
+        
         return group
 
     def on_zoom_change(self, value):
@@ -2149,6 +2327,114 @@ class UnifiedPanel(QMainWindow):
         self.prompt_btn.setStyleSheet("QPushButton { background-color: #FFA500; color: white; border: none; border-radius: 3px; } QPushButton:hover { background-color: #FF8C00; }")
         if self.viewer:
             self.viewer.enable_bbox_drawing(False)
+
+    def select_clip_video(self):
+        """选择要裁剪的视频"""
+        file_path, _ = QFileDialog.getOpenFileName(self, "选择视频", "", "视频文件 (*.mp4 *.avi *.mov *.mkv)")
+        if not file_path:
+            return
+        
+        self.clip_video_path = file_path
+        self.clip_deleted_ranges = []
+        self.clip_frames = []
+        
+        # 读取视频所有帧
+        cap = cv2.VideoCapture(file_path)
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            self.clip_frames.append(frame)
+        cap.release()
+        
+        # 更新UI
+        video_name = Path(file_path).name
+        self.clip_preview_label.setText(f"已加载: {video_name} ({len(self.clip_frames)}帧)")
+        self.clip_timeline.set_frames(self.clip_frames)
+        self.clip_timeline.set_deleted_ranges([])
+        self.clip_undo_btn.setEnabled(False)
+        
+    def set_clip_point_a(self):
+        """设置A点"""
+        if not self.clip_frames:
+            QMessageBox.warning(self, "提示", "请先选择视频")
+            return
+        self.clip_timeline.point_a = self.clip_timeline.current_frame
+        self.clip_timeline.update()
+        
+    def set_clip_point_b(self):
+        """设置B点"""
+        if not self.clip_frames:
+            QMessageBox.warning(self, "提示", "请先选择视频")
+            return
+        self.clip_timeline.point_b = self.clip_timeline.current_frame
+        self.clip_timeline.update()
+        
+    def delete_clip_range(self):
+        """删除A-B区间"""
+        if self.clip_timeline.point_a < 0 or self.clip_timeline.point_b < 0:
+            QMessageBox.warning(self, "提示", "请先设置A点和B点")
+            return
+        
+        start = min(self.clip_timeline.point_a, self.clip_timeline.point_b)
+        end = max(self.clip_timeline.point_a, self.clip_timeline.point_b)
+        
+        # 添加到删除区间列表
+        self.clip_deleted_ranges.append((start, end))
+        self.clip_timeline.set_deleted_ranges(self.clip_deleted_ranges)
+        self.clip_undo_btn.setEnabled(True)
+        
+        # 重置A、B点
+        self.clip_timeline.point_a = -1
+        self.clip_timeline.point_b = -1
+        self.clip_timeline.update()
+        
+    def undo_clip_delete(self):
+        """撤销上次删除"""
+        if not self.clip_deleted_ranges:
+            return
+        
+        self.clip_deleted_ranges.pop()
+        self.clip_timeline.set_deleted_ranges(self.clip_deleted_ranges)
+        self.clip_undo_btn.setEnabled(len(self.clip_deleted_ranges) > 0)
+        
+    def on_frame_deleted(self, frame):
+        """帧被删除回调"""
+        pass
+        
+    def export_clip_video(self):
+        """导出裁剪后的视频"""
+        if not self.clip_video_path or not self.clip_frames:
+            QMessageBox.warning(self, "提示", "请先选择视频")
+            return
+        
+        # 计算要保留的帧
+        deleted_set = set()
+        for start, end in self.clip_deleted_ranges:
+            for i in range(start, end + 1):
+                deleted_set.add(i)
+        
+        keep_frames = [f for i, f in enumerate(self.clip_frames) if i not in deleted_set]
+        
+        if len(keep_frames) == 0:
+            QMessageBox.warning(self, "提示", "没有剩余帧")
+            return
+        
+        # 生成输出文件名
+        input_path = Path(self.clip_video_path)
+        output_name = input_path.stem + "_clip" + input_path.suffix
+        output_path = input_path.parent / output_name
+        
+        # 写入视频
+        h, w = keep_frames[0].shape[:2]
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        fps = 30
+        out = cv2.VideoWriter(str(output_path), fourcc, fps, (w, h))
+        for frame in keep_frames:
+            out.write(frame)
+        out.release()
+        
+        QMessageBox.information(self, "完成", f"视频已导出:\n{output_path}\n\n保留帧数: {len(keep_frames)}\n删除帧数: {len(deleted_set)}")
 
     def delete_trace_id(self):
         trace_id_text = self.delete_trace_input.text().strip()
