@@ -104,6 +104,62 @@ BOX_COLORS = [
 ]
 
 
+class ClipVideoWidget(QWidget):
+    """视频预览控件，点击设置A/B点"""
+    clip_point_set = pyqtSignal(int)
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.frame = None
+        self.frame_idx = 0
+        self.point_a = -1
+        self.point_b = -1
+        self.setStyleSheet("QWidget { background-color: #000; }")
+        
+    def set_frame(self, frame, idx):
+        self.frame = frame
+        self.frame_idx = idx
+        self.update()
+        
+    def set_points(self, a, b):
+        self.point_a = a
+        self.point_b = b
+        self.update()
+        
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        if self.frame is None:
+            painter.fillRect(self.rect(), QColor(30, 30, 30))
+            painter.setPen(QColor(100, 100, 100))
+            painter.drawText(self.rect(), Qt.AlignCenter, "选择视频后显示")
+            return
+        
+        h, w = self.frame.shape[:2]
+        display_w = self.width()
+        display_h = int(h * display_w / w)
+        display = cv2.resize(self.frame, (display_w, display_h))
+        display = cv2.cvtColor(display, cv2.COLOR_BGR2RGB)
+        qimg = QImage(display.data, display_w, display_h, display_w * 3, QImage.Format_RGB888)
+        painter.drawImage(0, 0, qimg)
+        
+        if self.point_a >= 0:
+            x_a = int(self.point_a * display_w / w)
+            painter.setPen(QColor(255, 0, 0))
+            painter.drawLine(x_a, 0, x_a, display_h)
+            painter.setFont(QFont("Arial", 14, QFont.Bold))
+            painter.drawText(x_a + 5, 20, "A")
+            
+        if self.point_b >= 0:
+            x_b = int(self.point_b * display_w / w)
+            painter.setPen(QColor(0, 200, 200))
+            painter.drawLine(x_b, 0, x_b, display_h)
+            painter.setFont(QFont("Arial", 14, QFont.Bold))
+            painter.drawText(x_b + 5, 20, "B")
+    
+    def mousePressEvent(self, event):
+        self.clip_point_set.emit(self.frame_idx)
+
+
 class ClipTimelineWidget(QWidget):
     """带缩略图的视频时间轴控件"""
     frame_deleted = pyqtSignal(int)  # 发出已删除帧数
@@ -1230,6 +1286,102 @@ class UnifiedPanel(QMainWindow):
             av_module.MERGE_IOU_THRESHOLD = OrigMergeIOU
             av_module.FIND = OrigFIND
 
+    def create_clip_section(self):
+        group = QGroupBox("0、视频帧剔除")
+        group.setStyleSheet("QGroupBox { font-weight: bold; }")
+        layout = QVBoxLayout()
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(4)
+        group.setLayout(layout)
+        
+        # 工具栏
+        tool_layout = QHBoxLayout()
+        self.clip_open_btn = QPushButton("📂 选择视频")
+        self.clip_open_btn.setFixedHeight(28)
+        self.clip_open_btn.clicked.connect(self.open_clip_video)
+        tool_layout.addWidget(self.clip_open_btn)
+        
+        self.clip_status_label = QLabel("未选择视频")
+        self.clip_status_label.setStyleSheet("QLabel { color: #888; }")
+        tool_layout.addWidget(self.clip_status_label)
+        tool_layout.addStretch()
+        layout.addLayout(tool_layout)
+        
+        # 视频显示区域（点击选择A/B点）
+        self.clip_viewer = ClipVideoWidget()
+        self.clip_viewer.setFixedHeight(300)
+        self.clip_viewer.clip_point_set.connect(self.on_clip_point_set)
+        layout.addWidget(self.clip_viewer)
+        
+        # 进度条
+        self.clip_slider = QSlider(Qt.Horizontal)
+        self.clip_slider.setMinimum(0)
+        self.clip_slider.valueChanged.connect(self.on_clip_slider_changed)
+        layout.addWidget(self.clip_slider)
+        
+        # 控制栏
+        ctrl_layout = QHBoxLayout()
+        
+        self.clip_back_btn = QPushButton("◀◀")
+        self.clip_back_btn.setFixedSize(50, 28)
+        self.clip_back_btn.clicked.connect(self.clip_step_backward)
+        ctrl_layout.addWidget(self.clip_back_btn)
+        
+        self.clip_play_btn = QPushButton("▶/⏸")
+        self.clip_play_btn.setFixedSize(50, 28)
+        self.clip_play_btn.setStyleSheet("QPushButton { background-color: #007bff; color: white; }")
+        self.clip_play_btn.clicked.connect(self.clip_toggle_play)
+        ctrl_layout.addWidget(self.clip_play_btn)
+        
+        self.clip_forward_btn = QPushButton("▶▶")
+        self.clip_forward_btn.setFixedSize(50, 28)
+        self.clip_forward_btn.clicked.connect(self.clip_step_forward)
+        ctrl_layout.addWidget(self.clip_forward_btn)
+        
+        ctrl_layout.addStretch()
+        
+        # 待删除区间列表
+        self.clip_range_list = QListWidget()
+        self.clip_range_list.setFixedHeight(60)
+        self.clip_range_list.itemClicked.connect(self.on_clip_range_item_clicked)
+        layout.addWidget(self.clip_range_list)
+        
+        # 操作栏
+        op_layout = QHBoxLayout()
+        
+        self.clip_del_btn = QPushButton("🗑️ 删除区间")
+        self.clip_del_btn.setFixedHeight(28)
+        self.clip_del_btn.setStyleSheet("QPushButton { background-color: #dc3545; color: white; }")
+        self.clip_del_btn.clicked.connect(self.delete_selected_range)
+        op_layout.addWidget(self.clip_del_btn)
+        
+        self.clip_undo_btn = QPushButton("↩️ 撤销")
+        self.clip_undo_btn.setFixedHeight(28)
+        self.clip_undo_btn.clicked.connect(self.undo_last_range)
+        op_layout.addWidget(self.clip_undo_btn)
+        
+        self.clip_export_btn = QPushButton("📹 导出")
+        self.clip_export_btn.setFixedHeight(28)
+        self.clip_export_btn.setStyleSheet("QPushButton { background-color: #28a745; color: white; }")
+        self.clip_export_btn.clicked.connect(self.export_clip_video)
+        op_layout.addWidget(self.clip_export_btn)
+        
+        op_layout.addStretch()
+        layout.addLayout(op_layout)
+        
+        # 存储状态
+        self.clip_video_path = None
+        self.clip_frames = []
+        self.clip_deleted_ranges = []
+        self.clip_point_a = -1
+        self.clip_point_b = -1
+        self.clip_is_playing = False
+        self.clip_play_timer = QTimer()
+        self.clip_play_timer.timeout.connect(self.clip_auto_play)
+        self.clip_current_frame = 0
+        
+        return group
+
     def create_viewer_section(self):
         group = QGroupBox("2. 预览")
         group.setStyleSheet("QGroupBox { font-weight: bold; }")
@@ -1574,74 +1726,6 @@ class UnifiedPanel(QMainWindow):
         self.save_btn.clicked.connect(self.run_save)
         layout.addWidget(self.save_btn)
 
-        # ========== 视频帧剔除模块 ==========
-        clip_group = QGroupBox("0、视频帧剔除")
-        clip_group.setStyleSheet("QGroupBox { font-weight: bold; }")
-        clip_layout = QVBoxLayout()
-        clip_group.setLayout(clip_layout)
-        
-        # 工具栏
-        clip_tool_layout = QHBoxLayout()
-        self.clip_video_btn = QPushButton("📂 选择视频")
-        self.clip_video_btn.setFixedHeight(28)
-        self.clip_video_btn.clicked.connect(self.select_clip_video)
-        clip_tool_layout.addWidget(self.clip_video_btn)
-        
-        self.clip_preview_label = QLabel("未选择视频")
-        self.clip_preview_label.setStyleSheet("QLabel { color: #888; font-size: 11px; }")
-        clip_tool_layout.addWidget(self.clip_preview_label)
-        clip_tool_layout.addStretch()
-        clip_layout.addLayout(clip_tool_layout)
-        
-        # 进度条区域
-        self.clip_timeline = ClipTimelineWidget()
-        self.clip_timeline.setFixedHeight(60)
-        self.clip_timeline.frame_deleted.connect(self.on_frame_deleted)
-        clip_layout.addWidget(self.clip_timeline)
-        
-        # 控制栏
-        clip_ctrl_layout = QHBoxLayout()
-        self.clip_a_btn = QPushButton("A")
-        self.clip_a_btn.setFixedSize(40, 28)
-        self.clip_a_btn.setStyleSheet("QPushButton { background-color: #FF6B6B; color: white; font-weight: bold; }")
-        self.clip_a_btn.clicked.connect(self.set_clip_point_a)
-        clip_ctrl_layout.addWidget(self.clip_a_btn)
-        
-        self.clip_b_btn = QPushButton("B")
-        self.clip_b_btn.setFixedSize(40, 28)
-        self.clip_b_btn.setStyleSheet("QPushButton { background-color: #4ECDC4; color: white; font-weight: bold; }")
-        self.clip_b_btn.clicked.connect(self.set_clip_point_b)
-        clip_ctrl_layout.addWidget(self.clip_b_btn)
-        
-        self.clip_delete_btn = QPushButton("🗑️ 删除A-B区间")
-        self.clip_delete_btn.setFixedHeight(28)
-        self.clip_delete_btn.setStyleSheet("QPushButton { background-color: #CC0000; color: white; }")
-        self.clip_delete_btn.clicked.connect(self.delete_clip_range)
-        clip_ctrl_layout.addWidget(self.clip_delete_btn)
-        
-        self.clip_undo_btn = QPushButton("↩️ 撤销删除")
-        self.clip_undo_btn.setFixedHeight(28)
-        self.clip_undo_btn.clicked.connect(self.undo_clip_delete)
-        clip_ctrl_layout.addWidget(self.clip_undo_btn)
-        
-        self.clip_undo_btn.setEnabled(False)
-        
-        self.clip_export_btn = QPushButton("📹 导出裁剪视频")
-        self.clip_export_btn.setFixedHeight(28)
-        self.clip_export_btn.setStyleSheet("QPushButton { background-color: #28A745; color: white; }")
-        self.clip_export_btn.clicked.connect(self.export_clip_video)
-        clip_ctrl_layout.addWidget(self.clip_export_btn)
-        
-        clip_ctrl_layout.addStretch()
-        clip_layout.addLayout(clip_ctrl_layout)
-        
-        layout.addWidget(clip_group)
-        
-        # 存储视频信息
-        self.clip_video_path = None
-        self.clip_frames = []
-        self.clip_deleted_ranges = []  # [(start, end), ...]
-        
         return group
 
     def on_zoom_change(self, value):
