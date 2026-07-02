@@ -1241,17 +1241,17 @@ class UnifiedPanel(QMainWindow):
         self.frame_label.setStyleSheet("QLabel { background-color: #333; color: #fff; border-radius: 3px; font-weight: bold; font-size: 14px; padding: 0 8px; }")
         frame_play_layout.addWidget(self.frame_label)
 
-        self.forward_cb = QCheckBox("前向")
-        self.forward_cb.setFixedHeight(24)
-        self.forward_cb.setChecked(True)
-        self.forward_cb.setStyleSheet("QCheckBox { font-size: 11px; }")
-        frame_play_layout.addWidget(self.forward_cb)
-        
         self.undo_prompt_btn = QPushButton("回退")
         self.undo_prompt_btn.setFixedHeight(24)
         self.undo_prompt_btn.setStyleSheet("QPushButton { background-color: #CC0000; color: white; border: none; border-radius: 3px; font-size: 11px; } QPushButton:hover { background-color: #990000; }")
         self.undo_prompt_btn.clicked.connect(self.undo_last_prompt)
         frame_play_layout.addWidget(self.undo_prompt_btn)
+
+        self.forward_cb = QCheckBox("前向")
+        self.forward_cb.setFixedHeight(24)
+        self.forward_cb.setChecked(True)
+        self.forward_cb.setStyleSheet("QCheckBox { font-size: 11px; }")
+        frame_play_layout.addWidget(self.forward_cb)
         layout.addLayout(frame_play_layout)
         
         # 记录上一次执行的FIRST_ID
