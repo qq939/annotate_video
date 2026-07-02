@@ -12,7 +12,52 @@ from pathlib import Path
 
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QSlider, QLabel, QLineEdit, QFileDialog, QGroupBox, QTextEdit, QMessageBox, QListWidget, QSizePolicy, QDialog, QInputDialog, QCheckBox, QToolButton)
 from PyQt5.QtCore import Qt, QTimer, QPoint, QRect, pyqtSignal
+from PyQt5.QtGui import QPainter, QPen, QColor
 from PyQt5.Qt import QDragEnterEvent, QDropEvent
+
+
+class TrimSlider(QSlider):
+    """带A-B区间高亮和竖线指示器的自定义进度条"""
+    def __init__(self, parent=None):
+        super().__init__(Qt.Horizontal, parent)
+        self.range_a = None  # 选择区间
+        self.range_b = None
+        self.delete_ranges = []  # 待删除区间列表
+        self.setMinimum(0)
+        self.setMaximum(100)
+        
+    def setDeleteRanges(self, ranges):
+        self.delete_ranges = ranges
+        self.update()
+        
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self.maximum() <= 0:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        
+        w = self.width()
+        total = self.maximum() - self.minimum()
+        if total <= 0:
+            return
+        
+        # 高亮待删除区间
+        if self.delete_ranges:
+            for start, end in self.delete_ranges:
+                x1 = int((start - self.minimum()) / total * w)
+                x2 = int((end - self.minimum()) / total * w)
+                c = QColor(255, 100, 100, 150)
+                painter.fillRect(x1, 0, x2 - x1, self.height(), c)
+        
+        # 竖线指示器
+        val = self.value()
+        x = int((val - self.minimum()) / total * w)
+        green_color = Qt.green
+        painter.setPen(green_color)
+        painter.drawLine(x, 0, x, self.height())
+
+
 from PyQt5.QtGui import QImage, QPainter, QPen, QColor, QFont, QPixmap, QKeySequence
 from PyQt5.QtWidgets import QShortcut
 
@@ -692,15 +737,9 @@ class UnifiedPanel(QMainWindow):
         self.trim_label.mousePressEvent = self.trim_label_click
         content_layout.addWidget(self.trim_label)
         
-        # 进度条
-        self.trim_slider = QSlider(Qt.Horizontal)
-        self.trim_slider.setFixedHeight(60)
-        self.trim_slider.setStyleSheet("""
-            QSlider::groove:horizontal { border: 1px solid #333; height: 40px; background: #111; margin: 0px; border-radius: 5px; }
-            QSlider::handle:horizontal { background: #ff6600; width: 8px; margin: -16px 0; border-radius: 4px; }
-            QSlider::sub-page:horizontal { background: #ff6600; }
-            QSlider::add-page:horizontal { background: #333; }
-        """)
+        # 自定义进度条
+        self.trim_slider = TrimSlider(self)
+        self.trim_slider.setFixedHeight(40)
         self.trim_slider.sliderMoved.connect(self.trim_seek)
         content_layout.addWidget(self.trim_slider)
         
@@ -877,6 +916,8 @@ class UnifiedPanel(QMainWindow):
             self.trim_selecting = False
             self.trim_clear_btn.setText("清空")
             self.trim_clear_btn.setStyleSheet("")
+            # 更新进度条高亮
+            self.trim_slider.setDeleteRanges(self.trim_delete_ranges)
     
     def trim_clear_list(self):
         self.trim_delete_ranges = []
@@ -886,14 +927,16 @@ class UnifiedPanel(QMainWindow):
         self.trim_selecting = False
         self.trim_clear_btn.setText("清空")
         self.trim_clear_btn.setStyleSheet("")
+        # 更新进度条高亮
+        self.trim_slider.setDeleteRanges([])
     
     def trim_delete_selected(self):
         # 删除列表中选中的项目
         row = self.trim_delete_list.currentRow()
         if row >= 0:
             self.trim_delete_list.takeItem(row)
-            # 更新数据
             del self.trim_delete_ranges[row]
+            self.trim_slider.setDeleteRanges(self.trim_delete_ranges)
     
     def trim_delete_list_item(self, item):
         # 双击删除该项目
@@ -901,6 +944,7 @@ class UnifiedPanel(QMainWindow):
         self.trim_delete_list.takeItem(row)
         if row < len(self.trim_delete_ranges):
             del self.trim_delete_ranges[row]
+            self.trim_slider.setDeleteRanges(self.trim_delete_ranges)
     
     def trim_list_item_clicked(self, item):
         text = item.text()
