@@ -959,37 +959,62 @@ class UnifiedPanel(QMainWindow):
             return
         
         input_path = Path(self.trim_video_path)
-        output_path = input_path.parent / f"{input_path.stem}_clip.mp4"
-        
         cap_in = cv2.VideoCapture(str(input_path))
         total = int(cap_in.get(cv2.CAP_PROP_FRAME_COUNT))
         fps = cap_in.get(cv2.CAP_PROP_FPS)
         width = int(cap_in.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap_in.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        cap_out = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
+        cap_in.release()
         
         # 计算要删除的帧集合
         delete_set = set(self.trim_deleted_frames)
         for start, end in self.trim_delete_ranges:
             delete_set.update(range(start, end + 1))
         
-        frame_idx = 0
-        written = 0
-        while True:
-            ret, frame = cap_in.read()
-            if not ret:
-                break
-            if frame_idx not in delete_set:
-                cap_out.write(frame)
-                written += 1
-            frame_idx += 1
+        # 计算保留区间（多个片段）
+        keep_ranges = []
+        last_start = 0
+        for i in range(total):
+            if i in delete_set:
+                if last_start < i:
+                    keep_ranges.append((last_start, i - 1))
+                last_start = i + 1
+        if last_start < total:
+            keep_ranges.append((last_start, total - 1))
         
-        cap_in.release()
-        cap_out.release()
+        if not keep_ranges:
+            QMessageBox.warning(self, "提示", "没有保留的片段")
+            return
         
-        QMessageBox.information(self, "完成", f"已生成: {output_path}\n原视频: {total}帧\n删除: {len(delete_set)}帧\n输出: {written}帧")
+        # 生成多个视频
+        output_files = []
+        for idx, (start, end) in enumerate(keep_ranges):
+            if len(keep_ranges) == 1:
+                output_path = input_path.parent / f"{input_path.stem}_clip.mp4"
+            else:
+                output_path = input_path.parent / f"{input_path.stem}_clip_{idx + 1}.mp4"
+            
+            cap_in = cv2.VideoCapture(str(input_path))
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            cap_out = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
+            
+            written = 0
+            for frame_idx in range(start, end + 1):
+                cap_in.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+                ret, frame = cap_in.read()
+                if ret:
+                    cap_out.write(frame)
+                    written += 1
+            
+            cap_in.release()
+            cap_out.release()
+            output_files.append(str(output_path))
+        
+        # 显示结果
+        msg = f"原视频: {total}帧\n删除: {len(delete_set)}帧\n保留: {len(keep_ranges)}个片段\n\n生成文件:\n"
+        for f in output_files:
+            msg += f"  {Path(f).name}\n"
+        QMessageBox.information(self, "完成", msg)
     
     def create_annotate_section(self):
         group = QWidget()
