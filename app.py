@@ -1219,7 +1219,7 @@ class UnifiedPanel(QMainWindow):
         frame_nav_layout.addWidget(self.forward_fast_btn)
         layout.addLayout(frame_nav_layout)
 
-        # 第二行：后向、提示帧、帧数、前向
+        # 第二行：后向、提示帧、帧数、前向、回退
         frame_play_layout = QHBoxLayout()
         frame_play_layout.setSpacing(4)
         self.backward_cb = QCheckBox("后向")
@@ -1246,7 +1246,16 @@ class UnifiedPanel(QMainWindow):
         self.forward_cb.setChecked(True)
         self.forward_cb.setStyleSheet("QCheckBox { font-size: 11px; }")
         frame_play_layout.addWidget(self.forward_cb)
+        
+        self.undo_prompt_btn = QPushButton("回退")
+        self.undo_prompt_btn.setFixedHeight(24)
+        self.undo_prompt_btn.setStyleSheet("QPushButton { background-color: #CC0000; color: white; border: none; border-radius: 3px; font-size: 11px; } QPushButton:hover { background-color: #990000; }")
+        self.undo_prompt_btn.clicked.connect(self.undo_last_prompt)
+        frame_play_layout.addWidget(self.undo_prompt_btn)
         layout.addLayout(frame_play_layout)
+        
+        # 记录上一次执行的FIRST_ID
+        self.last_prompt_first_id = None
 
         delete_trace_layout = QHBoxLayout()
         delete_trace_layout.setSpacing(4)
@@ -1700,6 +1709,8 @@ class UnifiedPanel(QMainWindow):
                 return
             available_options = [FIRST_ID]
             FIRST_ID = available_options[0]
+            # 记录本次执行的FIRST_ID用于回退
+            self.last_prompt_first_id = FIRST_ID
             device_str = "GPU" if device_type == 'cuda' else ("MPS" if device_type == 'mps' else "CPU")
             print(f"=== 双向标注开始 === 提示帧: {prompt_idx}, 总帧数: {total}, 设备: [{device_str}], 前向={self.forward_cb.isChecked()}, 后向={self.backward_cb.isChecked()}, FIRST_ID={FIRST_ID}")
             forward_annotations = []
@@ -2046,6 +2057,57 @@ class UnifiedPanel(QMainWindow):
             QMessageBox.critical(self, "错误", f"双向标注失败:\n{e}")
         finally:
             self.reset_prompt_btn()
+
+    def undo_last_prompt(self):
+        """回退上一次执行的提示帧标注"""
+        if self.last_prompt_first_id is None:
+            QMessageBox.warning(self, "提示", "没有可回退的操作")
+            return
+        
+        temp_mid = Path(TEMP_DATA_MID_DIR)
+        labels_dir = temp_mid / "labels"
+        annotations_file = temp_mid / "annotations.json"
+        
+        if not labels_dir.exists() and not annotations_file.exists():
+            QMessageBox.warning(self, "提示", "temp_data_mid 目录不存在")
+            return
+        
+        deleted_count = 0
+        first_id = self.last_prompt_first_id
+        last_id = first_id + 999  # 1000档的范围
+        
+        # 删除labels目录中属于该档位的标注
+        if labels_dir.exists():
+            for label_file in labels_dir.glob("frame_*.json"):
+                try:
+                    with open(label_file, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    original_len = len(data)
+                    data = [ann for ann in data if not (first_id <= ann.get('track_id', 0) <= last_id)]
+                    if len(data) < original_len:
+                        with open(label_file, 'w', encoding='utf-8') as f:
+                            json.dump(data, f, ensure_ascii=False)
+                        deleted_count += original_len - len(data)
+                except Exception as e:
+                    print(f"处理 {label_file} 失败: {e}")
+        
+        # 删除annotations.json中属于该档位的标注
+        if annotations_file.exists():
+            try:
+                with open(annotations_file, 'r', encoding='utf-8') as f:
+                    coco = json.load(f)
+                original_len = len(coco.get('annotations', []))
+                coco['annotations'] = [ann for ann in coco.get('annotations', []) 
+                                       if not (first_id <= ann.get('track_id', 0) <= last_id)]
+                with open(annotations_file, 'w', encoding='utf-8') as f:
+                    json.dump(coco, f, ensure_ascii=False)
+                deleted_count += original_len - len(coco.get('annotations', []))
+            except Exception as e:
+                print(f"处理 annotations.json 失败: {e}")
+        
+        self.last_prompt_first_id = None
+        print(f"已回退 {deleted_count} 个标注 (track_id: {first_id}-{last_id})")
+        QMessageBox.information(self, "完成", f"已删除 {deleted_count} 个标注\ntrack_id范围: {first_id}-{last_id}")
 
     def reset_prompt_btn(self):
         self.prompt_drawing_mode = False
