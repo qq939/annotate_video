@@ -618,7 +618,8 @@ class UnifiedPanel(QMainWindow):
             (128, 0, 128),   # 紫 (BGR)
         ]
         self.selected_color_index = random.randint(0, 6)
-        self.prompt_trace_id_options = list(range(10000, 501000, 10000))
+        # 生成1000档的track_id选项 (1000, 2000, 3000, ...)
+        self.prompt_trace_id_options = list(range(1000, 1000000, 1000))
 
         self.init_ui()
 
@@ -1152,7 +1153,8 @@ class UnifiedPanel(QMainWindow):
         category_layout.setSpacing(2)
         category_layout.addWidget(QLabel("类别名称 (trace_id → 类别):"))
         self.category_inputs = []
-        for tid in range(1000000, 1000008):
+        # 1000档，从1000开始到7000（8个槽位）
+        for tid in range(1000, 8000, 1000):
             row = QHBoxLayout()
             row.setSpacing(2)
             label = QLabel(f"{tid}:")
@@ -1686,12 +1688,17 @@ class UnifiedPanel(QMainWindow):
                     coco = json.load(f)
                 for ann in coco.get('annotations', []):
                     tid = ann.get('track_id', 0)
-                    occupied_bands.add((tid // 10000) * 10000)
-            available_options = [opt for opt in self.prompt_trace_id_options if (opt // 10000) * 10000 not in occupied_bands]
-            if not available_options:
-                QMessageBox.warning(self, "错误", "所有 track_id 选项都已被占用")
+                    occupied_bands.add((tid // 1000) * 1000)  # 1000档
+            # 遍历所有1000档，检查是否被占用
+            for band in range(1000, 1000000, 1000):
+                if band not in occupied_bands:
+                    FIRST_ID = band
+                    break
+            else:
+                QMessageBox.warning(self, "错误", "所有 track_id 档位都已被占用")
                 self.reset_prompt_btn()
                 return
+            available_options = [FIRST_ID]
             FIRST_ID = available_options[0]
             device_str = "GPU" if device_type == 'cuda' else ("MPS" if device_type == 'mps' else "CPU")
             print(f"=== 双向标注开始 === 提示帧: {prompt_idx}, 总帧数: {total}, 设备: [{device_str}], 前向={self.forward_cb.isChecked()}, 后向={self.backward_cb.isChecked()}, FIRST_ID={FIRST_ID}")
@@ -2551,31 +2558,7 @@ class UnifiedPanel(QMainWindow):
         all_annotations = []
         ann_id = 0
         all_images = []
-        
-        # 扫描现有track_ids，找出可用的"提示帧"track_id范围（3000档）
-        used_track_ids = set()
-        for json_file in json_files:
-            with open(json_file) as f:
-                data = json.load(f)
-            shapes = data.get('shapes', [])
-            for shape in shapes:
-                for pt in shape.get('points', []):
-                    # 检查是否有track_id标注（label格式: category_name:track_id）
-                    label = shape.get('label', '')
-                    if ':' in label:
-                        try:
-                            tid = int(label.split(':')[-1])
-                            used_track_ids.add(tid)
-                        except:
-                            pass
-        
-        # 找到可用的提示帧track_id（从3000开始，每1000为一档）
-        prompt_tid = 3000
-        while prompt_tid in used_track_ids:
-            prompt_tid += 1000
-        print(f"[DEBUG] 使用提示帧track_id: {prompt_tid}")
-        
-        # 遍历所有文件
+
         for json_file in json_files:
             with open(json_file) as f:
                 data = json.load(f)
@@ -2649,7 +2632,7 @@ class UnifiedPanel(QMainWindow):
                 area = float(w * h)
                 ann = {
                     'id': ann_id,
-                    'track_id': prompt_tid,  # 默认track_id
+                    'track_id': 1000,  # 默认track_id
                     'image_id': frame_idx,
                     'category_id': 0,
                     'bbox': bbox,
@@ -2735,12 +2718,16 @@ class UnifiedPanel(QMainWindow):
             self.save_input_dir.setText(folder)
 
     def _get_category_for_track_id(self, track_id):
-        if 1000000 <= track_id <= 1000007:
-            idx = track_id - 1000000
-            name = self.category_inputs[idx].text() or "Detect"
-            return (idx, name)
-        elif track_id >= 1000000:
-            return (track_id - 1000000, "Detect")
+        # 1000档: 1000, 2000, ..., 7000
+        if 1000 <= track_id <= 7000:
+            idx = (track_id // 1000) - 1
+            if idx < len(self.category_inputs):
+                name = self.category_inputs[idx].text() or "Detect"
+                return (idx, name)
+            return (0, self.ctrl.category_name)
+        elif track_id >= 1000:
+            idx = (track_id // 1000) - 1
+            return (idx, "Detect")
         return (0, self.ctrl.category_name)
 
     def export_to_temp_data_post(self):
@@ -2762,20 +2749,7 @@ class UnifiedPanel(QMainWindow):
         if total_frames == 0:
             QMessageBox.warning(self, "错误", "没有帧数据")
             return
-        
-        # 扫描现有track_ids，找出可用的"提示帧"track_id范围（3000档）
-        used_track_ids = set()
-        for ann in coco_data.get('annotations', []):
-            tid = ann.get('track_id', 0)
-            if tid >= 3000 and tid < 4000:
-                used_track_ids.add(tid)
-        
-        # 找到可用的提示帧track_id（从3000开始，每1000为一档）
-        prompt_tid = 3000
-        while prompt_tid in used_track_ids:
-            prompt_tid += 1000
-        print(f"[DEBUG] 使用提示帧track_id: {prompt_tid}")
-        
+
         # 清空temp_data_post
         import shutil
         output_path = Path("temp_data_post")
@@ -2806,8 +2780,7 @@ class UnifiedPanel(QMainWindow):
                     annotations = json.load(f)
 
                 filtered = self.ctrl.filter_annotations(annotations)
-                # 只保留提示帧track_id（3000档）
-                track_id_filtered = [ann for ann in filtered if ann.get('track_id', 0) >= 3000 and ann.get('track_id', 0) < 4000]
+                track_id_filtered = [ann for ann in filtered if ann.get('track_id', 0) > 999998]
 
                 # 根据bbox去重（完全相同的bbox只保留一个）
                 seen_bboxes = set()
@@ -3094,7 +3067,7 @@ class UnifiedPanel(QMainWindow):
                     cat_name = ann.get('category', 'Unknown')
                     conf = ann.get('confidence', 1.0)
                     track_id = ann.get('track_id', 0)
-                    if track_id >= 3000 and track_id < 4000:
+                    if track_id == 1000:
                         color = self.palette_colors[self.selected_color_index]
                     else:
                         n_colors = len(self.palette_colors) - 1
@@ -3266,7 +3239,7 @@ class UnifiedPanel(QMainWindow):
                         if tid < min_tid:
                             min_tid = tid
                             # 获取颜色
-                            if tid >= 3000 and tid < 4000:
+                            if tid == 1000:
                                 min_tid_color = self.palette_colors[self.selected_color_index]
                             else:
                                 n_colors = len(self.palette_colors) - 1
