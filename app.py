@@ -1926,6 +1926,7 @@ class UnifiedPanel(QMainWindow):
             forward_anns = []
             backward_anns = []
             prompt_frame_anns = []
+            prompt_ann_id = FIRST_ID
             
             # 保存提示帧本身的bbox和segmentation
             prompt_frame_file = src_labels_dir / f"frame_{prompt_idx:06d}.json"
@@ -1938,13 +1939,13 @@ class UnifiedPanel(QMainWindow):
                     poly = [x1, y1, x2, y1, x2, y2, x1, y2]
                     area = float((x2 - x1) * (y2 - y1))
                     ann = {
-                        'id': ann_id, 'track_id': FIRST_ID, 'image_id': prompt_idx,
+                        'id': prompt_ann_id, 'track_id': FIRST_ID, 'image_id': prompt_idx,
                         'category_id': 0, 'bbox': bbox, 'area': area,
                         'segmentation': [poly], 'iscrowd': 0, 'confidence': 1.0,
                         'category': 'Detect', 'trace_id_list': [FIRST_ID]
                     }
                     prompt_anns.append(ann)
-                    ann_id += 1
+                    prompt_ann_id += 1
                 # 保存到label文件
                 existing = []
                 if prompt_frame_file.exists():
