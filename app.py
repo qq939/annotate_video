@@ -641,11 +641,35 @@ class UnifiedPanel(QMainWindow):
 
     def create_video_trim_section(self):
         """视频帧剔除模块"""
-        group = QGroupBox("0. 视频帧剔除")
+        group = QWidget()
         layout = QVBoxLayout()
-        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
         group.setLayout(layout)
+        
+        # 可折叠标题栏
+        header = QWidget()
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(4)
+        
+        self.trim_toggle_btn = QToolButton()
+        self.trim_toggle_btn.setText("0. 视频帧剔除 ▼")
+        self.trim_toggle_btn.setStyleSheet("QToolButton { font-weight: bold; background: #333; color: white; border: none; padding: 4px; }")
+        self.trim_toggle_btn.setCheckable(True)
+        self.trim_toggle_btn.setChecked(True)
+        self.trim_toggle_btn.toggled.connect(lambda checked: self.trim_content.setVisible(checked))
+        header_layout.addWidget(self.trim_toggle_btn)
+        header.setLayout(header_layout)
+        layout.addWidget(header)
+        
+        # 可折叠内容
+        self.trim_content = QWidget()
+        content_layout = QVBoxLayout()
+        content_layout.setContentsMargins(4, 4, 4, 4)
+        content_layout.setSpacing(4)
+        self.trim_content.setLayout(content_layout)
+        layout.addWidget(self.trim_content)
         
         # 选择视频
         select_layout = QHBoxLayout()
@@ -658,7 +682,7 @@ class UnifiedPanel(QMainWindow):
         select_btn.setFixedWidth(50)
         select_btn.clicked.connect(self.select_trim_video)
         select_layout.addWidget(select_btn)
-        layout.addLayout(select_layout)
+        content_layout.addLayout(select_layout)
         
         # 视频预览和进度条
         self.trim_label = QLabel()
@@ -666,7 +690,7 @@ class UnifiedPanel(QMainWindow):
         self.trim_label.setAlignment(Qt.AlignCenter)
         self.trim_label.setStyleSheet("QLabel { background-color: #222; color: white; border: 1px solid #444; }")
         self.trim_label.mousePressEvent = self.trim_label_click
-        layout.addWidget(self.trim_label)
+        content_layout.addWidget(self.trim_label)
         
         # 进度条
         self.trim_slider = QSlider(Qt.Horizontal)
@@ -678,7 +702,7 @@ class UnifiedPanel(QMainWindow):
             QSlider::add-page:horizontal { background: #333; }
         """)
         self.trim_slider.sliderMoved.connect(self.trim_seek)
-        layout.addWidget(self.trim_slider)
+        content_layout.addWidget(self.trim_slider)
         
         # 帧信息
         frame_info_layout = QHBoxLayout()
@@ -686,7 +710,7 @@ class UnifiedPanel(QMainWindow):
         self.trim_frame_label = QLabel("0/0")
         frame_info_layout.addWidget(self.trim_frame_label)
         frame_info_layout.addStretch()
-        layout.addLayout(frame_info_layout)
+        content_layout.addLayout(frame_info_layout)
         
         # 控制按钮
         control_layout = QHBoxLayout()
@@ -715,7 +739,7 @@ class UnifiedPanel(QMainWindow):
         self.trim_clear_btn.clicked.connect(self.trim_clear_list)
         control_layout.addWidget(self.trim_clear_btn)
         
-        layout.addLayout(control_layout)
+        content_layout.addLayout(control_layout)
         
         # 待删除列表
         list_layout = QHBoxLayout()
@@ -723,8 +747,17 @@ class UnifiedPanel(QMainWindow):
         self.trim_delete_list = QListWidget()
         self.trim_delete_list.setFixedHeight(60)
         self.trim_delete_list.itemClicked.connect(self.trim_list_item_clicked)
+        self.trim_delete_list.itemDoubleClicked.connect(self.trim_delete_list_item)
         list_layout.addWidget(self.trim_delete_list)
-        layout.addLayout(list_layout)
+        
+        # 删除选中按钮
+        self.trim_del_item_btn = QPushButton("删除选中")
+        self.trim_del_item_btn.setFixedHeight(60)
+        self.trim_del_item_btn.setFixedWidth(60)
+        self.trim_del_item_btn.clicked.connect(self.trim_delete_selected)
+        list_layout.addWidget(self.trim_del_item_btn)
+        
+        content_layout.addLayout(list_layout)
         
         # 按钮行
         btn_layout = QHBoxLayout()
@@ -733,7 +766,7 @@ class UnifiedPanel(QMainWindow):
         self.trim_generate_btn.clicked.connect(self.trim_generate)
         btn_layout.addWidget(self.trim_generate_btn)
         
-        layout.addLayout(btn_layout)
+        content_layout.addLayout(btn_layout)
         
         # 初始化变量
         self.trim_video_path = None
@@ -854,6 +887,21 @@ class UnifiedPanel(QMainWindow):
         self.trim_clear_btn.setText("清空")
         self.trim_clear_btn.setStyleSheet("")
     
+    def trim_delete_selected(self):
+        # 删除列表中选中的项目
+        row = self.trim_delete_list.currentRow()
+        if row >= 0:
+            self.trim_delete_list.takeItem(row)
+            # 更新数据
+            del self.trim_delete_ranges[row]
+    
+    def trim_delete_list_item(self, item):
+        # 双击删除该项目
+        row = self.trim_delete_list.row(item)
+        self.trim_delete_list.takeItem(row)
+        if row < len(self.trim_delete_ranges):
+            del self.trim_delete_ranges[row]
+    
     def trim_list_item_clicked(self, item):
         text = item.text()
         # 解析并跳转到对应帧
@@ -900,12 +948,36 @@ class UnifiedPanel(QMainWindow):
         QMessageBox.information(self, "完成", f"已生成: {output_path}\n原视频: {total}帧\n删除: {len(delete_set)}帧\n输出: {written}帧")
     
     def create_annotate_section(self):
-        group = QGroupBox("1. 视频标注 (annotate_video)")
+        group = QWidget()
         layout = QVBoxLayout()
-        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
         group.setLayout(layout)
-
+        
+        # 可折叠标题栏
+        header = QWidget()
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(4)
+        
+        self.annot_toggle_btn = QToolButton()
+        self.annot_toggle_btn.setText("1. 视频标注 (annotate_video) ▼")
+        self.annot_toggle_btn.setStyleSheet("QToolButton { font-weight: bold; background: #333; color: white; border: none; padding: 4px; }")
+        self.annot_toggle_btn.setCheckable(True)
+        self.annot_toggle_btn.setChecked(True)
+        self.annot_toggle_btn.toggled.connect(lambda checked: self.annot_content.setVisible(checked))
+        header_layout.addWidget(self.annot_toggle_btn)
+        header.setLayout(header_layout)
+        layout.addWidget(header)
+        
+        # 可折叠内容
+        self.annot_content = QWidget()
+        content_layout = QVBoxLayout()
+        content_layout.setContentsMargins(4, 4, 4, 4)
+        content_layout.setSpacing(4)
+        self.annot_content.setLayout(content_layout)
+        layout.addWidget(self.annot_content)
+        
         video_layout = QHBoxLayout()
         video_layout.setSpacing(4)
         video_layout.addWidget(QLabel("视频:"))
@@ -916,7 +988,7 @@ class UnifiedPanel(QMainWindow):
         select_btn.setFixedWidth(50)
         select_btn.clicked.connect(self.select_video)
         video_layout.addWidget(select_btn)
-        layout.addLayout(video_layout)
+        content_layout.addLayout(video_layout)
 
         # 前处理参数行
         preprocess_layout = QHBoxLayout()
