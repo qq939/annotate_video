@@ -645,13 +645,13 @@ class TrimWindow(QDialog):
         super().__init__(parent)
         self.video_path = video_path
         self.setWindowTitle("视频帧剔除")
-        self.setMinimumSize(800, 700)
+        self.setMinimumSize(1200, 1050)
         
         layout = QVBoxLayout(self)
         
         # 视频预览
         self.label = QLabel()
-        self.label.setFixedHeight(400)
+        self.label.setFixedHeight(600)
         self.label.setAlignment(Qt.AlignCenter)
         self.label.setStyleSheet("QLabel { background-color: #222; color: white; border: 1px solid #444; }")
         self.label.mousePressEvent = self.on_label_click
@@ -659,7 +659,7 @@ class TrimWindow(QDialog):
         
         # 进度条
         self.slider = TrimSlider(self)
-        self.slider.setFixedHeight(50)
+        self.slider.setFixedHeight(75)
         self.slider.sliderMoved.connect(self.seek)
         layout.addWidget(self.slider)
         
@@ -673,23 +673,28 @@ class TrimWindow(QDialog):
         # 控制按钮
         ctrl_layout = QHBoxLayout()
         btn_back = QPushButton("◀◀")
+        btn_back.setFixedHeight(60)
         btn_back.clicked.connect(self.backward)
         ctrl_layout.addWidget(btn_back)
         
         self.play_btn = QPushButton("▶")
+        self.play_btn.setFixedHeight(60)
         self.play_btn.clicked.connect(self.toggle_play)
         ctrl_layout.addWidget(self.play_btn)
         
         btn_forward = QPushButton("▶▶")
+        btn_forward.setFixedHeight(60)
         btn_forward.clicked.connect(self.forward)
         ctrl_layout.addWidget(btn_forward)
         ctrl_layout.addStretch()
         
         self.clear_btn = QPushButton("清空")
+        self.clear_btn.setFixedHeight(60)
         self.clear_btn.clicked.connect(self.clear_list)
         ctrl_layout.addWidget(self.clear_btn)
         
         btn_gen = QPushButton("生成裁剪视频")
+        btn_gen.setFixedHeight(60)
         btn_gen.clicked.connect(self.generate)
         ctrl_layout.addWidget(btn_gen)
         
@@ -699,11 +704,12 @@ class TrimWindow(QDialog):
         list_layout = QHBoxLayout()
         list_layout.addWidget(QLabel("待删除:"))
         self.delete_list = QListWidget()
-        self.delete_list.setFixedHeight(60)
+        self.delete_list.setFixedHeight(120)
         self.delete_list.itemDoubleClicked.connect(self.delete_item)
         list_layout.addWidget(self.delete_list)
         
-        btn_del = QPushButton("删除\n选中")
+        btn_del = QPushButton("删除选中")
+        btn_del.setFixedSize(80, 120)
         btn_del.clicked.connect(self.delete_selected)
         list_layout.addWidget(btn_del)
         
@@ -738,9 +744,11 @@ class TrimWindow(QDialog):
         if ret:
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             h, w = frame.shape[:2]
-            scaled_h = min(400, h * 400 // w)
-            frame_small = cv2.resize(frame, (400, scaled_h))
-            qimg = QImage(frame_small.data, 400, scaled_h, 400 * 3, QImage.Format_RGB888)
+            scale = min(600 / h, 1200 / w)
+            new_w = int(w * scale)
+            new_h = int(h * scale)
+            frame_small = cv2.resize(frame, (new_w, new_h))
+            qimg = QImage(frame_small.data, new_w, new_h, new_w * 3, QImage.Format_RGB888)
             self.label.setPixmap(QPixmap.fromImage(qimg))
         self.frame_label.setText(f"{idx}/{self.total_frames}")
     
@@ -949,26 +957,17 @@ class UnifiedPanel(QMainWindow):
         self.trim_content.setLayout(content_layout)
         layout.addWidget(self.trim_content)
         
-        # 视频选择和打开按钮
-        video_layout = QHBoxLayout()
-        self.trim_video_input = DragLineEdit()
-        self.trim_video_input.setPlaceholderText("选择/拖拽视频文件")
-        self.trim_video_input.setFixedHeight(44)
-        video_layout.addWidget(self.trim_video_input)
-        open_btn = QPushButton("打开")
-        open_btn.setFixedHeight(44)
+        # 打开按钮
+        open_btn = QPushButton("打开视频")
+        open_btn.setFixedHeight(60)
         open_btn.clicked.connect(self.open_trim_window)
-        video_layout.addWidget(open_btn)
-        content_layout.addLayout(video_layout)
+        content_layout.addWidget(open_btn)
         
         return group
 
     def open_trim_window(self):
-        file_path = self.trim_video_input.text().strip()
-        if not file_path or not Path(file_path).exists():
-            file_path, _ = QFileDialog.getOpenFileName(self, "选择视频", "", "视频文件 (*.mp4 *.avi *.mov *.mkv)")
-        if file_path and Path(file_path).exists():
-            self.trim_video_input.setText(file_path)
+        file_path, _ = QFileDialog.getOpenFileName(self, "选择视频", "", "视频文件 (*.mp4 *.avi *.mov *.mkv)")
+        if file_path:
             self.trim_win = TrimWindow(file_path, self)
             self.trim_win.exec_()
     
