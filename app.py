@@ -644,19 +644,29 @@ class TrimDialog(QDialog):
     def __init__(self, video_path, parent=None):
         super().__init__(parent)
         self.video_path = video_path
+        
+        # 先获取视频尺寸
+        cap = cv2.VideoCapture(video_path)
+        vw = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        vh = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        cap.release()
+        
+        # 窗口更大，视频为主体
+        win_w = max(1200, vw + 100)
+        win_h = vh + 200
+        self.setMinimumSize(win_w, win_h)
         self.setWindowTitle("视频帧删除")
-        self.setMinimumSize(800, 700)
         
         layout = QVBoxLayout()
+        layout.setContentsMargins(5, 5, 5, 5)
         self.setLayout(layout)
         
-        # 视频预览
+        # 视频预览（主体）
         self.label = QLabel()
-        self.label.setFixedHeight(400)
         self.label.setAlignment(Qt.AlignCenter)
         self.label.setStyleSheet("QLabel { background-color: #222; color: white; border: 1px solid #444; }")
         self.label.mousePressEvent = self.on_label_click
-        layout.addWidget(self.label)
+        layout.addWidget(self.label, 1)  # stretch=1 让视频占主体
         
         # 进度条
         self.slider = TrimSlider(self)
@@ -714,6 +724,8 @@ class TrimDialog(QDialog):
         self.fps = self.cap.get(cv2.CAP_PROP_FPS)
         self.slider.setMaximum(self.total - 1)
         self.show_frame(0)
+        # 初始显示一帧以确定label尺寸
+        QTimer.singleShot(100, lambda: self.show_frame(0))
     
     def show_frame(self, idx):
         self.cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
@@ -721,8 +733,14 @@ class TrimDialog(QDialog):
         if ret:
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             h, w = frame.shape[:2]
-            scale = min(800 / w, 400 / h)
-            new_w, new_h = int(w * scale), int(h * scale)
+            # 适应窗口大小
+            label_w = self.label.width()
+            label_h = self.label.height()
+            if label_w > 0 and label_h > 0:
+                scale = min(label_w / w, label_h / h)
+                new_w, new_h = int(w * scale), int(h * scale)
+            else:
+                new_w, new_h = w, h
             frame_small = cv2.resize(frame, (new_w, new_h))
             qimg = QImage(frame_small.data, new_w, new_h, new_w * 3, QImage.Format_RGB888)
             self.label.setPixmap(QPixmap.fromImage(qimg))
