@@ -639,6 +639,240 @@ class DragLineEdit(QLineEdit):
             super().dropEvent(event)
 
 
+class TrimWindow(QDialog):
+    """视频帧剔除弹窗"""
+    def __init__(self, video_path, parent=None):
+        super().__init__(parent)
+        self.video_path = video_path
+        self.setWindowTitle("视频帧剔除")
+        self.setMinimumSize(800, 700)
+        
+        layout = QVBoxLayout(self)
+        
+        # 视频预览
+        self.label = QLabel()
+        self.label.setFixedHeight(400)
+        self.label.setAlignment(Qt.AlignCenter)
+        self.label.setStyleSheet("QLabel { background-color: #222; color: white; border: 1px solid #444; }")
+        self.label.mousePressEvent = self.on_label_click
+        layout.addWidget(self.label)
+        
+        # 进度条
+        self.slider = TrimSlider(self)
+        self.slider.setFixedHeight(50)
+        self.slider.sliderMoved.connect(self.seek)
+        layout.addWidget(self.slider)
+        
+        # 帧信息
+        frame_layout = QHBoxLayout()
+        self.frame_label = QLabel("0/0")
+        frame_layout.addWidget(self.frame_label)
+        frame_layout.addStretch()
+        layout.addLayout(frame_layout)
+        
+        # 控制按钮
+        ctrl_layout = QHBoxLayout()
+        btn_back = QPushButton("◀◀")
+        btn_back.clicked.connect(self.backward)
+        ctrl_layout.addWidget(btn_back)
+        
+        self.play_btn = QPushButton("▶")
+        self.play_btn.clicked.connect(self.toggle_play)
+        ctrl_layout.addWidget(self.play_btn)
+        
+        btn_forward = QPushButton("▶▶")
+        btn_forward.clicked.connect(self.forward)
+        ctrl_layout.addWidget(btn_forward)
+        ctrl_layout.addStretch()
+        
+        self.clear_btn = QPushButton("清空")
+        self.clear_btn.clicked.connect(self.clear_list)
+        ctrl_layout.addWidget(self.clear_btn)
+        
+        btn_gen = QPushButton("生成裁剪视频")
+        btn_gen.clicked.connect(self.generate)
+        ctrl_layout.addWidget(btn_gen)
+        
+        layout.addLayout(ctrl_layout)
+        
+        # 删除列表
+        list_layout = QHBoxLayout()
+        list_layout.addWidget(QLabel("待删除:"))
+        self.delete_list = QListWidget()
+        self.delete_list.setFixedHeight(80)
+        self.delete_list.itemDoubleClicked.connect(self.delete_item)
+        list_layout.addWidget(self.delete_list)
+        
+        btn_del = QPushButton("删除\n选中")
+        btn_del.clicked.connect(self.delete_selected)
+        list_layout.addWidget(btn_del)
+        
+        layout.addLayout(list_layout)
+        
+        # 变量初始化
+        self.cap = None
+        self.total_frames = 0
+        self.fps = 30
+        self.is_playing = False
+        self.timer = None
+        self.select_start = None
+        self.delete_ranges = []
+        
+        self.load_video()
+    
+    def load_video(self):
+        self.cap = cv2.VideoCapture(self.video_path)
+        self.total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        self.fps = self.cap.get(cv2.CAP_PROP_FPS)
+        self.slider.setMaximum(self.total_frames - 1)
+        self.slider.setValue(0)
+        self.cap.release()
+        self.cap = None
+        self.show_frame(0)
+    
+    def show_frame(self, idx):
+        if self.cap is None:
+            self.cap = cv2.VideoCapture(self.video_path)
+        self.cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+        ret, frame = self.cap.read()
+        if ret:
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            h, w = frame.shape[:2]
+            scaled_h = min(400, h * 400 // w)
+            frame_small = cv2.resize(frame, (400, scaled_h))
+            qimg = QImage(frame_small.data, 400, scaled_h, 400 * 3, QImage.Format_RGB888)
+            self.label.setPixmap(QPixmap.fromImage(qimg))
+        self.frame_label.setText(f"{idx}/{self.total_frames}")
+    
+    def seek(self, idx):
+        self.slider.blockSignals(True)
+        self.slider.setValue(idx)
+        self.slider.blockSignals(False)
+        self.show_frame(idx)
+    
+    def toggle_play(self):
+        self.is_playing = not self.is_playing
+        self.play_btn.setText("⏸" if self.is_playing else "▶")
+        if self.is_playing:
+            self.timer = QTimer()
+            self.timer.timeout.connect(self.next_frame)
+            self.timer.start(int(1000 / self.fps))
+        elif self.timer:
+            self.timer.stop()
+    
+    def next_frame(self):
+        cur = self.slider.value()
+        if cur < self.total_frames - 1:
+            self.seek(cur + 1)
+        else:
+            self.toggle_play()
+    
+    def backward(self):
+        cur = self.slider.value()
+        if cur > 0:
+            self.seek(cur - 1)
+    
+    def forward(self):
+        cur = self.slider.value()
+        if cur < self.total_frames - 1:
+            self.seek(cur + 1)
+    
+    def on_label_click(self, event):
+        cur = self.slider.value()
+        if self.select_start is None:
+            self.select_start = cur
+            self.clear_btn.setText(f"取消({cur})")
+            self.clear_btn.setStyleSheet("QPushButton { background: #ff6600; color: white; }")
+        else:
+            start = min(self.select_start, cur)
+            end = max(self.select_start, cur)
+            self.delete_ranges.append((start, end))
+            self.delete_list.addItem(f"帧 {start} → {end}")
+            self.select_start = None
+            self.clear_btn.setText("清空")
+            self.clear_btn.setStyleSheet("")
+            self.slider.setDeleteRanges(self.delete_ranges)
+    
+    def clear_list(self):
+        if self.select_start is not None:
+            self.select_start = None
+            self.clear_btn.setText("清空")
+            self.clear_btn.setStyleSheet("")
+        else:
+            self.delete_ranges = []
+            self.delete_list.clear()
+            self.slider.setDeleteRanges([])
+    
+    def delete_selected(self):
+        row = self.delete_list.currentRow()
+        if row >= 0:
+            self.delete_list.takeItem(row)
+            del self.delete_ranges[row]
+            self.slider.setDeleteRanges(self.delete_ranges)
+    
+    def delete_item(self, item):
+        row = self.delete_list.row(item)
+        self.delete_list.takeItem(row)
+        del self.delete_ranges[row]
+        self.slider.setDeleteRanges(self.delete_ranges)
+    
+    def generate(self):
+        if not self.delete_ranges:
+            QMessageBox.warning(self, "提示", "没有删除片段")
+            return
+        
+        delete_set = set()
+        for start, end in self.delete_ranges:
+            delete_set.update(range(start, end + 1))
+        
+        keep_ranges = []
+        last_start = 0
+        for i in range(self.total_frames):
+            if i in delete_set:
+                if last_start < i:
+                    keep_ranges.append((last_start, i - 1))
+                last_start = i + 1
+        if last_start < self.total_frames:
+            keep_ranges.append((last_start, self.total_frames - 1))
+        
+        input_path = Path(self.video_path)
+        output_files = []
+        for idx, (start, end) in enumerate(keep_ranges):
+            if len(keep_ranges) == 1:
+                out_path = input_path.parent / f"{input_path.stem}_clip.mp4"
+            else:
+                out_path = input_path.parent / f"{input_path.stem}_clip_{idx + 1}.mp4"
+            
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            cap_in = cv2.VideoCapture(self.video_path)
+            w = int(cap_in.get(cv2.CAP_PROP_FRAME_WIDTH))
+            h = int(cap_in.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            cap_out = cv2.VideoWriter(str(out_path), fourcc, self.fps, (w, h))
+            
+            for fidx in range(start, end + 1):
+                cap_in.set(cv2.CAP_PROP_POS_FRAMES, fidx)
+                ret, frame = cap_in.read()
+                if ret:
+                    cap_out.write(frame)
+            
+            cap_in.release()
+            cap_out.release()
+            output_files.append(str(out_path))
+        
+        msg = f"原视频: {self.total_frames}帧\n删除: {len(delete_set)}帧\n保留: {len(keep_ranges)}个片段\n\n"
+        for f in output_files:
+            msg += f"{Path(f).name}\n"
+        QMessageBox.information(self, "完成", msg)
+        self.close()
+    
+    def closeEvent(self, event):
+        if self.timer:
+            self.timer.stop()
+        if self.cap:
+            self.cap.release()
+        super().closeEvent(event)
+
+
 class UnifiedPanel(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -679,13 +913,12 @@ class UnifiedPanel(QMainWindow):
         main_layout.setSpacing(4)
         central.setLayout(main_layout)
 
-        main_layout.addWidget(self.create_video_trim_section())
         main_layout.addWidget(self.create_annotate_section())
         main_layout.addWidget(self.create_viewer_section())
         main_layout.addWidget(self.create_save_section())
 
     def create_video_trim_section(self):
-        """视频帧剔除模块"""
+        """视频帧剔除模块 - 仅包含打开按钮"""
         group = QWidget()
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
@@ -716,305 +949,19 @@ class UnifiedPanel(QMainWindow):
         self.trim_content.setLayout(content_layout)
         layout.addWidget(self.trim_content)
         
-        # 选择视频
-        select_layout = QHBoxLayout()
-        select_layout.addWidget(QLabel("视频:"))
-        self.trim_video_input = QLineEdit()
-        self.trim_video_input.setFixedHeight(22)
-        self.trim_video_input.setPlaceholderText("选择视频文件")
-        select_layout.addWidget(self.trim_video_input)
-        select_btn = QPushButton("选择")
-        select_btn.setFixedWidth(50)
-        select_btn.clicked.connect(self.select_trim_video)
-        select_layout.addWidget(select_btn)
-        content_layout.addLayout(select_layout)
-        
-        # 视频预览和进度条
-        self.trim_label = QLabel()
-        self.trim_label.setFixedHeight(200)
-        self.trim_label.setAlignment(Qt.AlignCenter)
-        self.trim_label.setStyleSheet("QLabel { background-color: #222; color: white; border: 1px solid #444; }")
-        self.trim_label.mousePressEvent = self.trim_label_click
-        content_layout.addWidget(self.trim_label)
-        
-        # 自定义进度条
-        self.trim_slider = TrimSlider(self)
-        self.trim_slider.setFixedHeight(40)
-        self.trim_slider.sliderMoved.connect(self.trim_seek)
-        content_layout.addWidget(self.trim_slider)
-        
-        # 帧信息
-        frame_info_layout = QHBoxLayout()
-        frame_info_layout.addWidget(QLabel("帧:"))
-        self.trim_frame_label = QLabel("0/0")
-        frame_info_layout.addWidget(self.trim_frame_label)
-        frame_info_layout.addStretch()
-        content_layout.addLayout(frame_info_layout)
-        
-        # 控制按钮
-        control_layout = QHBoxLayout()
-        self.trim_backward_btn = QPushButton("◀◀")
-        self.trim_backward_btn.setFixedHeight(30)
-        self.trim_backward_btn.clicked.connect(self.trim_backward)
-        control_layout.addWidget(self.trim_backward_btn)
-        
-        self.trim_play_btn = QPushButton("▶")
-        self.trim_play_btn.setFixedHeight(30)
-        self.trim_play_btn.clicked.connect(self.trim_toggle_play)
-        control_layout.addWidget(self.trim_play_btn)
-        
-        self.trim_forward_btn = QPushButton("▶▶")
-        self.trim_forward_btn.setFixedHeight(30)
-        self.trim_forward_btn.clicked.connect(self.trim_forward)
-        control_layout.addWidget(self.trim_forward_btn)
-        
-        control_layout.addStretch()
-        
-        self.trim_selecting = False  # 是否正在选择
-        self.trim_select_start = None  # 选择起始点
-        
-        self.trim_clear_btn = QPushButton("清空")
-        self.trim_clear_btn.setFixedHeight(30)
-        self.trim_clear_btn.clicked.connect(self.trim_clear_list)
-        control_layout.addWidget(self.trim_clear_btn)
-        
-        content_layout.addLayout(control_layout)
-        
-        # 待删除列表
-        list_layout = QHBoxLayout()
-        list_layout.addWidget(QLabel("待删除片段:"))
-        self.trim_delete_list = QListWidget()
-        self.trim_delete_list.setFixedHeight(60)
-        self.trim_delete_list.itemClicked.connect(self.trim_list_item_clicked)
-        self.trim_delete_list.itemDoubleClicked.connect(self.trim_delete_list_item)
-        list_layout.addWidget(self.trim_delete_list)
-        
-        # 删除选中按钮
-        self.trim_del_item_btn = QPushButton("删除选中")
-        self.trim_del_item_btn.setFixedHeight(60)
-        self.trim_del_item_btn.setFixedWidth(60)
-        self.trim_del_item_btn.clicked.connect(self.trim_delete_selected)
-        list_layout.addWidget(self.trim_del_item_btn)
-        
-        content_layout.addLayout(list_layout)
-        
-        # 按钮行
-        btn_layout = QHBoxLayout()
-        self.trim_generate_btn = QPushButton("生成裁剪视频")
-        self.trim_generate_btn.setFixedHeight(24)
-        self.trim_generate_btn.clicked.connect(self.trim_generate)
-        btn_layout.addWidget(self.trim_generate_btn)
-        
-        content_layout.addLayout(btn_layout)
-        
-        # 初始化变量
-        self.trim_video_path = None
-        self.trim_cap = None
-        self.trim_total_frames = 0
-        self.trim_fps = 30
-        self.trim_is_playing = False
-        self.trim_timer = None
-        self.trim_delete_ranges = []  # [(start, end), ...]
-        self.trim_deleted_frames = set()  # 单帧删除
+        # 打开视频按钮
+        open_btn = QPushButton("打开视频进行帧剔除")
+        open_btn.setFixedHeight(40)
+        open_btn.clicked.connect(self.open_trim_window)
+        content_layout.addWidget(open_btn)
         
         return group
 
-    def select_trim_video(self):
+    def open_trim_window(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "选择视频", "", "视频文件 (*.mp4 *.avi *.mov *.mkv)")
         if file_path:
-            self.trim_video_input.setText(file_path)
-            self.trim_load_video(file_path)
-    
-    def trim_load_video(self, path):
-        self.trim_video_path = path
-        self.trim_cap = cv2.VideoCapture(path)
-        if not self.trim_cap.isOpened():
-            QMessageBox.warning(self, "错误", "无法打开视频")
-            return
-        self.trim_total_frames = int(self.trim_cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        self.trim_fps = self.trim_cap.get(cv2.CAP_PROP_FPS)
-        self.trim_slider.setMaximum(self.trim_total_frames - 1)
-        self.trim_slider.setValue(0)
-        self.trim_frame_label.setText(f"0/{self.trim_total_frames}")
-        self.trim_cap.release()
-        self.trim_cap = None
-        self.trim_show_frame(0)
-        self.trim_delete_ranges = []
-        self.trim_deleted_frames = set()
-        self.trim_delete_list.clear()
-        self.trim_select_start = None
-        self.trim_selecting = False
-        self.trim_clear_btn.setText("清空")
-        self.trim_clear_btn.setStyleSheet("")
-    
-    def trim_show_frame(self, frame_idx):
-        if not self.trim_video_path:
-            return
-        if self.trim_cap is None or not self.trim_cap.isOpened():
-            self.trim_cap = cv2.VideoCapture(self.trim_video_path)
-        self.trim_cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-        ret, frame = self.trim_cap.read()
-        if ret:
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            h, w = frame.shape[:2]
-            scaled_h = int(min(200, h * 200 / w))
-            frame_small = cv2.resize(frame, (200, scaled_h))
-            qimg = QImage(frame_small.data, 200, scaled_h, 200 * 3, QImage.Format_RGB888)
-            self.trim_label.setPixmap(QPixmap.fromImage(qimg))
-    
-    def trim_seek(self, pos):
-        self.trim_slider.blockSignals(True)
-        self.trim_slider.setValue(pos)
-        self.trim_slider.blockSignals(False)
-        self.trim_frame_label.setText(f"{pos}/{self.trim_total_frames}")
-        self.trim_show_frame(pos)
-    
-    def trim_toggle_play(self):
-        self.trim_is_playing = not self.trim_is_playing
-        self.trim_play_btn.setText("⏸" if self.trim_is_playing else "▶")
-        if self.trim_is_playing:
-            self.trim_timer = QTimer()
-            self.trim_timer.timeout.connect(self.trim_next_frame)
-            self.trim_timer.start(int(1000 / self.trim_fps))
-        else:
-            if self.trim_timer:
-                self.trim_timer.stop()
-    
-    def trim_next_frame(self):
-        current = self.trim_slider.value()
-        if current < self.trim_total_frames - 1:
-            self.trim_seek(current + 1)
-        else:
-            self.trim_toggle_play()
-    
-    def trim_backward(self):
-        current = self.trim_slider.value()
-        if current > 0:
-            self.trim_seek(current - 1)
-    
-    def trim_forward(self):
-        current = self.trim_slider.value()
-        if current < self.trim_total_frames - 1:
-            self.trim_seek(current + 1)
-    
-    def trim_label_click(self, event):
-        # 点击画面开始/结束选择
-        current = self.trim_slider.value()
-        if self.trim_select_start is None:
-            # 开始选择
-            self.trim_select_start = current
-            self.trim_selecting = True
-            self.trim_clear_btn.setText(f"取消选择(帧{current})")
-            self.trim_clear_btn.setStyleSheet("QPushButton { background-color: #ff6600; color: white; }")
-        else:
-            # 结束选择，添加到删除列表
-            start = min(self.trim_select_start, current)
-            end = max(self.trim_select_start, current)
-            self.trim_delete_ranges.append((start, end))
-            self.trim_delete_list.addItem(f"帧 {start} → {end} ({end - start + 1}帧)")
-            self.trim_select_start = None
-            self.trim_selecting = False
-            self.trim_clear_btn.setText("清空")
-            self.trim_clear_btn.setStyleSheet("")
-            # 更新进度条高亮
-            self.trim_slider.setDeleteRanges(self.trim_delete_ranges)
-    
-    def trim_clear_list(self):
-        self.trim_delete_ranges = []
-        self.trim_deleted_frames = set()
-        self.trim_delete_list.clear()
-        self.trim_select_start = None
-        self.trim_selecting = False
-        self.trim_clear_btn.setText("清空")
-        self.trim_clear_btn.setStyleSheet("")
-        # 更新进度条高亮
-        self.trim_slider.setDeleteRanges([])
-    
-    def trim_delete_selected(self):
-        # 删除列表中选中的项目
-        row = self.trim_delete_list.currentRow()
-        if row >= 0:
-            self.trim_delete_list.takeItem(row)
-            del self.trim_delete_ranges[row]
-            self.trim_slider.setDeleteRanges(self.trim_delete_ranges)
-    
-    def trim_delete_list_item(self, item):
-        # 双击删除该项目
-        row = self.trim_delete_list.row(item)
-        self.trim_delete_list.takeItem(row)
-        if row < len(self.trim_delete_ranges):
-            del self.trim_delete_ranges[row]
-            self.trim_slider.setDeleteRanges(self.trim_delete_ranges)
-    
-    def trim_list_item_clicked(self, item):
-        text = item.text()
-        # 解析并跳转到对应帧
-        if "→" in text:
-            start = int(text.split("帧 ")[1].split(" →")[0])
-            self.trim_seek(start)
-    
-    def trim_generate(self):
-        if not self.trim_video_path:
-            QMessageBox.warning(self, "提示", "请先选择视频")
-            return
-        
-        input_path = Path(self.trim_video_path)
-        cap_in = cv2.VideoCapture(str(input_path))
-        total = int(cap_in.get(cv2.CAP_PROP_FRAME_COUNT))
-        fps = cap_in.get(cv2.CAP_PROP_FPS)
-        width = int(cap_in.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap_in.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        cap_in.release()
-        
-        # 计算要删除的帧集合
-        delete_set = set(self.trim_deleted_frames)
-        for start, end in self.trim_delete_ranges:
-            delete_set.update(range(start, end + 1))
-        
-        # 计算保留区间（多个片段）
-        keep_ranges = []
-        last_start = 0
-        for i in range(total):
-            if i in delete_set:
-                if last_start < i:
-                    keep_ranges.append((last_start, i - 1))
-                last_start = i + 1
-        if last_start < total:
-            keep_ranges.append((last_start, total - 1))
-        
-        if not keep_ranges:
-            QMessageBox.warning(self, "提示", "没有保留的片段")
-            return
-        
-        # 生成多个视频
-        output_files = []
-        for idx, (start, end) in enumerate(keep_ranges):
-            if len(keep_ranges) == 1:
-                output_path = input_path.parent / f"{input_path.stem}_clip.mp4"
-            else:
-                output_path = input_path.parent / f"{input_path.stem}_clip_{idx + 1}.mp4"
-            
-            cap_in = cv2.VideoCapture(str(input_path))
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            cap_out = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
-            
-            written = 0
-            for frame_idx in range(start, end + 1):
-                cap_in.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-                ret, frame = cap_in.read()
-                if ret:
-                    cap_out.write(frame)
-                    written += 1
-            
-            cap_in.release()
-            cap_out.release()
-            output_files.append(str(output_path))
-        
-        # 显示结果
-        msg = f"原视频: {total}帧\n删除: {len(delete_set)}帧\n保留: {len(keep_ranges)}个片段\n\n生成文件:\n"
-        for f in output_files:
-            msg += f"  {Path(f).name}\n"
-        QMessageBox.information(self, "完成", msg)
+            self.trim_win = TrimWindow(file_path, self)
+            self.trim_win.exec_()
     
     def create_annotate_section(self):
         group = QWidget()
