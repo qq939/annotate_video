@@ -661,6 +661,21 @@ class TrimDialog(QDialog):
         layout.setContentsMargins(5, 5, 5, 5)
         self.setLayout(layout)
         
+        # 缩放滑块
+        zoom_layout = QHBoxLayout()
+        zoom_layout.addWidget(QLabel("缩放:"))
+        self.zoom_slider = QSlider(Qt.Horizontal)
+        self.zoom_slider.setMinimum(10)
+        self.zoom_slider.setMaximum(200)
+        self.zoom_slider.setValue(100)
+        self.zoom_slider.setFixedWidth(200)
+        self.zoom_slider.valueChanged.connect(self.on_zoom_changed)
+        zoom_layout.addWidget(self.zoom_slider)
+        self.zoom_label = QLabel("100%")
+        zoom_layout.addWidget(self.zoom_label)
+        zoom_layout.addStretch()
+        layout.addLayout(zoom_layout)
+        
         # 视频预览（主体）
         self.label = QLabel()
         self.label.setAlignment(Qt.AlignCenter)
@@ -730,7 +745,13 @@ class TrimDialog(QDialog):
         self.select_start = None
         self.ranges = []
         self.del_frames = set()
+        self.zoom_scale = 1.0
         self.load_video()
+    
+    def on_zoom_changed(self, value):
+        self.zoom_scale = value / 100.0
+        self.zoom_label.setText(f"{value}%")
+        self.show_frame(self.slider.value())
     
     def load_video(self):
         self.cap = cv2.VideoCapture(self.video_path)
@@ -747,14 +768,15 @@ class TrimDialog(QDialog):
         if ret:
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             h, w = frame.shape[:2]
-            # 适应窗口大小
+            # 适应窗口大小并应用缩放
             label_w = self.label.width()
             label_h = self.label.height()
             if label_w > 0 and label_h > 0:
-                scale = min(label_w / w, label_h / h)
-                new_w, new_h = int(w * scale), int(h * scale)
+                base_scale = min(label_w / w, label_h / h)
+                final_scale = base_scale * self.zoom_scale
+                new_w, new_h = int(w * final_scale), int(h * final_scale)
             else:
-                new_w, new_h = w, h
+                new_w, new_h = int(w * self.zoom_scale), int(h * self.zoom_scale)
             frame_small = cv2.resize(frame, (new_w, new_h))
             qimg = QImage(frame_small.data, new_w, new_h, new_w * 3, QImage.Format_RGB888)
             self.label.setPixmap(QPixmap.fromImage(qimg))
