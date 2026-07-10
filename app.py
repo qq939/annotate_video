@@ -882,6 +882,24 @@ class TrimDialog(QDialog):
 class UnifiedPanel(QMainWindow):
     def __init__(self):
         super().__init__()
+        # 1.7倍缩放
+        self.setStyleSheet("""
+            QWidget { font-size: 14px; }
+            QGroupBox { font-size: 14px; font-weight: bold; }
+            QGroupBox::title { font-size: 14px; }
+            QLabel { font-size: 14px; }
+            QPushButton { font-size: 14px; min-height: 28px; }
+            QLineEdit { font-size: 14px; min-height: 28px; }
+            QSlider::groove { height: 20px; }
+            QSlider::handle { width: 20px; height: 20px; margin: -10px 0; }
+            QListWidget { font-size: 14px; }
+            QCheckBox { font-size: 14px; }
+            QSpinBox { font-size: 14px; }
+            QTextEdit { font-size: 14px; }
+            QComboBox { font-size: 14px; }
+            QToolButton { font-size: 14px; }
+        """)
+        self.setGeometry(100, 100, int(500*1.7), int(650*1.7))
         self.ctrl = VideoController()
         self.temp_data_path = Path("temp_data")
         self.viewer = None
