@@ -849,6 +849,7 @@ class TrimDialog(QDialog):
         self.slider.setDeleteRanges(self.ranges)
     
     def generate(self):
+        import time
         delete_set = set(self.del_frames)
         for s, e in self.ranges:
             delete_set.update(range(s, e + 1))
@@ -868,11 +869,12 @@ class TrimDialog(QDialog):
             return
         
         output_files = []
+        base_name = Path(self.video_path).stem
+        timestamp = time.strftime("%Y%m%d%H%M%S")
+        
         for idx, (s, e) in enumerate(keep_ranges):
-            if len(keep_ranges) == 1:
-                out_path = Path(self.video_path).parent / f"{Path(self.video_path).stem}_clip.mp4"
-            else:
-                out_path = Path(self.video_path).parent / f"{Path(self.video_path).stem}_clip_{idx + 1}.mp4"
+            clip_name = f"{base_name}_clip{idx + 1}_{timestamp}.mp4"
+            out_path = Path(self.video_path).parent / clip_name
             
             cap_in = cv2.VideoCapture(self.video_path)
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
@@ -890,9 +892,27 @@ class TrimDialog(QDialog):
             cap_out.release()
             output_files.append(str(out_path))
         
-        msg = f"原视频: {self.total}帧\n删除: {len(delete_set)}帧\n保留: {len(keep_ranges)}个片段\n\n"
+        # 上传到OBS
+        try:
+            import subprocess
+            for f in output_files:
+                fname = Path(f).name
+                result = subprocess.run([
+                    'curl', '-T', f,
+                    f'http://obs.dimond.top/{fname}'
+                ], capture_output=True, text=True, timeout=60)
+                if result.returncode == 0:
+                    print(f"上传成功: {fname}")
+                else:
+                    print(f"上传失败: {result.stderr}")
+        except Exception as e:
+            print(f"上传出错: {e}")
+        
+        msg = f"原视频: {self.total}帧\n删除: {len(delete_set)}帧\n保留: {len(keep_ranges)}个片段\n\n上传文件:\n"
         for f in output_files:
-            msg += f"  {Path(f).name}\n"
+            fname = Path(f).name
+            msg += f"  {fname}\n"
+            msg += f"  http://obs.dimond.top/{fname}\n"
         QMessageBox.information(self, "完成", msg)
     
     def closeEvent(self, event):
