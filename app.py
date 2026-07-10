@@ -651,9 +651,9 @@ class TrimDialog(QDialog):
         vh = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         cap.release()
         
-        # 窗口更大，视频为主体
-        win_w = max(1200, vw + 100)
-        win_h = vh + 200
+        # 窗口1.7倍大，视频为主体
+        win_w = int(max(1200, vw + 100) * 1.7)
+        win_h = int((vh + 200) * 1.7)
         self.setMinimumSize(win_w, win_h)
         self.setWindowTitle("视频帧删除")
         
@@ -670,42 +670,56 @@ class TrimDialog(QDialog):
         
         # 进度条
         self.slider = TrimSlider(self)
-        self.slider.setFixedHeight(40)
+        self.slider.setFixedHeight(50)
+        self.slider.setStyleSheet("font-size: 14px;")
         self.slider.sliderMoved.connect(self.seek)
         layout.addWidget(self.slider)
         
         # 帧信息
         frame_info = QHBoxLayout()
-        frame_info.addWidget(QLabel("帧:"))
+        fl = QLabel("帧:")
+        fl.setStyleSheet("font-size: 14px;")
+        frame_info.addWidget(fl)
         self.frame_label = QLabel("0/0")
+        self.frame_label.setStyleSheet("font-size: 14px;")
         frame_info.addWidget(self.frame_label)
         frame_info.addStretch()
         layout.addLayout(frame_info)
         
         # 控制按钮
         controls = QHBoxLayout()
-        controls.addWidget(QPushButton("◀◀", clicked=self.backward))
-        controls.addWidget(QPushButton("▶", clicked=self.toggle_play))
-        controls.addWidget(QPushButton("▶▶", clicked=self.forward))
+        for txt, fn in [("◀◀", self.backward), ("▶", self.toggle_play), ("▶▶", self.forward), ("清空", self.clear)]:
+            b = QPushButton(txt)
+            b.setFixedHeight(34)
+            b.setStyleSheet("font-size: 14px;")
+            b.clicked.connect(fn)
+            controls.addWidget(b)
         controls.addStretch()
-        controls.addWidget(QPushButton("清空", clicked=self.clear))
         layout.addLayout(controls)
         
         # 待删除列表
         list_layout = QHBoxLayout()
-        list_layout.addWidget(QLabel("待删除片段:"))
+        dl = QLabel("待删除片段:")
+        dl.setStyleSheet("font-size: 14px;")
+        list_layout.addWidget(dl)
         self.delete_list = QListWidget()
-        self.delete_list.setFixedHeight(80)
+        self.delete_list.setFixedHeight(100)
+        self.delete_list.setStyleSheet("font-size: 14px;")
         self.delete_list.itemDoubleClicked.connect(self.delete_item)
         list_layout.addWidget(self.delete_list)
         self.del_btn = QPushButton("删除\n选中")
-        self.del_btn.setFixedWidth(60)
+        self.del_btn.setFixedWidth(80)
+        self.del_btn.setStyleSheet("font-size: 14px;")
         self.del_btn.clicked.connect(self.delete_selected)
         list_layout.addWidget(self.del_btn)
         layout.addLayout(list_layout)
         
         # 生成按钮
-        layout.addWidget(QPushButton("生成裁剪视频", clicked=self.generate))
+        gb = QPushButton("生成裁剪视频")
+        gb.setFixedHeight(40)
+        gb.setStyleSheet("font-size: 16px; font-weight: bold;")
+        gb.clicked.connect(self.generate)
+        layout.addWidget(gb)
         
         # 初始化
         self.cap = None
