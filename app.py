@@ -949,17 +949,26 @@ class UnifiedPanel(QMainWindow):
         self.trim_content.setLayout(content_layout)
         layout.addWidget(self.trim_content)
         
-        # 打开视频按钮
-        open_btn = QPushButton("打开视频进行帧剔除")
-        open_btn.setFixedHeight(60)
+        # 视频选择和打开按钮
+        video_layout = QHBoxLayout()
+        self.trim_video_input = DragLineEdit()
+        self.trim_video_input.setPlaceholderText("选择/拖拽视频文件")
+        self.trim_video_input.setFixedHeight(44)
+        video_layout.addWidget(self.trim_video_input)
+        open_btn = QPushButton("打开")
+        open_btn.setFixedHeight(44)
         open_btn.clicked.connect(self.open_trim_window)
-        content_layout.addWidget(open_btn)
+        video_layout.addWidget(open_btn)
+        content_layout.addLayout(video_layout)
         
         return group
 
     def open_trim_window(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "选择视频", "", "视频文件 (*.mp4 *.avi *.mov *.mkv)")
-        if file_path:
+        file_path = self.trim_video_input.text().strip()
+        if not file_path or not Path(file_path).exists():
+            file_path, _ = QFileDialog.getOpenFileName(self, "选择视频", "", "视频文件 (*.mp4 *.avi *.mov *.mkv)")
+        if file_path and Path(file_path).exists():
+            self.trim_video_input.setText(file_path)
             self.trim_win = TrimWindow(file_path, self)
             self.trim_win.exec_()
     
