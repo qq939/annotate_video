@@ -651,9 +651,9 @@ class TrimDialog(QDialog):
         vh = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         cap.release()
         
-        # 窗口1.7倍大，视频为主体
-        win_w = int(max(1200, vw + 100) * 1.7)
-        win_h = int((vh + 200) * 1.7)
+        # 窗口缩小2倍，视频为主体
+        win_w = int(max(1200, vw + 100) / 2)
+        win_h = int((vh + 200) / 2)
         self.setMinimumSize(win_w, win_h)
         self.setWindowTitle("视频帧删除")
         
