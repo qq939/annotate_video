@@ -423,7 +423,7 @@ class AnnotationDialog(QDialog):
         header_layout.setSpacing(4)
 
         instr_label = QLabel("框选目标 | C:撤销 | Q:退出")
-        instr_label.setStyleSheet("color: #ccc; font-size: 16px;")
+        instr_label.setStyleSheet("color: #ccc; font-size: 12px;")
         header_layout.addWidget(instr_label)
         header_layout.addStretch()
 
@@ -531,11 +531,11 @@ class AngleAdjustDialog(QDialog):
         header_layout.setSpacing(8)
 
         self.info_label = QLabel(f"调整标注框 (1/{len(self.boxes)})")
-        self.info_label.setStyleSheet("color: #ccc; font-size: 21px; font-weight: bold;")
+        self.info_label.setStyleSheet("color: #ccc; font-size: 14px; font-weight: bold;")
         header_layout.addWidget(self.info_label)
 
         self.angle_label = QLabel("角度: 0")
-        self.angle_label.setStyleSheet("color: #ff0; font-size: 21px;")
+        self.angle_label.setStyleSheet("color: #ff0; font-size: 14px;")
         self.angle_label.setFixedWidth(80)
         header_layout.addWidget(self.angle_label)
 
@@ -639,19 +639,20 @@ class DragLineEdit(QLineEdit):
             super().dropEvent(event)
 
 
-class TrimWindow(QDialog):
-    """视频帧剔除弹窗"""
+class TrimDialog(QDialog):
+    """视频裁剪对话框"""
     def __init__(self, video_path, parent=None):
         super().__init__(parent)
         self.video_path = video_path
-        self.setWindowTitle("视频帧剔除")
-        self.setMinimumSize(1200, 1050)
+        self.setWindowTitle("视频帧删除")
+        self.setMinimumSize(800, 700)
         
-        layout = QVBoxLayout(self)
+        layout = QVBoxLayout()
+        self.setLayout(layout)
         
         # 视频预览
         self.label = QLabel()
-        self.label.setFixedHeight(600)
+        self.label.setFixedHeight(400)
         self.label.setAlignment(Qt.AlignCenter)
         self.label.setStyleSheet("QLabel { background-color: #222; color: white; border: 1px solid #444; }")
         self.label.mousePressEvent = self.on_label_click
@@ -659,206 +660,174 @@ class TrimWindow(QDialog):
         
         # 进度条
         self.slider = TrimSlider(self)
-        self.slider.setFixedHeight(75)
+        self.slider.setFixedHeight(40)
         self.slider.sliderMoved.connect(self.seek)
         layout.addWidget(self.slider)
         
         # 帧信息
-        frame_layout = QHBoxLayout()
+        frame_info = QHBoxLayout()
+        frame_info.addWidget(QLabel("帧:"))
         self.frame_label = QLabel("0/0")
-        frame_layout.addWidget(self.frame_label)
-        frame_layout.addStretch()
-        layout.addLayout(frame_layout)
+        frame_info.addWidget(self.frame_label)
+        frame_info.addStretch()
+        layout.addLayout(frame_info)
         
         # 控制按钮
-        ctrl_layout = QHBoxLayout()
-        btn_back = QPushButton("◀◀")
-        btn_back.setFixedHeight(60)
-        btn_back.clicked.connect(self.backward)
-        ctrl_layout.addWidget(btn_back)
+        controls = QHBoxLayout()
+        controls.addWidget(QPushButton("◀◀", clicked=self.backward))
+        controls.addWidget(QPushButton("▶", clicked=self.toggle_play))
+        controls.addWidget(QPushButton("▶▶", clicked=self.forward))
+        controls.addStretch()
+        controls.addWidget(QPushButton("清空", clicked=self.clear))
+        layout.addLayout(controls)
         
-        self.play_btn = QPushButton("▶")
-        self.play_btn.setFixedHeight(60)
-        self.play_btn.clicked.connect(self.toggle_play)
-        ctrl_layout.addWidget(self.play_btn)
-        
-        btn_forward = QPushButton("▶▶")
-        btn_forward.setFixedHeight(60)
-        btn_forward.clicked.connect(self.forward)
-        ctrl_layout.addWidget(btn_forward)
-        ctrl_layout.addStretch()
-        
-        self.clear_btn = QPushButton("清空")
-        self.clear_btn.setFixedHeight(60)
-        self.clear_btn.clicked.connect(self.clear_list)
-        ctrl_layout.addWidget(self.clear_btn)
-        
-        btn_gen = QPushButton("生成裁剪视频")
-        btn_gen.setFixedHeight(60)
-        btn_gen.clicked.connect(self.generate)
-        ctrl_layout.addWidget(btn_gen)
-        
-        layout.addLayout(ctrl_layout)
-        
-        # 删除列表
+        # 待删除列表
         list_layout = QHBoxLayout()
-        list_layout.addWidget(QLabel("待删除:"))
+        list_layout.addWidget(QLabel("待删除片段:"))
         self.delete_list = QListWidget()
-        self.delete_list.setFixedHeight(120)
+        self.delete_list.setFixedHeight(80)
         self.delete_list.itemDoubleClicked.connect(self.delete_item)
         list_layout.addWidget(self.delete_list)
-        
-        btn_del = QPushButton("删除选中")
-        btn_del.setFixedSize(80, 120)
-        btn_del.clicked.connect(self.delete_selected)
-        list_layout.addWidget(btn_del)
-        
+        self.del_btn = QPushButton("删除\n选中")
+        self.del_btn.setFixedWidth(60)
+        self.del_btn.clicked.connect(self.delete_selected)
+        list_layout.addWidget(self.del_btn)
         layout.addLayout(list_layout)
         
-        # 变量初始化
+        # 生成按钮
+        layout.addWidget(QPushButton("生成裁剪视频", clicked=self.generate))
+        
+        # 初始化
         self.cap = None
-        self.total_frames = 0
+        self.total = 0
         self.fps = 30
         self.is_playing = False
         self.timer = None
         self.select_start = None
-        self.delete_ranges = []
-        
+        self.ranges = []
+        self.del_frames = set()
         self.load_video()
     
     def load_video(self):
         self.cap = cv2.VideoCapture(self.video_path)
-        self.total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        self.total = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
         self.fps = self.cap.get(cv2.CAP_PROP_FPS)
-        self.slider.setMaximum(self.total_frames - 1)
-        self.slider.setValue(0)
-        self.cap.release()
-        self.cap = None
+        self.slider.setMaximum(self.total - 1)
         self.show_frame(0)
     
     def show_frame(self, idx):
-        if self.cap is None:
-            self.cap = cv2.VideoCapture(self.video_path)
         self.cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
         ret, frame = self.cap.read()
         if ret:
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             h, w = frame.shape[:2]
-            scale = min(600 / h, 1200 / w)
-            new_w = int(w * scale)
-            new_h = int(h * scale)
+            scale = min(800 / w, 400 / h)
+            new_w, new_h = int(w * scale), int(h * scale)
             frame_small = cv2.resize(frame, (new_w, new_h))
             qimg = QImage(frame_small.data, new_w, new_h, new_w * 3, QImage.Format_RGB888)
             self.label.setPixmap(QPixmap.fromImage(qimg))
-        self.frame_label.setText(f"{idx}/{self.total_frames}")
+        self.frame_label.setText(f"{idx}/{self.total}")
+        self.slider.setValue(idx)
+        # 更新高亮
+        self.slider.setDeleteRanges(self.ranges)
     
     def seek(self, idx):
-        self.slider.blockSignals(True)
-        self.slider.setValue(idx)
-        self.slider.blockSignals(False)
         self.show_frame(idx)
     
     def toggle_play(self):
         self.is_playing = not self.is_playing
-        self.play_btn.setText("⏸" if self.is_playing else "▶")
         if self.is_playing:
             self.timer = QTimer()
             self.timer.timeout.connect(self.next_frame)
-            self.timer.start(int(1000 / self.fps))
+            interval = int(1000 / max(self.fps, 1))
+            self.timer.start(interval)
         elif self.timer:
             self.timer.stop()
     
     def next_frame(self):
-        cur = self.slider.value()
-        if cur < self.total_frames - 1:
-            self.seek(cur + 1)
+        idx = self.slider.value()
+        if idx < self.total - 1:
+            self.show_frame(idx + 1)
         else:
             self.toggle_play()
     
     def backward(self):
-        cur = self.slider.value()
-        if cur > 0:
-            self.seek(cur - 1)
+        idx = self.slider.value()
+        if idx > 0:
+            self.show_frame(idx - 1)
     
     def forward(self):
-        cur = self.slider.value()
-        if cur < self.total_frames - 1:
-            self.seek(cur + 1)
+        idx = self.slider.value()
+        if idx < self.total - 1:
+            self.show_frame(idx + 1)
     
     def on_label_click(self, event):
-        cur = self.slider.value()
+        idx = self.slider.value()
         if self.select_start is None:
-            self.select_start = cur
-            self.clear_btn.setText(f"取消({cur})")
-            self.clear_btn.setStyleSheet("QPushButton { background: #ff6600; color: white; }")
+            self.select_start = idx
+            self.del_btn.setText(f"选择\n帧{idx}")
         else:
-            start = min(self.select_start, cur)
-            end = max(self.select_start, cur)
-            self.delete_ranges.append((start, end))
-            self.delete_list.addItem(f"帧 {start} → {end}")
+            start, end = min(self.select_start, idx), max(self.select_start, idx)
+            self.ranges.append((start, end))
+            self.delete_list.addItem(f"帧 {start} → {end} ({end - start + 1}帧)")
             self.select_start = None
-            self.clear_btn.setText("清空")
-            self.clear_btn.setStyleSheet("")
-            self.slider.setDeleteRanges(self.delete_ranges)
+            self.del_btn.setText("删除\n选中")
     
-    def clear_list(self):
-        if self.select_start is not None:
-            self.select_start = None
-            self.clear_btn.setText("清空")
-            self.clear_btn.setStyleSheet("")
-        else:
-            self.delete_ranges = []
-            self.delete_list.clear()
-            self.slider.setDeleteRanges([])
+    def clear(self):
+        self.ranges = []
+        self.del_frames = set()
+        self.delete_list.clear()
+        self.select_start = None
+        self.del_btn.setText("删除\n选中")
+        self.slider.setDeleteRanges([])
     
     def delete_selected(self):
         row = self.delete_list.currentRow()
         if row >= 0:
             self.delete_list.takeItem(row)
-            del self.delete_ranges[row]
-            self.slider.setDeleteRanges(self.delete_ranges)
+            del self.ranges[row]
+            self.slider.setDeleteRanges(self.ranges)
     
     def delete_item(self, item):
         row = self.delete_list.row(item)
         self.delete_list.takeItem(row)
-        del self.delete_ranges[row]
-        self.slider.setDeleteRanges(self.delete_ranges)
+        del self.ranges[row]
+        self.slider.setDeleteRanges(self.ranges)
     
     def generate(self):
-        if not self.delete_ranges:
-            QMessageBox.warning(self, "提示", "没有删除片段")
-            return
-        
-        delete_set = set()
-        for start, end in self.delete_ranges:
-            delete_set.update(range(start, end + 1))
+        delete_set = set(self.del_frames)
+        for s, e in self.ranges:
+            delete_set.update(range(s, e + 1))
         
         keep_ranges = []
-        last_start = 0
-        for i in range(self.total_frames):
+        last = 0
+        for i in range(self.total):
             if i in delete_set:
-                if last_start < i:
-                    keep_ranges.append((last_start, i - 1))
-                last_start = i + 1
-        if last_start < self.total_frames:
-            keep_ranges.append((last_start, self.total_frames - 1))
+                if last < i:
+                    keep_ranges.append((last, i - 1))
+                last = i + 1
+        if last < self.total:
+            keep_ranges.append((last, self.total - 1))
         
-        input_path = Path(self.video_path)
+        if not keep_ranges:
+            QMessageBox.warning(self, "提示", "没有保留的片段")
+            return
+        
         output_files = []
-        for idx, (start, end) in enumerate(keep_ranges):
+        for idx, (s, e) in enumerate(keep_ranges):
             if len(keep_ranges) == 1:
-                out_path = input_path.parent / f"{input_path.stem}_clip.mp4"
+                out_path = Path(self.video_path).parent / f"{Path(self.video_path).stem}_clip.mp4"
             else:
-                out_path = input_path.parent / f"{input_path.stem}_clip_{idx + 1}.mp4"
+                out_path = Path(self.video_path).parent / f"{Path(self.video_path).stem}_clip_{idx + 1}.mp4"
             
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
             cap_in = cv2.VideoCapture(self.video_path)
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
             w = int(cap_in.get(cv2.CAP_PROP_FRAME_WIDTH))
             h = int(cap_in.get(cv2.CAP_PROP_FRAME_HEIGHT))
             cap_out = cv2.VideoWriter(str(out_path), fourcc, self.fps, (w, h))
             
-            for fidx in range(start, end + 1):
-                cap_in.set(cv2.CAP_PROP_POS_FRAMES, fidx)
+            for f in range(s, e + 1):
+                cap_in.set(cv2.CAP_PROP_POS_FRAMES, f)
                 ret, frame = cap_in.read()
                 if ret:
                     cap_out.write(frame)
@@ -867,15 +836,12 @@ class TrimWindow(QDialog):
             cap_out.release()
             output_files.append(str(out_path))
         
-        msg = f"原视频: {self.total_frames}帧\n删除: {len(delete_set)}帧\n保留: {len(keep_ranges)}个片段\n\n"
+        msg = f"原视频: {self.total}帧\n删除: {len(delete_set)}帧\n保留: {len(keep_ranges)}个片段\n\n"
         for f in output_files:
-            msg += f"{Path(f).name}\n"
+            msg += f"  {Path(f).name}\n"
         QMessageBox.information(self, "完成", msg)
-        self.close()
     
     def closeEvent(self, event):
-        if self.timer:
-            self.timer.stop()
         if self.cap:
             self.cap.release()
         super().closeEvent(event)
@@ -912,7 +878,7 @@ class UnifiedPanel(QMainWindow):
 
     def init_ui(self):
         self.setWindowTitle('视频标注工具')
-        self.setGeometry(100, 100, 750, 975)
+        self.setGeometry(100, 100, 500, 650)
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -921,12 +887,13 @@ class UnifiedPanel(QMainWindow):
         main_layout.setSpacing(4)
         central.setLayout(main_layout)
 
+        main_layout.addWidget(self.create_video_trim_section())
         main_layout.addWidget(self.create_annotate_section())
         main_layout.addWidget(self.create_viewer_section())
         main_layout.addWidget(self.create_save_section())
 
     def create_video_trim_section(self):
-        """视频帧剔除模块 - 仅包含打开按钮"""
+        """视频帧剔除模块"""
         group = QWidget()
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
@@ -940,7 +907,7 @@ class UnifiedPanel(QMainWindow):
         header_layout.setSpacing(4)
         
         self.trim_toggle_btn = QToolButton()
-        self.trim_toggle_btn.setText("0. 视频帧剔除 ▼")
+        self.trim_toggle_btn.setText("0. 视频帧删除 ▼")
         self.trim_toggle_btn.setStyleSheet("QToolButton { font-weight: bold; background: #333; color: white; border: none; padding: 4px; }")
         self.trim_toggle_btn.setCheckable(True)
         self.trim_toggle_btn.setChecked(True)
@@ -957,19 +924,34 @@ class UnifiedPanel(QMainWindow):
         self.trim_content.setLayout(content_layout)
         layout.addWidget(self.trim_content)
         
-        # 打开按钮
-        open_btn = QPushButton("打开视频")
-        open_btn.setFixedHeight(60)
-        open_btn.clicked.connect(self.open_trim_window)
-        content_layout.addWidget(open_btn)
+        # 选择视频
+        select_layout = QHBoxLayout()
+        select_layout.addWidget(QLabel("视频:"))
+        self.trim_video_input = QLineEdit()
+        self.trim_video_input.setFixedHeight(22)
+        self.trim_video_input.setPlaceholderText("选择视频文件")
+        select_layout.addWidget(self.trim_video_input)
+        select_btn = QPushButton("选择")
+        select_btn.setFixedWidth(50)
+        select_btn.clicked.connect(self.open_trim_dialog)
+        select_layout.addWidget(select_btn)
+        content_layout.addLayout(select_layout)
         
         return group
-
-    def open_trim_window(self):
+    
+    def open_trim_dialog(self):
+        """打开视频裁剪对话框"""
         file_path, _ = QFileDialog.getOpenFileName(self, "选择视频", "", "视频文件 (*.mp4 *.avi *.mov *.mkv)")
-        if file_path:
-            self.trim_win = TrimWindow(file_path, self)
-            self.trim_win.exec_()
+        if not file_path:
+            return
+        
+        self.trim_video_input.setText(file_path)
+        
+        # 创建并显示对话框
+        dialog = TrimDialog(file_path, self)
+        dialog.exec_()
+
+
     
     def create_annotate_section(self):
         group = QWidget()
@@ -1006,7 +988,7 @@ class UnifiedPanel(QMainWindow):
         video_layout.setSpacing(4)
         video_layout.addWidget(QLabel("视频:"))
         self.video_input = DragLineEdit()
-        self.video_input.setFixedHeight(33)
+        self.video_input.setFixedHeight(22)
         video_layout.addWidget(self.video_input)
         select_btn = QPushButton("选择")
         select_btn.setFixedWidth(50)
@@ -1020,25 +1002,25 @@ class UnifiedPanel(QMainWindow):
         preprocess_layout.addWidget(QLabel("起始"))
         self.start_time_input = QLineEdit("0")
         self.start_time_input.setFixedWidth(50)
-        self.start_time_input.setFixedHeight(33)
+        self.start_time_input.setFixedHeight(22)
         preprocess_layout.addWidget(self.start_time_input)
         preprocess_layout.addWidget(QLabel("秒"))
         preprocess_layout.addWidget(QLabel("取前"))
         self.max_frames_input = QLineEdit("1000")
         self.max_frames_input.setFixedWidth(60)
-        self.max_frames_input.setFixedHeight(33)
+        self.max_frames_input.setFixedHeight(22)
         preprocess_layout.addWidget(self.max_frames_input)
         preprocess_layout.addWidget(QLabel("帧"))
         preprocess_layout.addWidget(QLabel("每隔"))
         self.skip_frames_input = QLineEdit("1")
         self.skip_frames_input.setFixedWidth(40)
-        self.skip_frames_input.setFixedHeight(33)
+        self.skip_frames_input.setFixedHeight(22)
         preprocess_layout.addWidget(self.skip_frames_input)
         preprocess_layout.addWidget(QLabel("帧取1"))
         preprocess_layout.addWidget(QLabel("缩放"))
         self.resize_ratio_input = QLineEdit("1.0")
         self.resize_ratio_input.setFixedWidth(50)
-        self.resize_ratio_input.setFixedHeight(33)
+        self.resize_ratio_input.setFixedHeight(22)
         preprocess_layout.addWidget(self.resize_ratio_input)
         layout.addLayout(preprocess_layout)
 
@@ -1047,17 +1029,17 @@ class UnifiedPanel(QMainWindow):
         iou_layout.addWidget(QLabel("帧IoU合并:"))
         self.merge_iou_input = QLineEdit("0.5")
         self.merge_iou_input.setFixedWidth(40)
-        self.merge_iou_input.setFixedHeight(33)
+        self.merge_iou_input.setFixedHeight(22)
         iou_layout.addWidget(self.merge_iou_input)
         iou_layout.addWidget(QLabel("前后IoU:"))
         self.iou_input = QLineEdit("0.02")
         self.iou_input.setFixedWidth(40)
-        self.iou_input.setFixedHeight(33)
+        self.iou_input.setFixedHeight(22)
         iou_layout.addWidget(self.iou_input)
         iou_layout.addWidget(QLabel("物品:"))
         self.items_input = QLineEdit()
         self.items_input.setMinimumWidth(100)
-        self.items_input.setFixedHeight(33)
+        self.items_input.setFixedHeight(22)
         iou_layout.addWidget(self.items_input)
         layout.addLayout(iou_layout)
 
@@ -1078,7 +1060,7 @@ class UnifiedPanel(QMainWindow):
         layout.addLayout(scale_layout)
 
         self.annotate_btn = QPushButton("▶ 执行标注")
-        self.annotate_btn.setFixedHeight(42)
+        self.annotate_btn.setFixedHeight(28)
         self.annotate_btn.clicked.connect(self.run_annotate)
         layout.addWidget(self.annotate_btn)
 
@@ -1489,7 +1471,7 @@ class UnifiedPanel(QMainWindow):
         path_layout.setSpacing(4)
         path_layout.addWidget(QLabel("数据"))
         self.path_input = QLineEdit("temp_data")
-        self.path_input.setFixedHeight(33)
+        self.path_input.setFixedHeight(22)
         path_layout.addWidget(self.path_input)
         open_btn = QPushButton("选择")
         open_btn.setFixedSize(44, 22)
@@ -1518,7 +1500,7 @@ class UnifiedPanel(QMainWindow):
             label.setFixedWidth(70)
             row.addWidget(label)
             inp = QLineEdit("Detect")
-            inp.setFixedHeight(60)
+            inp.setFixedHeight(20)
             row.addWidget(inp)
             self.category_inputs.append(inp)
             category_layout.addLayout(row)
@@ -1556,22 +1538,22 @@ class UnifiedPanel(QMainWindow):
         frame_nav_layout = QHBoxLayout()
         frame_nav_layout.setSpacing(2)
         self.backward_fast_btn = QPushButton("倒播")
-        self.backward_fast_btn.setFixedHeight(36)
+        self.backward_fast_btn.setFixedHeight(24)
         self.backward_fast_btn.clicked.connect(self.toggle_backward_fast)
         frame_nav_layout.addWidget(self.backward_fast_btn)
 
         self.backward_btn = QPushButton("倒帧")
-        self.backward_btn.setFixedHeight(36)
+        self.backward_btn.setFixedHeight(24)
         self.backward_btn.clicked.connect(self.toggle_backward)
         frame_nav_layout.addWidget(self.backward_btn)
 
         self.next_btn = QPushButton("正帧")
-        self.next_btn.setFixedHeight(36)
+        self.next_btn.setFixedHeight(24)
         self.next_btn.clicked.connect(self.toggle_play)
         frame_nav_layout.addWidget(self.next_btn)
 
         self.forward_fast_btn = QPushButton("正播")
-        self.forward_fast_btn.setFixedHeight(36)
+        self.forward_fast_btn.setFixedHeight(24)
         self.forward_fast_btn.clicked.connect(self.toggle_play_fast)
         frame_nav_layout.addWidget(self.forward_fast_btn)
         layout.addLayout(frame_nav_layout)
@@ -1580,34 +1562,34 @@ class UnifiedPanel(QMainWindow):
         frame_play_layout = QHBoxLayout()
         frame_play_layout.setSpacing(4)
         self.backward_cb = QCheckBox("后向")
-        self.backward_cb.setFixedHeight(36)
+        self.backward_cb.setFixedHeight(24)
         self.backward_cb.setChecked(True)
-        self.backward_cb.setStyleSheet("QCheckBox { font-size: 16px; }")
+        self.backward_cb.setStyleSheet("QCheckBox { font-size: 11px; }")
         frame_play_layout.addWidget(self.backward_cb)
 
         self.prompt_btn = QPushButton("提示帧")
-        self.prompt_btn.setFixedHeight(36)
-        self.prompt_btn.setStyleSheet("QPushButton { background-color: #FFA500; color: white; border: none; border-radius: 3px; font-size: 16px; } QPushButton:hover { background-color: #FF8C00; }")
+        self.prompt_btn.setFixedHeight(24)
+        self.prompt_btn.setStyleSheet("QPushButton { background-color: #FFA500; color: white; border: none; border-radius: 3px; font-size: 11px; } QPushButton:hover { background-color: #FF8C00; }")
         self.prompt_btn.clicked.connect(self.toggle_prompt_mode)
         frame_play_layout.addWidget(self.prompt_btn)
 
         self.frame_label = QLabel("1/1")
         self.frame_label.setAlignment(Qt.AlignCenter)
-        self.frame_label.setFixedHeight(36)
+        self.frame_label.setFixedHeight(24)
         self.frame_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.frame_label.setStyleSheet("QLabel { background-color: #333; color: #fff; border-radius: 3px; font-weight: bold; font-size: 21px; padding: 0 8px; }")
+        self.frame_label.setStyleSheet("QLabel { background-color: #333; color: #fff; border-radius: 3px; font-weight: bold; font-size: 14px; padding: 0 8px; }")
         frame_play_layout.addWidget(self.frame_label)
 
         self.undo_prompt_btn = QPushButton("回退")
-        self.undo_prompt_btn.setFixedHeight(36)
-        self.undo_prompt_btn.setStyleSheet("QPushButton { background-color: #CC0000; color: white; border: none; border-radius: 3px; font-size: 16px; } QPushButton:hover { background-color: #990000; }")
+        self.undo_prompt_btn.setFixedHeight(24)
+        self.undo_prompt_btn.setStyleSheet("QPushButton { background-color: #CC0000; color: white; border: none; border-radius: 3px; font-size: 11px; } QPushButton:hover { background-color: #990000; }")
         self.undo_prompt_btn.clicked.connect(self.undo_last_prompt)
         frame_play_layout.addWidget(self.undo_prompt_btn)
 
         self.forward_cb = QCheckBox("前向")
-        self.forward_cb.setFixedHeight(36)
+        self.forward_cb.setFixedHeight(24)
         self.forward_cb.setChecked(True)
-        self.forward_cb.setStyleSheet("QCheckBox { font-size: 16px; }")
+        self.forward_cb.setStyleSheet("QCheckBox { font-size: 11px; }")
         frame_play_layout.addWidget(self.forward_cb)
         layout.addLayout(frame_play_layout)
         
@@ -1619,7 +1601,7 @@ class UnifiedPanel(QMainWindow):
         delete_trace_layout.addWidget(QLabel("删除trace"))
         self.delete_trace_input = QLineEdit()
         self.delete_trace_input.setPlaceholderText("输入")
-        self.delete_trace_input.setFixedHeight(36)
+        self.delete_trace_input.setFixedHeight(24)
         delete_trace_layout.addWidget(self.delete_trace_input)
         delete_trace_btn = QPushButton("删除")
         delete_trace_btn.setFixedSize(40, 24)
@@ -1645,9 +1627,9 @@ class UnifiedPanel(QMainWindow):
         btn_col.setSpacing(4)
         btn_col.addStretch()
 
-        btn_style = "QPushButton { background-color: #6c757d; color: white; border: none; border-radius: 3px; font-size: 16px; } QPushButton:hover { background-color: #5a6268; }"
-        btn_blue = "QPushButton { background-color: #007bff; color: white; border: none; border-radius: 3px; font-size: 16px; } QPushButton:hover { background-color: #0069d9; }"
-        btn_red = "QPushButton { background-color: #dc3545; color: white; border: none; border-radius: 3px; font-size: 16px; } QPushButton:hover { background-color: #c82333; }"
+        btn_style = "QPushButton { background-color: #6c757d; color: white; border: none; border-radius: 3px; font-size: 11px; } QPushButton:hover { background-color: #5a6268; }"
+        btn_blue = "QPushButton { background-color: #007bff; color: white; border: none; border-radius: 3px; font-size: 11px; } QPushButton:hover { background-color: #0069d9; }"
+        btn_red = "QPushButton { background-color: #dc3545; color: white; border: none; border-radius: 3px; font-size: 11px; } QPushButton:hover { background-color: #c82333; }"
 
         clear_trace_btn = QPushButton("清空")
         clear_trace_btn.setFixedSize(44, 22)
@@ -1681,12 +1663,12 @@ class UnifiedPanel(QMainWindow):
         assign_layout.addWidget(QLabel("当前ID:"))
         dec_btn = QPushButton("-")
         dec_btn.setFixedSize(28, 28)
-        dec_btn.setStyleSheet("QPushButton { background-color: #dc3545; color: white; border: none; border-radius: 4px; font-size: 32px; font-weight: bold; } QPushButton:hover { background-color: #c82333; }")
+        dec_btn.setStyleSheet("QPushButton { background-color: #dc3545; color: white; border: none; border-radius: 4px; font-size: 16px; font-weight: bold; } QPushButton:hover { background-color: #c82333; }")
         dec_btn.clicked.connect(self.decrement_trace_id)
         assign_layout.addWidget(dec_btn)
 
         self.trace_id_input = QLineEdit(str(self.ctrl.next_track_id))
-        self.trace_id_input.setFixedHeight(42)
+        self.trace_id_input.setFixedHeight(28)
         self.trace_id_input.setFixedWidth(80)
         self.trace_id_input.setAlignment(Qt.AlignCenter)
         self.trace_id_input.setStyleSheet("QLineEdit { background-color: #2c3e50; color: #ecf0f1; border: 1px solid #2c3e50; border-radius: 4px; padding: 0 8px; font-weight: bold; font-size: 13px; }")
@@ -1695,14 +1677,14 @@ class UnifiedPanel(QMainWindow):
 
         inc_btn = QPushButton("+")
         inc_btn.setFixedSize(28, 28)
-        inc_btn.setStyleSheet("QPushButton { background-color: #28a745; color: white; border: none; border-radius: 4px; font-size: 32px; font-weight: bold; } QPushButton:hover { background-color: #218838; }")
+        inc_btn.setStyleSheet("QPushButton { background-color: #28a745; color: white; border: none; border-radius: 4px; font-size: 16px; font-weight: bold; } QPushButton:hover { background-color: #218838; }")
         inc_btn.clicked.connect(self.increment_trace_id)
         assign_layout.addWidget(inc_btn)
         assign_layout.addStretch()
         layout.addLayout(assign_layout)
 
         self.export_btn = QPushButton("📦 导出到 temp_data_post")
-        self.export_btn.setFixedHeight(39)
+        self.export_btn.setFixedHeight(26)
         self.export_btn.clicked.connect(self.export_to_temp_data_post)
         layout.addWidget(self.export_btn)
 
@@ -1723,26 +1705,26 @@ class UnifiedPanel(QMainWindow):
         input_dir_name_layout.addWidget(QLabel("输入:"))
         self.save_input_dir = QLineEdit("temp_data_post")
         self.save_input_dir.setFixedWidth(100)
-        self.save_input_dir.setFixedHeight(33)
+        self.save_input_dir.setFixedHeight(22)
         input_dir_name_layout.addWidget(self.save_input_dir)
         browse_btn = QPushButton("选择")
-        browse_btn.setFixedHeight(33)
+        browse_btn.setFixedHeight(22)
         browse_btn.clicked.connect(self.select_save_input_dir)
         input_dir_name_layout.addWidget(browse_btn)
         input_dir_name_layout.addWidget(QLabel("名称:"))
         self.save_output_name = QLineEdit("1dst.mp4")
         self.save_output_name.setFixedWidth(80)
-        self.save_output_name.setFixedHeight(33)
+        self.save_output_name.setFixedHeight(22)
         input_dir_name_layout.addWidget(self.save_output_name)
         input_dir_name_layout.addWidget(QLabel("标题:"))
         self.labelme_title = QLineEdit("frame")
         self.labelme_title.setFixedWidth(60)
-        self.labelme_title.setFixedHeight(33)
+        self.labelme_title.setFixedHeight(22)
         input_dir_name_layout.addWidget(self.labelme_title)
         input_dir_name_layout.addWidget(QLabel("位数:"))
         self.labelme_digit = QLineEdit("6")
         self.labelme_digit.setFixedWidth(30)
-        self.labelme_digit.setFixedHeight(33)
+        self.labelme_digit.setFixedHeight(22)
         input_dir_name_layout.addWidget(self.labelme_digit)
         layout.addLayout(input_dir_name_layout)
 
@@ -1781,26 +1763,26 @@ class UnifiedPanel(QMainWindow):
 
         self.render_segment_check = QCheckBox("只展示bbox")
         self.render_segment_check.setChecked(False)
-        self.render_segment_check.setStyleSheet("QCheckBox { font-size: 16px; }")
+        self.render_segment_check.setStyleSheet("QCheckBox { font-size: 11px; }")
         layout.addWidget(self.render_segment_check)
 
         trail_layout = QHBoxLayout()
         trail_layout.setSpacing(4)
         self.trail_check = QCheckBox("粒子效果")
-        self.trail_check.setStyleSheet("QCheckBox { font-size: 16px; }")
+        self.trail_check.setStyleSheet("QCheckBox { font-size: 11px; }")
         trail_layout.addWidget(self.trail_check)
         self.latex_check = QCheckBox("白色乳胶漆")
         self.latex_check.setChecked(True)
-        self.latex_check.setStyleSheet("QCheckBox { font-size: 16px; }")
+        self.latex_check.setStyleSheet("QCheckBox { font-size: 11px; }")
         trail_layout.addWidget(self.latex_check)
         self.trail_line_check = QCheckBox("轨迹")
         self.trail_line_check.setChecked(False)
-        self.trail_line_check.setStyleSheet("QCheckBox { font-size: 16px; }")
+        self.trail_line_check.setStyleSheet("QCheckBox { font-size: 11px; }")
         trail_layout.addWidget(self.trail_line_check)
         trail_layout.addWidget(QLabel("时间:"))
         self.trail_duration = QLineEdit("500")
         self.trail_duration.setFixedWidth(40)
-        self.trail_duration.setFixedHeight(33)
+        self.trail_duration.setFixedHeight(22)
         trail_layout.addWidget(self.trail_duration)
         trail_layout.addWidget(QLabel("ms"))
         trail_layout.addStretch()
@@ -1811,13 +1793,13 @@ class UnifiedPanel(QMainWindow):
         overlap_layout.addWidget(QLabel("重叠IoU:"))
         self.overlap_iou_input = QLineEdit("0.8")
         self.overlap_iou_input.setFixedWidth(50)
-        self.overlap_iou_input.setFixedHeight(33)
+        self.overlap_iou_input.setFixedHeight(22)
         overlap_layout.addWidget(self.overlap_iou_input)
         overlap_layout.addStretch()
         layout.addLayout(overlap_layout)
 
         self.save_btn = QPushButton("💾 保存视频并上传OBS")
-        self.save_btn.setFixedHeight(42)
+        self.save_btn.setFixedHeight(28)
         self.save_btn.clicked.connect(self.run_save)
         layout.addWidget(self.save_btn)
 
