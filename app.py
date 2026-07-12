@@ -1293,7 +1293,7 @@ class UnifiedPanel(QMainWindow):
 
         iou_layout = QHBoxLayout()
         iou_layout.setSpacing(4)
-        iou_layout.addWidget(QLabel("帧IoU合并:"))
+        iou_layout.addWidget(QLabel("帧IoU:"))
         self.merge_iou_input = QLineEdit("0.5")
         self.merge_iou_input.setFixedWidth(40)
         self.merge_iou_input.setFixedHeight(22)
@@ -1303,11 +1303,18 @@ class UnifiedPanel(QMainWindow):
         self.iou_input.setFixedWidth(40)
         self.iou_input.setFixedHeight(22)
         iou_layout.addWidget(self.iou_input)
-        iou_layout.addWidget(QLabel("物品:"))
-        self.items_input = QLineEdit()
-        self.items_input.setMinimumWidth(100)
-        self.items_input.setFixedHeight(22)
-        iou_layout.addWidget(self.items_input)
+        iou_layout.addWidget(QLabel("形态:"))
+        self.morph_kernel = QSlider(Qt.Horizontal)
+        self.morph_kernel.setMinimum(0)
+        self.morph_kernel.setMaximum(20)
+        self.morph_kernel.setValue(0)
+        self.morph_kernel.setFixedWidth(100)
+        self.morph_kernel.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.morph_kernel.valueChanged.connect(self.on_morph_kernel_changed)
+        iou_layout.addWidget(self.morph_kernel)
+        self.morph_label = QLabel("0")
+        self.morph_label.setFixedWidth(25)
+        iou_layout.addWidget(self.morph_label)
         layout.addLayout(iou_layout)
 
         scale_layout = QHBoxLayout()
@@ -2091,6 +2098,12 @@ class UnifiedPanel(QMainWindow):
 
     def on_conf_change(self, value):
         self.ctrl.conf_threshold = value / 100.0
+        if self.viewer:
+            self.viewer.update_display()
+    
+    def on_morph_kernel_changed(self, value):
+        self.morph_label.setText(str(value))
+        self.ctrl.morph_kernel = value
         if self.viewer:
             self.viewer.update_display()
 

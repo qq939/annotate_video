@@ -35,6 +35,7 @@ class VideoController:
         self.next_track_id = 1000000
         self.assigned_to_original = {}
         self.category_name = CATEGORY_DEFAULT
+        self.morph_kernel = 0  # 形态学操作核大小，分离同色黏连物体
 
     def get_track_id_points(self):
         return list(self.track_id_points)
@@ -96,8 +97,22 @@ class VideoController:
 
             if polygon:
                 pts = np.array(polygon[0], dtype=np.int32).reshape(-1, 2)
-                cv2.fillPoly(overlay, [pts], color)
-                cv2.polylines(overlay, [pts], True, (255, 255, 255), 2)
+                # 应用形态学操作分离同色黏连物体
+                morph_kernel = getattr(self, 'morph_kernel', 0)
+                if morph_kernel > 0:
+                    mask_temp = np.zeros(frame.shape[:2], dtype=np.uint8)
+                    cv2.fillPoly(mask_temp, [pts], 255)
+                    kernel = np.ones((morph_kernel, morph_kernel), np.uint8)
+                    mask_temp = cv2.morphologyEx(mask_temp, cv2.MORPH_CLOSE, kernel)  # 先闭运算填充小洞
+                    mask_temp = cv2.morphologyEx(mask_temp, cv2.MORPH_OPEN, kernel)   # 再开运算分离黏连
+                    contours, _ = cv2.findContours(mask_temp, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                    for cnt in contours:
+                        if cv2.contourArea(cnt) > 50:  # 过滤小区域
+                            cv2.fillPoly(overlay, [cnt], color)
+                            cv2.polylines(overlay, [cnt], True, (255, 255, 255), 2)
+                else:
+                    cv2.fillPoly(overlay, [pts], color)
+                    cv2.polylines(overlay, [pts], True, (255, 255, 255), 2)
 
             x, y = int(bbox[0]), int(bbox[1])
             w, h = int(bbox[2]), int(bbox[3])
