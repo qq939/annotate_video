@@ -639,6 +639,162 @@ class DragLineEdit(QLineEdit):
             super().dropEvent(event)
 
 
+class TrimMidDialog(QDialog):
+    """temp_data帧删除对话框"""
+    def __init__(self, data_dir, parent=None):
+        super().__init__(parent)
+        self.data_dir = data_dir
+        self.frames_dir = Path(data_dir) / "frames"
+        self.labels_dir = Path(data_dir) / "labels"
+        
+        # 获取帧列表
+        self.frames = sorted([f for f in self.frames_dir.glob("frame_*.jpg")])
+        self.total = len(self.frames)
+        if self.total == 0:
+            QMessageBox.warning(self, "提示", "没有找到帧")
+            return
+        
+        self.setWindowTitle("帧删除")
+        self.setMinimumSize(800, 600)
+        
+        layout = QVBoxLayout()
+        self.setLayout(layout)
+        
+        # 视频预览
+        self.label = QLabel()
+        self.label.setAlignment(Qt.AlignCenter)
+        self.label.setStyleSheet("QLabel { background-color: #222; color: white; border: 1px solid #444; }")
+        self.label.mousePressEvent = self.on_label_click
+        layout.addWidget(self.label, 1)
+        
+        # 进度条
+        self.slider = TrimSlider(self)
+        self.slider.setMaximum(self.total - 1)
+        self.slider.sliderMoved.connect(self.show_frame)
+        layout.addWidget(self.slider)
+        
+        # 帧信息
+        info = QHBoxLayout()
+        info.addWidget(QLabel("帧:"))
+        self.frame_label = QLabel("0/0")
+        info.addWidget(self.frame_label)
+        info.addStretch()
+        layout.addLayout(info)
+        
+        # 控制按钮
+        controls = QHBoxLayout()
+        for txt, fn in [("◀◀", self.backward), ("▶", self.toggle_play), ("▶▶", self.forward), ("清空", self.clear)]:
+            b = QPushButton(txt)
+            b.clicked.connect(fn)
+            controls.addWidget(b)
+        controls.addStretch()
+        layout.addLayout(controls)
+        
+        # 待删除列表
+        list_layout = QHBoxLayout()
+        list_layout.addWidget(QLabel("待删除片段:"))
+        self.delete_list = QListWidget()
+        self.delete_list.itemDoubleClicked.connect(self.delete_item)
+        list_layout.addWidget(self.delete_list)
+        self.del_btn = QPushButton("删除选中")
+        self.del_btn.clicked.connect(self.delete_selected)
+        list_layout.addWidget(self.del_btn)
+        layout.addLayout(list_layout)
+        
+        # 生成按钮
+        gb = QPushButton("删除选中帧")
+        gb.clicked.connect(self.generate)
+        layout.addWidget(gb)
+        
+        # 初始化
+        self.select_start = None
+        self.ranges = []
+        self.del_frames = set()
+        self.show_frame(0)
+    
+    def show_frame(self, idx):
+        if idx < 0 or idx >= self.total:
+            return
+        frame_path = self.frames[idx]
+        frame = cv2.imread(str(frame_path))
+        if frame is None:
+            return
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        h, w = frame.shape[:2]
+        scale = min(800 / w, 500 / h)
+        new_w, new_h = int(w * scale), int(h * scale)
+        frame_small = cv2.resize(frame, (new_w, new_h))
+        qimg = QImage(frame_small.data, new_w, new_h, new_w * 3, QImage.Format_RGB888)
+        self.label.setPixmap(QPixmap.fromImage(qimg))
+        self.frame_label.setText(f"{idx}/{self.total}")
+        self.slider.setValue(idx)
+        self.slider.setDeleteRanges(self.ranges)
+    
+    def toggle_play(self):
+        pass
+    
+    def backward(self):
+        self.show_frame(self.slider.value() - 1)
+    
+    def forward(self):
+        self.show_frame(self.slider.value() + 1)
+    
+    def on_label_click(self, event):
+        idx = self.slider.value()
+        if self.select_start is None:
+            self.select_start = idx
+            self.del_btn.setText(f"选择帧{idx}")
+        else:
+            s, e = min(self.select_start, idx), max(self.select_start, idx)
+            self.ranges.append((s, e))
+            self.delete_list.addItem(f"帧 {s} → {e}")
+            self.select_start = None
+            self.del_btn.setText("删除选中")
+    
+    def clear(self):
+        self.ranges = []
+        self.del_frames = set()
+        self.delete_list.clear()
+        self.select_start = None
+        self.del_btn.setText("删除选中")
+        self.slider.setDeleteRanges([])
+    
+    def delete_selected(self):
+        row = self.delete_list.currentRow()
+        if row >= 0:
+            self.delete_list.takeItem(row)
+            del self.ranges[row]
+            self.slider.setDeleteRanges(self.ranges)
+    
+    def delete_item(self, item):
+        row = self.delete_list.row(item)
+        self.delete_list.takeItem(row)
+        del self.ranges[row]
+        self.slider.setDeleteRanges(self.ranges)
+    
+    def generate(self):
+        delete_set = set(self.del_frames)
+        for s, e in self.ranges:
+            delete_set.update(range(s, e + 1))
+        
+        if not delete_set:
+            QMessageBox.warning(self, "提示", "没有要删除的帧")
+            return
+        
+        # 删除帧文件和标注
+        import os
+        for idx in sorted(delete_set, reverse=True):
+            frame_file = self.frames_dir / f"frame_{idx:06d}.jpg"
+            if frame_file.exists():
+                os.remove(str(frame_file))
+            label_file = self.labels_dir / f"frame_{idx:06d}.json"
+            if label_file.exists():
+                os.remove(str(label_file))
+        
+        QMessageBox.information(self, "完成", f"已删除 {len(delete_set)} 帧")
+        self.close()
+
+
 class TrimDialog(QDialog):
     """视频裁剪对话框"""
     def __init__(self, video_path, parent=None):
@@ -1041,6 +1197,20 @@ class UnifiedPanel(QMainWindow):
         
         # 创建并显示对话框
         dialog = TrimDialog(file_path, self)
+        dialog.exec_()
+    
+    def open_trim_mid_dialog(self):
+        """打开temp_data_mid帧删除对话框"""
+        data_dir = self.path_input.text().strip()
+        if not data_dir:
+            QMessageBox.warning(self, "提示", "请先设置数据目录")
+            return
+        frames_dir = Path(data_dir) / "frames"
+        if not frames_dir.exists():
+            QMessageBox.warning(self, "提示", "frames目录不存在")
+            return
+        
+        dialog = TrimMidDialog(data_dir, self)
         dialog.exec_()
 
 
@@ -1573,6 +1743,11 @@ class UnifiedPanel(QMainWindow):
         show_btn.setFixedSize(44, 22)
         show_btn.clicked.connect(self.show_viewer)
         path_layout.addWidget(show_btn)
+        trim_mid_btn = QPushButton("帧删除")
+        trim_mid_btn.setFixedSize(60, 22)
+        trim_mid_btn.setStyleSheet("QPushButton { background-color: #e74c3c; color: white; border: none; border-radius: 3px; }")
+        trim_mid_btn.clicked.connect(self.open_trim_mid_dialog)
+        path_layout.addWidget(trim_mid_btn)
         import_labelme_btn = QPushButton("导入labelme")
         import_labelme_btn.setFixedSize(80, 22)
         import_labelme_btn.setStyleSheet("QPushButton { background-color: #17a2b8; color: white; border: none; border-radius: 3px; }")
