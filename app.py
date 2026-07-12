@@ -1878,6 +1878,35 @@ class UnifiedPanel(QMainWindow):
         frame_play_layout.addWidget(self.forward_cb)
         layout.addLayout(frame_play_layout)
         
+        # 帧删除模式UI（默认隐藏）
+        self.trim_mode_widget = QWidget()
+        trim_mode_layout = QVBoxLayout()
+        trim_mode_layout.setContentsMargins(0, 0, 0, 0)
+        trim_mode_layout.setSpacing(4)
+        self.trim_mode_widget.setLayout(trim_mode_layout)
+        self.trim_mode_widget.setVisible(False)
+        
+        trim_list_layout = QHBoxLayout()
+        trim_list_layout.addWidget(QLabel("待删除片段:"))
+        self.trim_delete_list = QListWidget()
+        self.trim_delete_list.setFixedHeight(60)
+        self.trim_delete_list.itemDoubleClicked.connect(self.trim_delete_list_item)
+        trim_list_layout.addWidget(self.trim_delete_list)
+        trim_mode_layout.addLayout(trim_list_layout)
+        
+        trim_btn_layout = QHBoxLayout()
+        self.trim_confirm_btn = QPushButton("删除帧")
+        self.trim_confirm_btn.setStyleSheet("QPushButton { background-color: #e74c3c; color: white; border: none; border-radius: 3px; }")
+        self.trim_confirm_btn.clicked.connect(self.delete_trim_frames)
+        trim_btn_layout.addWidget(self.trim_confirm_btn)
+        
+        self.trim_clear_btn = QPushButton("清空")
+        self.trim_clear_btn.clicked.connect(self.trim_clear_list)
+        trim_btn_layout.addWidget(self.trim_clear_btn)
+        trim_mode_layout.addLayout(trim_btn_layout)
+        
+        layout.addWidget(self.trim_mode_widget)
+        
         # 记录上一次执行的FIRST_ID
         self.last_prompt_first_id = None
 
@@ -2261,15 +2290,21 @@ class UnifiedPanel(QMainWindow):
             return
         self.trim_mode = not self.trim_mode
         if self.trim_mode:
+            # 进入帧删除模式
             self.trim_select_start = None
             self.trim_ranges = []
             for btn in [self.backward_fast_btn, self.backward_btn, self.next_btn, self.forward_fast_btn]:
                 btn.setEnabled(False)
-            self.trim_delete_btn.setEnabled(True)
+            self.trim_mode_widget.setVisible(True)
+            # 按钮变黄色
+            self.trim_mid_btn.setStyleSheet("QPushButton { background-color: #f1c40f; color: black; border: none; border-radius: 3px; }")
         else:
+            # 退出帧删除模式
             for btn in [self.backward_fast_btn, self.backward_btn, self.next_btn, self.forward_fast_btn]:
                 btn.setEnabled(True)
-            self.trim_delete_btn.setEnabled(False)
+            self.trim_mode_widget.setVisible(False)
+            # 按钮变回红色
+            self.trim_mid_btn.setStyleSheet("QPushButton { background-color: #e74c3c; color: white; border: none; border-radius: 3px; }")
     
     def on_viewer_mouse_press(self, event):
         """预览画面鼠标按下事件"""
@@ -2281,12 +2316,25 @@ class UnifiedPanel(QMainWindow):
             else:
                 s, e = min(self.trim_select_start, frame_idx), max(self.trim_select_start, frame_idx)
                 self.trim_ranges.append((s, e))
+                self.trim_delete_list.addItem(f"帧 {s} → {e}")
                 print(f"添加删除区间: 帧 {s} → {e}")
                 self.trim_select_start = None
         # 调用原始mousePressEvent
-        from PyQt5.QtWidgets import QLabel
         if hasattr(self.viewer, '_orig_mousePressEvent'):
             self.viewer._orig_mousePressEvent(event)
+    
+    def trim_delete_list_item(self, item):
+        """双击删除列表项"""
+        row = self.trim_delete_list.row(item)
+        self.trim_delete_list.takeItem(row)
+        if row < len(self.trim_ranges):
+            del self.trim_ranges[row]
+    
+    def trim_clear_list(self):
+        """清空删除列表"""
+        self.trim_ranges = []
+        self.trim_delete_list.clear()
+        self.trim_select_start = None
     
     def delete_trim_frames(self):
         """删除选中的帧"""
@@ -2308,6 +2356,7 @@ class UnifiedPanel(QMainWindow):
             if label_file.exists():
                 os.remove(str(label_file))
         self.trim_ranges = []
+        self.trim_delete_list.clear()
         self.trim_select_start = None
         QMessageBox.information(self, "完成", f"已删除 {deleted} 帧")
         self.toggle_trim_mode()  # 退出帧删除模式
