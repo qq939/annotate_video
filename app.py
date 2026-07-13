@@ -3516,7 +3516,7 @@ class UnifiedPanel(QMainWindow):
             self.save_input_dir.setText(folder)
 
     def _get_category_for_track_id(self, track_id):
-        # 根据映射终点ID查找类别名
+        # 先尝试根据映射文件查找
         mappings_file = Path(TEMP_DATA_MID_DIR) / "trace_id_changes.json"
         target_to_idx = {}
         if mappings_file.exists():
@@ -3531,13 +3531,20 @@ class UnifiedPanel(QMainWindow):
                 except:
                     pass
         
-        # 查找track_id对应的类别
-        for target_id, idx in target_to_idx.items():
-            if track_id == target_id:
-                if idx < len(self.category_inputs):
-                    name = self.category_inputs[idx].text() or "Detect"
-                    return (idx, name)
-                return (0, self.ctrl.category_name)
+        # 优先检查映射终点
+        if track_id in target_to_idx:
+            idx = target_to_idx[track_id]
+            if idx < len(self.category_inputs):
+                name = self.category_inputs[idx].text() or "Detect"
+                return (idx, name)
+            return (0, self.ctrl.category_name)
+        
+        # 回退：旧逻辑，根据track_id值直接计算
+        if track_id >= 1000000:
+            idx = track_id - 1000000
+            if idx < len(self.category_inputs):
+                name = self.category_inputs[idx].text() or "Detect"
+                return (idx, name)
         
         return (0, self.ctrl.category_name)
 
