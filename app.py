@@ -2072,6 +2072,21 @@ class UnifiedPanel(QMainWindow):
         self.render_segment_check.setStyleSheet("QCheckBox { font-size: 11px; }")
         layout.addWidget(self.render_segment_check)
 
+        # 固定框功能
+        fixed_bbox_layout = QHBoxLayout()
+        fixed_bbox_layout.setSpacing(4)
+        fixed_bbox_layout.addWidget(QLabel("固定框:"))
+        self.fixed_trace_id = QLabel("1000000")
+        self.fixed_trace_id.setFixedWidth(60)
+        fixed_bbox_layout.addWidget(self.fixed_trace_id)
+        self.fixed_bbox_btn = QPushButton("执行固定框")
+        self.fixed_bbox_btn.setFixedHeight(22)
+        self.fixed_bbox_btn.setStyleSheet("QPushButton { background-color: #6c757d; color: white; border: none; border-radius: 3px; }")
+        self.fixed_bbox_btn.clicked.connect(self.apply_fixed_bbox)
+        fixed_bbox_layout.addWidget(self.fixed_bbox_btn)
+        fixed_bbox_layout.addStretch()
+        layout.addLayout(fixed_bbox_layout)
+
         trail_layout = QHBoxLayout()
         trail_layout.setSpacing(4)
         self.trail_check = QCheckBox("粒子效果")
@@ -3516,7 +3531,66 @@ class UnifiedPanel(QMainWindow):
             shutil.rmtree(dst)
         shutil.copytree(src, dst)
         QMessageBox.information(self, "完成", f"已从temp_data复制到temp_data_mid")
-
+    
+    def _find_available_trace_id(self):
+        """查找temp_data_mid中未使用的trace_id"""
+        labels_dir = Path(TEMP_DATA_MID_DIR) / "labels"
+        if not labels_dir.exists():
+            return 1000000
+        used_ids = set()
+        for f in labels_dir.glob("*.json"):
+            try:
+                with open(f) as fp:
+                    data = json.load(fp)
+                    for ann in data:
+                        tid = ann.get('track_id', 0)
+                        if tid >= 1000000:
+                            used_ids.add(tid)
+            except:
+                pass
+        # 从1000000开始找第一个未使用的
+        for i in range(1000000, 2000000):
+            if i not in used_ids:
+                return i
+        return 1000000 + len(used_ids)
+    
+    def apply_fixed_bbox(self):
+        """在每一帧添加固定框"""
+        if not self.viewer:
+            QMessageBox.warning(self, "错误", "请先显示预览")
+            return
+        prompt_bboxes = self.viewer.get_prompt_bboxes()
+        if not prompt_bboxes:
+            QMessageBox.warning(self, "错误", "请先在预览中画框")
+            return
+        bbox = prompt_bboxes[0]  # 使用第一个框
+        trace_id = self._find_available_trace_id()
+        self.fixed_trace_id.setText(str(trace_id))
+        labels_dir = Path(TEMP_DATA_MID_DIR) / "labels"
+        labels_dir.mkdir(exist_ok=True)
+        frame_idx = 0
+        for f in sorted(labels_dir.glob("frame_*.json")):
+            with open(f) as fp:
+                anns = json.load(fp)
+            anns.append({
+                'bbox': list(bbox),
+                'track_id': trace_id,
+                'segmentation': [[
+                    bbox[0], bbox[1],
+                    bbox[2], bbox[1],
+                    bbox[2], bbox[3],
+                    bbox[0], bbox[3]
+                ]],
+                'category': 'Fixed',
+                'confidence': 1.0
+            })
+            with open(f, 'w') as fp:
+                json.dump(anns, fp)
+            frame_idx += 1
+        self.viewer.clear_prompt_bboxes()
+        self.viewer.update_display()
+        QMessageBox.information(self, "完成", f"已添加固定框 (trace_id={trace_id}) 到 {frame_idx} 帧")
+    
     def export_to_temp_data_post(self):
         data_dir = Path(TEMP_DATA_MID_DIR)
         if not data_dir.exists():
