@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 import json
 
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel)
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QRadioButton)
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QImage, QPixmap, QPainter, QPen, QColor
 from PyQt5.QtCore import pyqtSignal
@@ -68,58 +68,6 @@ class VideoLabel(QLabel):
         if event.button() == Qt.LeftButton:
             self.point_clicked.emit(event.x(), event.y())
         super().mousePressEvent(event)
-    
-    def mouseDoubleClickEvent(self, event):
-        """右键双击修改单帧trace_id"""
-        if event.button() == Qt.RightButton:
-            self._set_annotation_trace_id(event.x(), event.y())
-        super().mouseDoubleClickEvent(event)
-    
-    def _set_annotation_trace_id(self, display_x, display_y):
-        """右键双击修改单帧annotation的trace_id"""
-        # 获取parent的controller
-        parent = self.parent()
-        if not parent or not hasattr(parent, 'controller') or not hasattr(parent.controller, 'trace_id_input'):
-            return
-        current_tid = int(parent.controller.trace_id_input.text()) if parent.controller.trace_id_input.text() else 1000000
-        scaled_w = int(self.video_width * self.zoom_factor)
-        scaled_h = int(self.video_height * self.zoom_factor)
-        label_w = self.width()
-        label_h = self.height()
-        offset_x = (label_w - scaled_w) / 2
-        offset_y = (label_h - scaled_h) / 2
-        click_x = int((display_x - offset_x) / self.zoom_factor)
-        click_y = int((display_y - offset_y) / self.zoom_factor)
-        if click_x < 0 or click_x >= self.video_width or click_y < 0 or click_y >= self.video_height:
-            return
-        frame_annotations = self._get_current_annotations()
-        for ann in frame_annotations:
-            bbox = ann.get('bbox', [])
-            if len(bbox) >= 4:
-                x, y, w, h = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
-                if x <= click_x <= x + w and y <= click_y <= y + h:
-                    old_tid = ann.get('track_id', 0)
-                    if old_tid != current_tid:
-                        # 记录回退信息
-                        frame_idx = parent.current_frame_idx
-                        bbox_key = f"{x},{y},{w},{h}"
-                        undo_data = {frame_idx: {bbox_key: old_tid}}
-                        if hasattr(parent.controller, 'push_undo'):
-                            parent.controller.push_undo(undo_data)
-                        # 修改并保存
-                        ann['track_id'] = current_tid
-                        self._save_annotation(ann)
-                        self.update_display()
-                        print(f"[RightClick] 已将 track_id {old_tid} -> {current_tid}")
-                    return
-    
-    def _get_current_annotations(self):
-        """获取当前帧的annotations"""
-        label_path = str(self.parent().labels_dir / f"frame_{self.parent().current_frame_idx:06d}.json")
-        if Path(label_path).exists():
-            with open(label_path) as f:
-                return json.load(f)
-        return []
     
     def mouseMoveEvent(self, event):
         if self.drawing_enabled and self._drag_start is not None:
@@ -204,6 +152,18 @@ class VideoViewer(QMainWindow):
         layout = QVBoxLayout()
         central.setLayout(layout)
 
+        # 单帧/多帧选择
+        mode_layout = QHBoxLayout()
+        mode_layout.addWidget(QLabel("修改模式:"))
+        self.single_frame_radio = QRadioButton("单帧")
+        self.single_frame_radio.setChecked(False)  # 默认多帧
+        self.multi_frame_radio = QRadioButton("多帧")
+        self.multi_frame_radio.setChecked(True)  # 默认多帧
+        mode_layout.addWidget(self.single_frame_radio)
+        mode_layout.addWidget(self.multi_frame_radio)
+        mode_layout.addStretch()
+        layout.addLayout(mode_layout)
+
         self.image_label = VideoLabel()
         self.image_label.set_zoom(self.zoom_factor)
         self.image_label.set_video_size(self.video_width, self.video_height)
@@ -243,7 +203,7 @@ class VideoViewer(QMainWindow):
         if offset_x <= display_x < offset_x + scaled_w and offset_y <= display_y < offset_y + scaled_h:
             video_x = int((display_x - offset_x) / self.zoom_factor)
             video_y = int((display_y - offset_y) / self.zoom_factor)
-            # 单击修改所有帧的annotation的trace_id为当前ID
+            # 单击修改annotation的trace_id为当前ID
             if self.controller and hasattr(self.controller, 'trace_id_input'):
                 current_tid = int(self.controller.trace_id_input.text()) if self.controller.trace_id_input.text() else 1000000
                 frame_annotations = self._get_current_annotations()
@@ -254,12 +214,14 @@ class VideoViewer(QMainWindow):
                         if x <= video_x <= x + w and y <= video_y <= y + h:
                             old_tid = ann.get('track_id', 0)
                             if old_tid != current_tid:
-                                # 批量修改所有帧
-                                self._change_trace_id_in_all_frames(old_tid, current_tid)
-                                print(f"[Click] 批量修改: track_id {old_tid} -> {current_tid}")
-                                # 通知主面板记录回退
-                                if self.controller and hasattr(self.controller, 'push_undo'):
-                                    self.controller.push_undo()
+                                if self.single_frame_radio.isChecked():
+                                    # 单帧模式
+                                    self._change_trace_id_single_frame(old_tid, current_tid)
+                                    print(f"[Click] 单帧修改: track_id {old_tid} -> {current_tid}")
+                                else:
+                                    # 多帧模式
+                                    self._change_trace_id_in_all_frames(old_tid, current_tid)
+                                    print(f"[Click] 多帧修改: track_id {old_tid} -> {current_tid}")
                             return
             self.video_clicked.emit(video_x, video_y, self.current_frame_idx)
 
@@ -371,6 +333,35 @@ class VideoViewer(QMainWindow):
         if len(bbox) >= 4:
             return f"{int(bbox[0])},{int(bbox[1])},{int(bbox[2])},{int(bbox[3])}"
         return ""
+    
+    def _change_trace_id_single_frame(self, old_tid, new_tid):
+        """修改当前帧中指定track_id的annotation"""
+        frame_idx = self.current_frame_idx
+        frame_file = self.labels_dir / f"frame_{frame_idx:06d}.json"
+        if not frame_file.exists():
+            return
+        
+        undo_data = {frame_idx: {}}
+        try:
+            with open(frame_file) as f:
+                annotations = json.load(f)
+            new_anns = []
+            for ann in annotations:
+                if ann.get('track_id', 0) == old_tid:
+                    bbox_key = self._get_bbox_key(ann.get('bbox', []))
+                    undo_data[frame_idx][bbox_key] = old_tid
+                    ann['track_id'] = new_tid
+                new_anns.append(ann)
+            with open(frame_file, 'w') as f:
+                json.dump(new_anns, f)
+        except:
+            return
+        
+        if undo_data[frame_idx] and self.controller and hasattr(self.controller, 'push_undo'):
+            self.controller.push_undo(undo_data)
+        if self.controller and hasattr(self.controller, 'refresh_trace_id_list'):
+            self.controller.refresh_trace_id_list()
+        self.update_display()
     
     def set_zoom(self, factor):
         self.zoom_factor = factor
