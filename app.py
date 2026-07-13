@@ -4645,10 +4645,11 @@ names: {class_names}
         if resume:
             # 继续训练：加载已有模型继续训练
             print("[YOLO] 继续训练模式...")
+            epochs = int(self.train_epochs_input.text()) if self.train_epochs_input.text() else 30
             model.train(
                 data=yaml_path.as_posix(),
                 model=str(train_dir / "weights" / "last.pt"),
-                epochs=100,  # 继续训练固定100轮
+                epochs=epochs,
                 imgsz=640,
                 batch=8,
                 device=0,
