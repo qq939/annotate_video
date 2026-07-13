@@ -1333,6 +1333,11 @@ class UnifiedPanel(QMainWindow):
         self.morph_label = QLabel("0")
         self.morph_label.setFixedWidth(25)
         iou_layout.addWidget(self.morph_label)
+        iou_layout.addWidget(QLabel("物品:"))
+        self.items_input = QLineEdit()
+        self.items_input.setMinimumWidth(100)
+        self.items_input.setFixedHeight(22)
+        iou_layout.addWidget(self.items_input)
         layout.addLayout(iou_layout)
 
         scale_layout = QHBoxLayout()
