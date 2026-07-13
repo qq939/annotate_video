@@ -3592,6 +3592,9 @@ class UnifiedPanel(QMainWindow):
             end_frame = total_frames - 1
         
         added = 0
+        # 转换为coco格式: [x, y, w, h]
+        coco_bbox = [min(bbox[0], bbox[2]), min(bbox[1], bbox[3]), 
+                     abs(bbox[2] - bbox[0]), abs(bbox[3] - bbox[1])]
         for i in range(start_frame, end_frame + 1):
             frame_file = labels_dir / f"frame_{i:06d}.json"
             if frame_file.exists():
@@ -3600,13 +3603,13 @@ class UnifiedPanel(QMainWindow):
             else:
                 anns = []
             anns.append({
-                'bbox': list(bbox),
+                'bbox': coco_bbox,
                 'track_id': trace_id,
                 'segmentation': [[
-                    bbox[0], bbox[1],
-                    bbox[2], bbox[1],
-                    bbox[2], bbox[3],
-                    bbox[0], bbox[3]
+                    coco_bbox[0], coco_bbox[1],
+                    coco_bbox[0] + coco_bbox[2], coco_bbox[1],
+                    coco_bbox[0] + coco_bbox[2], coco_bbox[1] + coco_bbox[3],
+                    coco_bbox[0], coco_bbox[1] + coco_bbox[3]
                 ]],
                 'category': 'Fixed',
                 'confidence': 1.0
