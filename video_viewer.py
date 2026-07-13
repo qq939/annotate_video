@@ -66,18 +66,18 @@ class VideoLabel(QLabel):
             self._drag_current = (event.x(), event.y())
             return
         if event.button() == Qt.LeftButton:
-            self.point_clicked.emit(event.x(), event.y())
+            # 单击修改annotation的trace_id为当前ID
+            self._set_annotation_trace_id(event.x(), event.y())
+            return
         super().mousePressEvent(event)
     
     def mouseDoubleClickEvent(self, event):
-        """双击将annotation的trace_id设置为当前ID"""
-        if event.button() != Qt.LeftButton or self.drawing_enabled:
-            super().mouseDoubleClickEvent(event)
-            return
-        
-        # 获取当前设置的trace_id
+        """双击保持不变，不处理"""
+        pass
+    
+    def _set_annotation_trace_id(self, display_x, display_y):
+        """单击修改annotation的trace_id为当前ID"""
         if not self.controller or not hasattr(self.controller, 'trace_id_input'):
-            super().mouseDoubleClickEvent(event)
             return
         
         current_tid = int(self.controller.trace_id_input.text()) if self.controller.trace_id_input.text() else 1000000
@@ -90,12 +90,11 @@ class VideoLabel(QLabel):
         offset_x = (label_w - scaled_w) / 2
         offset_y = (label_h - scaled_h) / 2
         
-        click_x = int((event.x() - offset_x) / self.zoom_factor)
-        click_y = int((event.y() - offset_y) / self.zoom_factor)
+        click_x = int((display_x - offset_x) / self.zoom_factor)
+        click_y = int((display_y - offset_y) / self.zoom_factor)
         
         # 检查是否在视频区域内
         if click_x < 0 or click_x >= self.video_width or click_y < 0 or click_y >= self.video_height:
-            super().mouseDoubleClickEvent(event)
             return
         
         # 查找点击的annotation
@@ -110,10 +109,8 @@ class VideoLabel(QLabel):
                         ann['track_id'] = current_tid
                         self._save_annotation(ann)
                         self.update_display()
-                        print(f"[DoubleClick] 已将 track_id {old_tid} -> {current_tid}")
+                        print(f"[Click] 已将 track_id {old_tid} -> {current_tid}")
                     return
-        
-        super().mouseDoubleClickEvent(event)
     
     def _get_current_annotations(self):
         """获取当前帧的annotations"""
