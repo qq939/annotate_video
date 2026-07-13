@@ -3612,7 +3612,7 @@ class UnifiedPanel(QMainWindow):
         self._load_trace_id_mappings()
         self._apply_trace_id_mappings_to_mid()
 
-        self.viewer = VideoViewer(viewer_path, controller=self)
+        self.viewer = VideoViewer(viewer_path, controller=self.ctrl, panel=self)
         self.viewer.video_clicked.connect(self.handle_viewer_click)
         zoom_factor = self.zoom_slider.value() / 100.0
         self.viewer.set_zoom(zoom_factor)

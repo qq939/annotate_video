@@ -119,10 +119,11 @@ class VideoLabel(QLabel):
 class VideoViewer(QMainWindow):
     video_clicked = pyqtSignal(int, int, int)
 
-    def __init__(self, temp_data_path, controller=None):
+    def __init__(self, temp_data_path, controller=None, panel=None):
         super().__init__()
         self.temp_data_path = Path(temp_data_path)
         self.controller = controller  # VideoController 实例
+        self.panel = panel  # UnifiedPanel 实例
 
         with open(self.temp_data_path / "annotations.json") as f:
             self.coco_data = json.load(f)
@@ -204,8 +205,7 @@ class VideoViewer(QMainWindow):
             video_x = int((display_x - offset_x) / self.zoom_factor)
             video_y = int((display_y - offset_y) / self.zoom_factor)
             # 单击修改annotation的trace_id为当前ID
-            # controller实际上是UnifiedPanel实例
-            panel = self.controller
+            panel = self.panel
             if panel and hasattr(panel, 'trace_id_input'):
                 current_tid = int(panel.trace_id_input.text()) if panel.trace_id_input.text() else 1000000
                 is_single = self.single_frame_radio.isChecked()
@@ -295,7 +295,7 @@ class VideoViewer(QMainWindow):
         with open(label_path, 'w') as f:
             json.dump(annotations, f)
         if self.controller and hasattr(self.controller, 'refresh_trace_id_list'):
-            self.controller.refresh_trace_id_list()
+            self.panel.refresh_trace_id_list()
     
     def _change_trace_id_in_all_frames(self, old_tid, new_tid):
         """批量修改所有帧中指定track_id的annotation"""
@@ -321,9 +321,9 @@ class VideoViewer(QMainWindow):
                 pass
         # 通知主面板
         if undo_data and self.controller and hasattr(self.controller, 'push_undo'):
-            self.controller.push_undo(undo_data)
+            self.panel.push_undo(undo_data)
         if self.controller and hasattr(self.controller, 'refresh_trace_id_list'):
-            self.controller.refresh_trace_id_list()
+            self.panel.refresh_trace_id_list()
         self.update_display()
         print(f"[多帧修改] 共修改 {len(undo_data)} 帧")
     
@@ -363,9 +363,9 @@ class VideoViewer(QMainWindow):
             return
         
         if changed and self.controller and hasattr(self.controller, 'push_undo'):
-            self.controller.push_undo(undo_data)
+            self.panel.push_undo(undo_data)
         if self.controller and hasattr(self.controller, 'refresh_trace_id_list'):
-            self.controller.refresh_trace_id_list()
+            self.panel.refresh_trace_id_list()
         self.update_display()
         print(f"[单帧修改] 修改了1个bbox")
     
@@ -398,18 +398,18 @@ class VideoViewer(QMainWindow):
             annotated_frame = frame
 
         if self.controller:
-                for tp in self.controller.get_track_id_points():
-                    if tp.get('frame_idx') == self.current_frame_idx:
-                        cx, cy = tp['x'], tp['y']
-                        cv2.circle(annotated_frame, (cx, cy), 6, (0, 255, 0), -1)
-                        cv2.circle(annotated_frame, (cx, cy), 6, (0, 0, 0), 2)
-                        label = str(self.controller.track_id_points.index(tp))
-                        cv2.putText(annotated_frame, label, (cx + 8, cy - 5),
-                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+            for tp in self.controller.get_track_id_points():
+                if tp.get('frame_idx') == self.current_frame_idx:
+                    cx, cy = tp['x'], tp['y']
+                    cv2.circle(annotated_frame, (cx, cy), 6, (0, 255, 0), -1)
+                    cv2.circle(annotated_frame, (cx, cy), 6, (0, 0, 0), 2)
+                    label = str(self.controller.track_id_points.index(tp))
+                    cv2.putText(annotated_frame, label, (cx + 8, cy - 5),
+                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
         # prompt_bboxes只在提示帧可见
-        if self.controller and hasattr(self.controller, 'prompt_frame_idx') and self.controller.prompt_frame_idx >= 0:
-            if self.current_frame_idx == self.controller.prompt_frame_idx:
+        if self.panel and hasattr(self.panel, 'prompt_frame_idx') and self.panel.prompt_frame_idx >= 0:
+            if self.current_frame_idx == self.panel.prompt_frame_idx:
                 for bbox in self.prompt_bboxes:
                     x1, y1, x2, y2 = bbox
                     cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), (0, 255, 0), 3)
@@ -418,8 +418,8 @@ class VideoViewer(QMainWindow):
                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
         
         # 固定框模式：bboxes始终可见（黄色）
-        if self.controller and hasattr(self.controller, 'fixed_bbox_mode') and self.controller.fixed_bbox_mode:
-            if self.current_frame_idx == getattr(self.controller, 'fixed_bbox_frame_idx', 0):
+        if self.panel and hasattr(self.panel, 'fixed_bbox_mode') and self.panel.fixed_bbox_mode:
+            if self.current_frame_idx == getattr(self.panel, 'fixed_bbox_frame_idx', 0):
                 for bbox in self.prompt_bboxes:
                     x1, y1, x2, y2 = bbox
                     cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), (0, 255, 255), 3)
