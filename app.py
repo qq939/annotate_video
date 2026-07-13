@@ -1908,18 +1908,12 @@ class UnifiedPanel(QMainWindow):
         # 回退按钮单独一行（撑满）
         undo_layout = QHBoxLayout()
         undo_layout.setSpacing(4)
-        self.undo_all_btn = QPushButton("回退（全部）")
-        self.undo_all_btn.setFixedHeight(24)
-        self.undo_all_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.undo_all_btn.setStyleSheet("QPushButton { background-color: #CC0000; color: white; border: none; border-radius: 3px; font-size: 11px; } QPushButton:hover { background-color: #990000; }")
-        self.undo_all_btn.clicked.connect(self.undo_last_prompt)
-        undo_layout.addWidget(self.undo_all_btn)
-        self.undo_single_btn = QPushButton("回退（当前帧）")
-        self.undo_single_btn.setFixedHeight(24)
-        self.undo_single_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.undo_single_btn.setStyleSheet("QPushButton { background-color: #CC0000; color: white; border: none; border-radius: 3px; font-size: 11px; } QPushButton:hover { background-color: #990000; }")
-        self.undo_single_btn.clicked.connect(self.undo_single_frame_trace_id)
-        undo_layout.addWidget(self.undo_single_btn)
+        self.undo_btn = QPushButton("回退")
+        self.undo_btn.setFixedHeight(24)
+        self.undo_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.undo_btn.setStyleSheet("QPushButton { background-color: #CC0000; color: white; border: none; border-radius: 3px; font-size: 11px; } QPushButton:hover { background-color: #990000; }")
+        self.undo_btn.clicked.connect(self.show_undo_menu)
+        undo_layout.addWidget(self.undo_btn)
         layout.addLayout(undo_layout)
         
         # 记录上一次执行的FIRST_ID和固定框trace_id
@@ -2911,39 +2905,52 @@ class UnifiedPanel(QMainWindow):
                 self.viewer.update_display()
         QMessageBox.information(self, "完成", f"已回退固定框 (trace_id={fixed_id})，删除 {deleted_count} 个标注")
 
-    def undo_single_frame_trace_id(self):
-        """回退当前帧的trace_id修改"""
-        if not self.viewer:
-            QMessageBox.warning(self, "提示", "请先显示预览")
+    def show_undo_menu(self):
+        """显示回退菜单"""
+        if not self.undo_stack:
+            QMessageBox.information(self, "提示", "没有可回退的操作")
             return
         
-        frame_idx = self.viewer.current_frame_idx
+        menu = QMenu(self)
+        for i, undo_data in enumerate(self.undo_stack):
+            frame_count = len(undo_data)
+            label = f"回退步骤{i+1}: {frame_count}帧"
+            action = menu.addAction(label)
+            action.triggered.connect(lambda checked, idx=i: self.undo_by_index(idx))
+        
+        menu.exec_(self.undo_btn.mapToGlobal(self.undo_btn.rect().bottomLeft()))
+    
+    def undo_by_index(self, idx):
+        """按索引回退"""
+        if idx < 0 or idx >= len(self.undo_stack):
+            return
+        undo_data = self.undo_stack.pop(idx)
+        
         labels_dir = Path(TEMP_DATA_MID_DIR) / "labels"
-        frame_file = labels_dir / f"frame_{frame_idx:06d}.json"
-        
-        if not frame_file.exists():
-            QMessageBox.warning(self, "提示", f"当前帧 {frame_idx} 没有标注文件")
-            return
-        
-        try:
-            with open(frame_file, 'r', encoding='utf-8') as f:
-                anns = json.load(f)
-            original_len = len(anns)
-            # 查找当前帧中被修改过的trace_id（通过比较文件名后缀）
-            # 这里简化处理：删除所有>=1000000的标注
-            anns = [ann for ann in anns if ann.get('track_id', 0) < 1000000]
-            deleted = original_len - len(anns)
-            if deleted > 0:
+        restored = 0
+        for frame_idx, frame_undo in undo_data.items():
+            frame_file = labels_dir / f"frame_{frame_idx:06d}.json"
+            if not frame_file.exists():
+                continue
+            try:
+                with open(frame_file, 'r', encoding='utf-8') as f:
+                    anns = json.load(f)
+                for ann in anns:
+                    bbox = ann.get('bbox', [])
+                    if len(bbox) >= 4:
+                        bbox_key = f"{int(bbox[0])},{int(bbox[1])},{int(bbox[2])},{int(bbox[3])}"
+                        if bbox_key in frame_undo:
+                            ann['track_id'] = frame_undo[bbox_key]
+                            restored += 1
                 with open(frame_file, 'w', encoding='utf-8') as f:
                     json.dump(anns, f, ensure_ascii=False)
-                self.refresh_trace_id_list()
-                if self.viewer:
-                    self.viewer.update_display()
-                QMessageBox.information(self, "完成", f"已回退当前帧 {frame_idx} 的 {deleted} 个标注")
-            else:
-                QMessageBox.information(self, "提示", f"当前帧 {frame_idx} 没有可回退的标注")
-        except Exception as e:
-            QMessageBox.warning(self, "错误", str(e))
+            except Exception as e:
+                print(f"回退失败 {frame_file}: {e}")
+        
+        if self.viewer:
+            self.viewer.update_display()
+        self.refresh_trace_id_list()
+        QMessageBox.information(self, "完成", f"已回退步骤{idx+1}，{len(undo_data)}帧，{restored}个标注")
 
     def _get_trace_id_mappings_file(self):
         return Path(TEMP_DATA_MID_DIR) / "trace_id_changes.json"
