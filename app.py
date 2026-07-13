@@ -1788,11 +1788,11 @@ class UnifiedPanel(QMainWindow):
         path_layout.addWidget(open_btn)
         show_btn = QPushButton("显示")
         show_btn.setFixedSize(44, 22)
-        show_btn.clicked.connect(self.show_viewer_only)
+        show_btn.clicked.connect(self.show_viewer)
         path_layout.addWidget(show_btn)
         redo_btn = QPushButton("重做")
         redo_btn.setFixedSize(44, 22)
-        redo_btn.clicked.connect(self.show_viewer)
+        redo_btn.clicked.connect(self.redo_copy_to_mid)
         path_layout.addWidget(redo_btn)
         trim_mid_btn = QPushButton("帧删除")
         trim_mid_btn.setFixedSize(60, 22)
@@ -3477,17 +3477,9 @@ class UnifiedPanel(QMainWindow):
             return
         self.total_frames = len(coco_data.get('images', []))
 
-        temp_mid = Path(TEMP_DATA_MID_DIR)
-        # 如果源就是temp_mid本身，不需要复制
-        if self.temp_data_path.resolve() == temp_mid.resolve():
-            print(f"源就是temp_mid，无需复制")
-            viewer_path = str(temp_mid)
-        else:
-            if temp_mid.exists():
-                shutil.rmtree(temp_mid)
-            shutil.copytree(self.temp_data_path, temp_mid)
-            print(f"已从 {self.temp_data_path} 拷贝到 {temp_mid}")
-            viewer_path = str(temp_mid)
+        # 直接使用当前目录，不复制到temp_data_mid
+        viewer_path = str(self.temp_data_path)
+        print(f"预览: {viewer_path}")
 
         self._load_trace_id_mappings()
         self._apply_trace_id_mappings_to_mid()
@@ -3503,47 +3495,18 @@ class UnifiedPanel(QMainWindow):
 
         self.frame_label.setText(f"1/{self.total_frames}")
 
-    def show_viewer_only(self):
-        """只显示预览temp_data_mid，复用已有窗口"""
+    def redo_copy_to_mid(self):
+        """将当前目录复制到temp_data_mid"""
+        src_path = Path(self.path_input.text())
+        if not src_path.exists():
+            QMessageBox.warning(self, "错误", "数据目录不存在")
+            return
         temp_mid = Path(TEMP_DATA_MID_DIR)
-        if not temp_mid.exists():
-            QMessageBox.warning(self, "错误", "temp_data_mid 目录不存在，请先点击重做")
-            return
-        ann_file = temp_mid / "annotations.json"
-        if not ann_file.exists():
-            QMessageBox.warning(self, "错误", "annotations.json 不存在")
-            return
-
-        try:
-            with open(ann_file) as f:
-                coco_data = json.load(f)
-        except json.JSONDecodeError:
-            QMessageBox.critical(self, "错误", "annotations.json 文件损坏!")
-            return
-        self.total_frames = len(coco_data.get('images', []))
-
-        viewer_path = str(temp_mid)
-        self.temp_data_path = temp_mid
-
-        # 如果已有窗口，直接更新路径
-        if self.viewer:
-            self.viewer.reload_data(viewer_path)
-            self.viewer.go_to_frame(0)
-            self.viewer.update_display()
-        else:
-            from video_viewer import VideoViewer
-            self._load_trace_id_mappings()
-            self._apply_trace_id_mappings_to_mid()
-            self.viewer = VideoViewer(viewer_path, controller=self.ctrl)
-            self.viewer.video_clicked.connect(self.handle_viewer_click)
-            zoom_factor = self.zoom_slider.value() / 100.0
-            self.viewer.set_zoom(zoom_factor)
-            geo = self.geometry()
-            self.viewer.move(geo.right(), geo.top())
-            self.viewer.show()
-            self.viewer.update_display()
-
-        self.frame_label.setText(f"1/{self.total_frames}")
+        if temp_mid.exists():
+            shutil.rmtree(temp_mid)
+        shutil.copytree(src_path, temp_mid)
+        print(f"已从 {src_path} 复制到 {temp_mid}")
+        QMessageBox.information(self, "完成", f"已复制到temp_data_mid\n\n{src_path} → {temp_mid}")
 
     def select_save_input_dir(self):
         folder = QFileDialog.getExistingDirectory(self, "选择输入目录", ".")
