@@ -271,8 +271,10 @@ class VideoViewer(QMainWindow):
                         cv2.putText(annotated_frame, label, (cx + 8, cy - 5),
                                  cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
-        # 只在标注当前帧时显示绿色提示框
-        if hasattr(self.controller, 'prompt_drawing_mode') and self.controller.prompt_drawing_mode:
+        # 只在标注的对应帧数上显示绿色提示框
+        if (hasattr(self.controller, 'prompt_drawing_mode') and self.controller.prompt_drawing_mode and
+            hasattr(self.controller, 'prompt_frame_idx') and self.controller.prompt_frame_idx >= 0 and
+            self.controller.get_current_frame() == self.controller.prompt_frame_idx):
             for bbox in self.prompt_bboxes:
                 x1, y1, x2, y2 = bbox
                 cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), (0, 255, 0), 3)
