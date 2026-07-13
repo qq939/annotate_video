@@ -1149,6 +1149,9 @@ class UnifiedPanel(QMainWindow):
         self.prompt_drawing_mode = False
         self.prompt_frame_idx = -1
         self.last_video_name = ""  # 上次处理的视频名称
+        self.category_layout = None  # 将在create_viewer_section中初始化
+        self.category_inputs = []
+        self.category_labels = []
 
         self.palette_colors = [
             (0, 0, 255),     # 红 (BGR)
@@ -1799,23 +1802,11 @@ class UnifiedPanel(QMainWindow):
         path_layout.addWidget(import_labelme_btn)
         layout.addLayout(path_layout)
 
-        category_layout = QVBoxLayout()
-        category_layout.setSpacing(2)
-        category_layout.addWidget(QLabel("类别名称 (trace_id → 类别):"))
-        self.category_inputs = []
-        # 1000档，从1000开始到7000（8个槽位）
-        for tid in range(1000, 8000, 1000):
-            row = QHBoxLayout()
-            row.setSpacing(2)
-            label = QLabel(f"{tid}:")
-            label.setFixedWidth(70)
-            row.addWidget(label)
-            inp = QLineEdit("Detect")
-            inp.setFixedHeight(20)
-            row.addWidget(inp)
-            self.category_inputs.append(inp)
-            category_layout.addLayout(row)
-        layout.addLayout(category_layout)
+        self.category_layout = QVBoxLayout()
+        self.category_layout.setSpacing(2)
+        # 动态类别列表，根据ID映射终点生成
+        self._update_category_list()
+        layout.addLayout(self.category_layout)
 
         zoom_layout = QHBoxLayout()
         zoom_layout.setSpacing(4)
@@ -2860,6 +2851,7 @@ class UnifiedPanel(QMainWindow):
         with open(mappings_file, 'w') as f:
             json.dump(mappings, f)
         print(f"已保存 trace_id_mappings 到 {mappings_file}")
+        self._update_category_list()
 
     def _load_trace_id_mappings(self):
         mappings_file = self._get_trace_id_mappings_file()
@@ -2870,7 +2862,61 @@ class UnifiedPanel(QMainWindow):
             for m in mappings:
                 self.trace_id_list.addItem(m)
             print(f"已加载 trace_id_mappings: {len(mappings)} 条")
-
+        self._update_category_list()
+    
+    def _update_category_list(self):
+        """根据ID映射终点更新类别列表"""
+        mappings_file = self._get_trace_id_mappings_file()
+        if not mappings_file.exists():
+            target_ids = [1000000]  # 默认只有1000000
+        else:
+            with open(mappings_file, 'r') as f:
+                mappings = json.load(f)
+            target_ids = set()
+            for m in mappings:
+                try:
+                    parts = m.replace("ID:", "").split("→")
+                    if len(parts) == 2:
+                        target_ids.add(int(parts[1].strip()))
+                except:
+                    pass
+            if not target_ids:
+                target_ids = [1000000]
+            else:
+                target_ids = sorted(target_ids)
+        
+        # 清除旧UI
+        for label in self.category_labels:
+            label.setParent(None)
+        for inp in self.category_inputs:
+            inp.setParent(None)
+        self.category_labels.clear()
+        self.category_inputs.clear()
+        
+        # 查找category_layout并清空
+        for i in reversed(range(self.category_layout.count())):
+            widget = self.category_layout.itemAt(i).widget()
+            if widget:
+                widget.setParent(None)
+        
+        # 添加标题
+        title = QLabel("类别名称 (trace_id → 类别):")
+        self.category_layout.addWidget(title)
+        
+        # 添加新的类别行
+        for tid in target_ids:
+            row = QHBoxLayout()
+            row.setSpacing(2)
+            label = QLabel(f"{tid}:")
+            label.setFixedWidth(80)
+            row.addWidget(label)
+            inp = QLineEdit("Detect")
+            inp.setFixedHeight(20)
+            row.addWidget(inp)
+            self.category_labels.append(label)
+            self.category_inputs.append(inp)
+            self.category_layout.addLayout(row)
+    
     def _apply_single_mapping_to_mid(self, from_id, to_id):
         temp_mid = Path(TEMP_DATA_MID_DIR)
         labels_dir = temp_mid / "labels"
