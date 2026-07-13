@@ -66,6 +66,7 @@ class VideoLabel(QLabel):
             self._drag_current = (event.x(), event.y())
             return
         if event.button() == Qt.LeftButton:
+            print(f"[VideoLabel click] x={event.x()}, y={event.y()}")
             self.point_clicked.emit(event.x(), event.y())
         super().mousePressEvent(event)
     
@@ -193,6 +194,7 @@ class VideoViewer(QMainWindow):
             self.timer.stop()
 
     def on_click(self, display_x, display_y):
+        print(f"[on_click] received: x={display_x}, y={display_y}")
         scaled_w = int(self.video_width * self.zoom_factor)
         scaled_h = int(self.video_height * self.zoom_factor)
         label_w = self.image_label.width()
