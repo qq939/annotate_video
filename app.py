@@ -834,6 +834,7 @@ class TrimDialog(QDialog):
     def __init__(self, video_path, parent=None):
         super().__init__(parent)
         self.video_path = video_path
+        self.parent_panel = parent  # 保存父窗口引用用于获取视频名称
         
         # 先获取视频尺寸
         cap = cv2.VideoCapture(video_path)
@@ -1059,8 +1060,13 @@ class TrimDialog(QDialog):
             return
         
         output_files = []
-        base_name = Path(self.video_path).stem
         timestamp = time.strftime("%Y%m%d%H%M%S")
+        # 优先使用父窗口的视频名称，否则使用当前视频文件名
+        base_name = ""
+        if self.parent_panel and hasattr(self.parent_panel, 'last_video_name'):
+            base_name = self.parent_panel.last_video_name
+        if not base_name:
+            base_name = Path(self.video_path).stem
         
         for idx, (s, e) in enumerate(keep_ranges):
             clip_name = f"{base_name}_clip{idx + 1}_{timestamp}.mp4"
@@ -1142,6 +1148,7 @@ class UnifiedPanel(QMainWindow):
         self.is_backward = False
         self.prompt_drawing_mode = False
         self.prompt_frame_idx = -1
+        self.last_video_name = ""  # 上次处理的视频名称
 
         self.palette_colors = [
             (0, 0, 255),     # 红 (BGR)
@@ -1468,6 +1475,9 @@ class UnifiedPanel(QMainWindow):
         
         temp_video_path, fps, temp_frame_count = temp_result
         print(f"[run_annotate] 临时视频生成完成: {temp_video_path}, {fps}fps, {temp_frame_count}帧")
+        
+        # 保存原视频名称用于OBS命名
+        self.last_video_name = Path(video_path).stem
         
         src_video = temp_video_path
         scale = self.scale_slider.value() / 100.0
@@ -4141,12 +4151,12 @@ class UnifiedPanel(QMainWindow):
             print(f"[ERROR] 导出labelme格式失败: {e}")
             traceback.print_exc()
 
-        # OBS文件名添加时间戳
+        # OBS文件名添加时间戳，使用原视频名称
         import time
         timestamp = time.strftime("%Y%m%d_%H%M%S")
-        name_without_ext = output_name.rsplit('.', 1)[0] if '.' in output_name else output_name
+        video_name = self.last_video_name or output_name.rsplit('.', 1)[0]
         ext = output_name.split('.')[-1] if '.' in output_name else 'mp4'
-        obs_filename = f"{name_without_ext}_{timestamp}.{ext}"
+        obs_filename = f"{video_name}_{timestamp}.{ext}"
         obs_url = f"http://obs.dimond.top/{obs_filename}"
 
         print("正在上传到OBS...")
@@ -4167,7 +4177,7 @@ class UnifiedPanel(QMainWindow):
         import zipfile
         labelme_dir = Path("label_x_label_me")
         if labelme_dir.exists():
-            zip_filename = f"{name_without_ext}_labelme_{timestamp}.zip"
+            zip_filename = f"{video_name}_labelme_{timestamp}.zip"
             zip_path = Path("1dst") / zip_filename
             print(f"[ZIP] 正在压缩label_x_label_me...")
             with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
