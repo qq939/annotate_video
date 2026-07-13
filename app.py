@@ -1790,6 +1790,10 @@ class UnifiedPanel(QMainWindow):
         show_btn.setFixedSize(44, 22)
         show_btn.clicked.connect(self.show_viewer)
         path_layout.addWidget(show_btn)
+        redo_btn = QPushButton("重做")
+        redo_btn.setFixedSize(44, 22)
+        redo_btn.clicked.connect(self.redo_copy)
+        path_layout.addWidget(redo_btn)
         trim_mid_btn = QPushButton("帧删除")
         trim_mid_btn.setFixedSize(60, 22)
         trim_mid_btn.setStyleSheet("QPushButton { background-color: #e74c3c; color: white; border: none; border-radius: 3px; }")
@@ -3500,6 +3504,18 @@ class UnifiedPanel(QMainWindow):
                 name = self.category_inputs[idx].text() or "Detect"
                 return (idx, name)
         return (0, self.ctrl.category_name)
+    
+    def redo_copy(self):
+        """从temp_data复制到temp_data_mid"""
+        src = Path("temp_data")
+        dst = Path(TEMP_DATA_MID_DIR)
+        if not src.exists():
+            QMessageBox.warning(self, "错误", "temp_data 目录不存在")
+            return
+        if dst.exists():
+            shutil.rmtree(dst)
+        shutil.copytree(src, dst)
+        QMessageBox.information(self, "完成", f"已从temp_data复制到temp_data_mid")
 
     def export_to_temp_data_post(self):
         data_dir = Path(TEMP_DATA_MID_DIR)
