@@ -4672,9 +4672,9 @@ names: {class_names}
         yolo_runs_dir = Path("runs/detect/yolo_runs")
         resume = self.train_resume_check.isChecked()
         
-        # 如果继续训练，查找最新的train文件夹
+        # 如果继续训练，查找最新的train文件夹（按数字排序）
         if resume:
-            train_dirs = sorted(yolo_runs_dir.glob("train*"), key=lambda p: p.name)
+            train_dirs = sorted(yolo_runs_dir.glob("train*"), key=lambda p: int(p.name.replace("train", "") or "0"))
             if train_dirs:
                 train_dir = train_dirs[-1]
                 print(f"[YOLO] 继续训练，使用: {train_dir.name}")
