@@ -1321,11 +1321,6 @@ class UnifiedPanel(QMainWindow):
 
         iou_layout = QHBoxLayout()
         iou_layout.setSpacing(4)
-        iou_layout.addWidget(QLabel("帧IoU:"))
-        self.merge_iou_input = QLineEdit("0.5")
-        self.merge_iou_input.setFixedWidth(40)
-        self.merge_iou_input.setFixedHeight(22)
-        iou_layout.addWidget(self.merge_iou_input)
         iou_layout.addWidget(QLabel("前后IoU:"))
         self.iou_input = QLineEdit("0.02")
         self.iou_input.setFixedWidth(40)
@@ -2029,6 +2024,17 @@ class UnifiedPanel(QMainWindow):
         self.labelme_digit.setFixedHeight(22)
         input_dir_name_layout.addWidget(self.labelme_digit)
         layout.addLayout(input_dir_name_layout)
+
+        # 重叠IoU设置
+        iou_layout = QHBoxLayout()
+        iou_layout.setSpacing(4)
+        iou_layout.addWidget(QLabel("重叠IoU:"))
+        self.merge_iou_input = QLineEdit("0.5")
+        self.merge_iou_input.setFixedWidth(40)
+        self.merge_iou_input.setFixedHeight(22)
+        iou_layout.addWidget(self.merge_iou_input)
+        iou_layout.addStretch()
+        layout.addLayout(iou_layout)
 
         save_alpha_layout = QHBoxLayout()
         save_alpha_layout.setSpacing(4)
