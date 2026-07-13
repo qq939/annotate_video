@@ -3576,16 +3576,21 @@ class UnifiedPanel(QMainWindow):
         return (0, self.ctrl.category_name)
     
     def redo_copy(self):
-        """从temp_data复制到temp_data_mid"""
-        src = Path("temp_data")
+        """从选择的文件夹复制到temp_data_mid"""
+        folder = QFileDialog.getExistingDirectory(self, "选择文件夹", ".")
+        if not folder:
+            return
+        src = Path(folder)
         dst = Path(TEMP_DATA_MID_DIR)
         if not src.exists():
-            QMessageBox.warning(self, "错误", "temp_data 目录不存在")
+            QMessageBox.warning(self, "错误", "选择的文件夹不存在")
             return
         if dst.exists():
             shutil.rmtree(dst)
         shutil.copytree(src, dst)
-        QMessageBox.information(self, "完成", f"已从temp_data复制到temp_data_mid")
+        QMessageBox.information(self, "完成", f"已从 {src.name} 复制到 temp_data_mid")
+        if self.viewer:
+            self.viewer.update_display()
     
     def apply_fixed_bbox(self):
         """在指定帧范围添加固定框"""
