@@ -4634,6 +4634,20 @@ names: {class_names}
         # 清理旧的train文件夹（仅当不继续训练时）
         train_dir = Path("runs/detect/yolo_runs/train")
         resume = self.train_resume_check.isChecked()
+        
+        # 如果继续训练，从已有model.json读取ID、名称、描述
+        prev_model_json = train_dir / "model.json"
+        if resume and prev_model_json.exists():
+            try:
+                with open(prev_model_json) as f:
+                    prev_info = json.load(f)
+                self.train_id_input.setText(prev_info.get('id', ''))
+                self.train_name_input.setText(prev_info.get('displayname', ''))
+                self.train_desc_input.setText(prev_info.get('description', ''))
+                print(f"[YOLO] 从上次的model.json读取: id={prev_info.get('id')}")
+            except:
+                pass
+        
         if not resume and train_dir.exists():
             shutil.rmtree(train_dir)
         
