@@ -3581,6 +3581,60 @@ class UnifiedPanel(QMainWindow):
         frames_dir = data_dir / "frames"
         cat_id_set = set()
 
+        # 重叠IoU阈值 - IoU大于此值则合并
+        overlap_iou = float(self.merge_iou_input.text()) if self.merge_iou_input.text() else 0.0
+        print(f"[导出] 重叠IoU阈值: {overlap_iou}")
+
+        def calculate_iou(b1, b2):
+            """计算两个bbox的IoU"""
+            x1 = max(b1[0], b2[0])
+            y1 = max(b1[1], b2[1])
+            x2 = min(b1[0] + b1[2], b2[0] + b2[2])
+            y2 = min(b1[1] + b1[3], b2[1] + b2[3])
+            inter = max(0, x2 - x1) * max(0, y2 - y1)
+            area1 = b1[2] * b1[3]
+            area2 = b2[2] * b2[3]
+            union = area1 + area2 - inter
+            return inter / union if union > 0 else 0
+
+        def merge_bboxes(b1, b2):
+            """合并两个bbox"""
+            x1 = min(b1[0], b2[0])
+            y1 = min(b1[1], b2[1])
+            x2 = max(b1[0] + b1[2], b2[0] + b2[2])
+            y2 = max(b1[1] + b1[3], b2[1] + b2[3])
+            return [x1, y1, x2 - x1, y2 - y1]
+
+        def merge_overlapping_annotations(anns, iou_threshold):
+            """合并IoU大于阈值的annotations"""
+            if len(anns) <= 1 or iou_threshold <= 0:
+                return anns
+            result = []
+            used = set()
+            for i, ann in enumerate(anns):
+                if i in used:
+                    continue
+                bbox = ann.get('bbox', [])
+                if not bbox:
+                    result.append(ann)
+                    continue
+                merged = ann.copy()
+                for j, other in enumerate(anns[i + 1:], start=i + 1):
+                    if j in used:
+                        continue
+                    other_bbox = other.get('bbox', [])
+                    if not other_bbox:
+                        continue
+                    iou = calculate_iou(bbox, other_bbox)
+                    if iou > iou_threshold:
+                        # 合并bbox
+                        merged_bbox = merge_bboxes(bbox, other_bbox)
+                        merged['bbox'] = merged_bbox
+                        bbox = merged_bbox
+                        used.add(j)
+                result.append(merged)
+            return result
+
         print("步骤1: 保存到 temp_data_post...")
         for i in range(total_frames):
             frame_path = str(frames_dir / f"frame_{i:06d}.jpg")
@@ -3613,6 +3667,9 @@ class UnifiedPanel(QMainWindow):
                     ann_copy['category_id'] = cat_id
                     ann_copy['category'] = cat_name
                     frame_anns.append(ann_copy)
+                
+                # 合并重叠的bbox
+                frame_anns = merge_overlapping_annotations(frame_anns, overlap_iou)
 
                 with open(output_label_path, 'w') as f:
                     json.dump(frame_anns, f)
