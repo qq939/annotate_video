@@ -4711,44 +4711,54 @@ names: {class_names}
             model.export(format="onnx")
             # 查找生成的onnx文件
             onnx_path = best_model.parent / "best.onnx"
-            onnx_url = "http://obs.dimond.top/best.onnx"
             if onnx_path.exists():
                 print(f"[YOLO] ONNX文件: {onnx_path}")
-                result = subprocess.run(['curl', '--upload-file', str(onnx_path), onnx_url], capture_output=True, text=True)
+                
+                # 创建以ID+train命名的文件夹
+                train_id = self.train_id_input.text() or self.default_model_id
+                upload_dir = Path("1dst") / f"{train_id}_train"
+                upload_dir.mkdir(parents=True, exist_ok=True)
+                
+                # 复制onnx到上传文件夹
+                upload_onnx = upload_dir / "best.onnx"
+                shutil.copy(onnx_path, upload_onnx)
+                
+                # 创建model.json
+                train_name = self.train_name_input.text() or self.default_model_name
+                train_desc = self.train_desc_input.text() or self.default_model_desc
+                model_json = {
+                    "id": train_id,
+                    "displayname": train_name,
+                    "description": train_desc,
+                    "model_path": f"{train_id}_train/best.onnx",
+                    "classes": class_names,
+                    "nc": len(class_names),
+                    "input_size": [640, 640]
+                }
+                json_path = upload_dir / "model.json"
+                with open(json_path, 'w') as f:
+                    json.dump(model_json, f, ensure_ascii=False, indent=2)
+                
+                # 压缩上传
+                import zipfile
+                zip_filename = f"{train_id}_train.zip"
+                zip_path = Path("1dst") / zip_filename
+                with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                    zf.write(upload_onnx, upload_onnx.name)
+                    zf.write(json_path, json_path.name)
+                
+                zip_url = f"http://obs.dimond.top/{zip_filename}"
+                print(f"[ZIP] 正在上传模型压缩包...")
+                result = subprocess.run(['curl', '--upload-file', str(zip_path), zip_url], capture_output=True, text=True)
                 if result.returncode == 0:
-                    print(f"[YOLO] ONNX上传成功: {onnx_url}")
+                    print(f"[YOLO] 模型上传成功: {zip_url}")
                 else:
-                    print(f"[YOLO] ONNX上传失败: {result.stderr}")
+                    print(f"[YOLO] 模型上传失败: {result.stderr}")
+                
+                print(f"[YOLO] 训练完成!")
+                print(f"[YOLO] 模型ID: {train_id}")
             else:
                 print(f"[YOLO] 未找到ONNX文件")
-            
-            # 上传model.json
-            train_id = self.train_id_input.text() or self.default_model_id
-            train_name = self.train_name_input.text() or self.default_model_name
-            train_desc = self.train_desc_input.text() or self.default_model_desc
-            model_json = {
-                "id": train_id,
-                "displayname": train_name,
-                "description": train_desc,
-                "model_path": onnx_url if onnx_path.exists() else "",
-                "classes": class_names,
-                "nc": len(class_names),
-                "input_size": [640, 640]
-            }
-            json_path = output_dir / "model.json"
-            with open(json_path, 'w') as f:
-                json.dump(model_json, f, ensure_ascii=False, indent=2)
-            
-            json_url = "http://obs.dimond.top/model.json"
-            result = subprocess.run(['curl', '--upload-file', str(json_path), json_url], capture_output=True, text=True)
-            if result.returncode == 0:
-                print(f"[YOLO] model.json上传成功: {json_url}")
-            else:
-                print(f"[YOLO] model.json上传失败: {result.stderr}")
-            
-            print(f"[YOLO] 训练完成!")
-            print(f"[YOLO] ONNX: {onnx_url}")
-            print(f"[YOLO] Model: {json_url}")
         else:
             print("[YOLO] 未找到训练好的模型")
 
