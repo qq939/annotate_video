@@ -3505,36 +3505,12 @@ class UnifiedPanel(QMainWindow):
             self.save_input_dir.setText(folder)
 
     def _get_category_for_track_id(self, track_id):
-        # 先尝试根据映射文件查找
-        mappings_file = Path(TEMP_DATA_MID_DIR) / "trace_id_changes.json"
-        target_to_idx = {}
-        if mappings_file.exists():
-            with open(mappings_file) as f:
-                mappings = json.load(f)
-            for idx, m in enumerate(mappings):
-                try:
-                    parts = m.replace("ID:", "").split("→")
-                    if len(parts) == 2:
-                        target_id = int(parts[1].strip())
-                        target_to_idx[target_id] = idx
-                except:
-                    pass
-        
-        # 优先检查映射终点
-        if track_id in target_to_idx:
-            idx = target_to_idx[track_id]
-            if idx < len(self.category_inputs):
-                name = self.category_inputs[idx].text() or "Detect"
-                return (idx, name)
-            return (0, self.ctrl.category_name)
-        
-        # 回退：旧逻辑，根据track_id值直接计算
+        # track_id - 1000000 直接作为类别列表索引
         if track_id >= 1000000:
             idx = track_id - 1000000
             if idx < len(self.category_inputs):
                 name = self.category_inputs[idx].text() or "Detect"
                 return (idx, name)
-        
         return (0, self.ctrl.category_name)
 
     def export_to_temp_data_post(self):
