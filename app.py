@@ -3576,19 +3576,33 @@ class UnifiedPanel(QMainWindow):
         return (0, self.ctrl.category_name)
     
     def redo_copy(self):
-        """从选择的文件夹复制到temp_data_mid"""
+        """从选择的文件夹复制覆盖temp_data和temp_data_mid"""
         folder = QFileDialog.getExistingDirectory(self, "选择文件夹", ".")
         if not folder:
             return
         src = Path(folder)
-        dst = Path(TEMP_DATA_MID_DIR)
         if not src.exists():
             QMessageBox.warning(self, "错误", "选择的文件夹不存在")
             return
+        
+        # 如果选择的是temp_data，只覆盖temp_data_mid
+        is_temp_data = src.resolve() == Path("temp_data").resolve()
+        
+        # 复制到temp_data_mid
+        dst = Path(TEMP_DATA_MID_DIR)
         if dst.exists():
             shutil.rmtree(dst)
         shutil.copytree(src, dst)
-        QMessageBox.information(self, "完成", f"已从 {src.name} 复制到 temp_data_mid")
+        
+        # 如果不是temp_data，同时复制到temp_data
+        if not is_temp_data:
+            dst_temp = Path("temp_data")
+            if dst_temp.exists():
+                shutil.rmtree(dst_temp)
+            shutil.copytree(src, dst_temp)
+        
+        folder_name = src.name
+        QMessageBox.information(self, "完成", f"已复制 {folder_name} 到 temp_data_mid" + ("" if is_temp_data else " 和 temp_data"))
         if self.viewer:
             self.viewer.update_display()
     
