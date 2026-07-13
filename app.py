@@ -4645,9 +4645,24 @@ names: {class_names}
         
         print(f"[YOLO] 训练集: {len(train_files)}, 验证集: {len(val_files)}")
         
-        # 清理旧的train文件夹（仅当不继续训练时）
-        train_dir = Path("runs/detect/yolo_runs/train")
+        # 训练输出目录
+        yolo_runs_dir = Path("runs/detect/yolo_runs")
         resume = self.train_resume_check.isChecked()
+        
+        # 如果继续训练，查找最新的train文件夹
+        if resume:
+            train_dirs = sorted(yolo_runs_dir.glob("train*"), key=lambda p: p.name)
+            if train_dirs:
+                train_dir = train_dirs[-1]
+                print(f"[YOLO] 继续训练，使用: {train_dir.name}")
+            else:
+                print("[YOLO] 未找到可继续训练的模型，请取消勾选继续训练")
+                return
+        else:
+            # 清理旧的train文件夹
+            for td in yolo_runs_dir.glob("train*"):
+                shutil.rmtree(td)
+            train_dir = yolo_runs_dir / "train"
         
         # 如果继续训练，从已有model.json读取ID、名称、描述
         prev_model_json = train_dir / "model.json"
@@ -4686,6 +4701,7 @@ names: {class_names}
                 name="train",
                 resume=True
             )
+            # 继续训练后best.pt在train_dir里
         else:
             # 全新训练
             epochs = int(self.train_epochs_input.text()) if self.train_epochs_input.text() else 30
@@ -4703,8 +4719,7 @@ names: {class_names}
             )
         
         # 导出ONNX
-        # ultralytics 输出到 runs/detect/yolo_runs/train
-        best_model = Path("runs/detect/yolo_runs/train/weights/best.pt")
+        best_model = train_dir / "weights" / "best.pt"
         print(f"[YOLO] 检查模型路径: {best_model.resolve()}")
         print(f"[YOLO] 路径存在: {best_model.exists()}")
         if best_model.exists():
