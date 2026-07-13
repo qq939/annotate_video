@@ -4769,14 +4769,14 @@ names: {class_names}
             with open(weights_json, 'w', encoding='utf-8') as f:
                 json.dump(model_json, f, ensure_ascii=False, indent=2)
             
-            # 整体拷贝train文件夹到1dst/{ID}_train
+            # 整体拷贝runs/detect/yolo_runs文件夹到1dst/{ID}_train
             upload_dir = Path("1dst") / f"{train_id}_train"
             if upload_dir.exists():
                 shutil.rmtree(upload_dir)
-            shutil.copytree(train_dir, upload_dir)
-            print(f"[YOLO] 已拷贝train文件夹到 {upload_dir}")
+            shutil.copytree(yolo_runs_dir, upload_dir)
+            print(f"[YOLO] 已拷贝runs文件夹到 {upload_dir}")
             
-            # 压缩上传整个train文件夹
+            # 压缩上传整个文件夹
             import zipfile
             zip_filename = f"{train_id}_train.zip"
             zip_path = Path("1dst") / zip_filename
