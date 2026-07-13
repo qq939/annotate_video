@@ -2947,33 +2947,37 @@ class UnifiedPanel(QMainWindow):
         self._update_category_list()
 
     def _load_trace_id_mappings(self):
-        mappings_file = self._get_trace_id_mappings_file()
+        """从temp_data_mid扫描所有trace_id"""
         self.trace_id_list.clear()
-        if mappings_file.exists():
-            with open(mappings_file, 'r') as f:
-                mappings = json.load(f)
-            for m in mappings:
-                self.trace_id_list.addItem(m)
-            print(f"已加载 trace_id_mappings: {len(mappings)} 条")
-        self._update_category_list()
-    
-    def _update_category_list(self):
-        """根据temp_data_mid中的trace_id更新类别列表"""
-        # 直接从temp_data_mid扫描所有trace_id
         labels_dir = Path(TEMP_DATA_MID_DIR) / "labels"
-        target_ids = []
         if labels_dir.exists():
+            tid_frames = {}
             for f in labels_dir.glob("*.json"):
                 try:
                     with open(f) as fp:
                         data = json.load(fp)
                         for ann in data:
                             tid = ann.get('track_id', 0)
-                            if tid >= 1000000 and tid not in target_ids:
-                                target_ids.append(tid)
+                            if tid >= 1000000:
+                                tid_frames[tid] = tid_frames.get(tid, 0) + 1
                 except:
                     pass
-        target_ids = sorted(target_ids)
+            for tid in sorted(tid_frames.keys()):
+                self.trace_id_list.addItem(f"ID: {tid} ({tid_frames[tid]}帧)")
+            print(f"已加载 trace_id: {len(tid_frames)} 个")
+        self._update_category_list()
+    
+    def _update_category_list(self):
+        """根据trace_id_list更新类别列表"""
+        target_ids = []
+        if hasattr(self, 'trace_id_list') and self.trace_id_list:
+            for i in range(self.trace_id_list.count()):
+                text = self.trace_id_list.item(i).text()
+                try:
+                    tid = int(text.split(":")[1].split("(")[0].strip())
+                    target_ids.append(tid)
+                except:
+                    pass
         if not target_ids:
             target_ids = [1000000]
         
@@ -3689,23 +3693,7 @@ class UnifiedPanel(QMainWindow):
     
     def refresh_trace_id_list(self):
         """刷新Trace ID列表"""
-        labels_dir = Path(TEMP_DATA_MID_DIR) / "labels"
-        if not labels_dir.exists():
-            return
-        used_ids = {}
-        for f in labels_dir.glob("*.json"):
-            try:
-                with open(f) as fp:
-                    data = json.load(fp)
-                    for ann in data:
-                        tid = ann.get('track_id', 0)
-                        if tid >= 1000000:
-                            used_ids[tid] = used_ids.get(tid, 0) + 1
-            except:
-                pass
-        self.trace_id_list.clear()
-        for tid in sorted(used_ids.keys()):
-            self.trace_id_list.addItem(f"ID: {tid} ({used_ids[tid]}帧)")
+        self._load_trace_id_mappings()
     
     def export_to_temp_data_post(self):
         data_dir = Path(TEMP_DATA_MID_DIR)
