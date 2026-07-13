@@ -1475,14 +1475,7 @@ class UnifiedPanel(QMainWindow):
         if dialog.exec_() != QDialog.Accepted:
             return
         boxes = dialog.get_boxes()
-        display_frame = dialog.display_frame
-
-        if boxes:
-            print(f"已标注 {len(boxes)} 个目标，正在打开角度调整...")
-            angle_dialog = AngleAdjustDialog(display_frame, boxes, self, scale=scale)
-            if angle_dialog.exec_() == QDialog.Accepted:
-                boxes = angle_dialog.get_boxes()
-                print(f"角度调整完成，{len(boxes)} 个目标已更新角度")
+        print(f"已标注 {len(boxes)} 个目标")
 
         iou_val = float(self.iou_input.text() or "0.02")
         merge_iou_val = float(self.merge_iou_input.text() or "0.5")
@@ -1512,14 +1505,14 @@ class UnifiedPanel(QMainWindow):
             predictor_name = "SAM3VideoSemanticPredictor" if has_text else "SAM3VideoPredictor"
             print(f"正在使用 {predictor_name} 进行视频分割跟踪...")
             if has_text and has_bbox:
-                for i, t in enumerate(find_list):
-                    bbox_str = " | ".join(f"({int(b['x1'])},{int(b['y1'])},{int(b['x2'])},{int(b['y2'])},{b.get('angle',0):.1f})" for b in boxes)
-                    print(f"  [{i}] 文本: '{t}' | obb: {bbox_str}")
+                for i, (t, b) in enumerate(zip(find_list, boxes)):
+                    bbox_str = f"({int(b['x1'])},{int(b['y1'])},{int(b['x2'])},{int(b['y2'])})"
+                    print(f"  [{i}] 文本: '{t}' | bbox: {bbox_str}")
             elif has_text:
                 print(f"  文本提示词: {find_list}")
             elif has_bbox:
-                bbox_str_list = [f"({int(b['x1'])},{int(b['y1'])},{int(b['x2'])},{int(b['y2'])},{b.get('angle',0):.1f})" for b in boxes]
-                print(f"  obb提示框: {bbox_str_list}")
+                bbox_str_list = [f"({int(b['x1'])},{int(b['y1'])},{int(b['x2'])},{int(b['y2'])})" for b in boxes]
+                print(f"  bbox提示框: {bbox_str_list}")
 
             device, device_type = get_device()
             print(f"[DEBUG run_annotate] get_device() 返回: device={device}, device_type={device_type}")
