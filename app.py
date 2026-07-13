@@ -4644,20 +4644,26 @@ names: {class_names}
         )
         
         # 导出ONNX
-        best_model = yolo_project / "train" / "weights" / "best.pt"
+        # ultralytics默认输出到 runs/detect/train，project参数无效
+        best_model = Path("runs/detect/train/weights/best.pt")
+        if not best_model.exists():
+            best_model = yolo_project / "train" / "weights" / "best.pt"
         if best_model.exists():
             model = YOLO(str(best_model))
             model.export(format="onnx")
-            onnx_path = best_model.parent / "weights" / "best.onnx"
-            
-            # 上传到OBS
-            print("[YOLO] 上传模型到OBS...")
-            onnx_url = "http://obs.dimond.top/best.onnx"
-            result = subprocess.run(['curl', '--upload-file', str(onnx_path), onnx_url], capture_output=True, text=True)
-            if result.returncode == 0:
-                print(f"[YOLO] ONNX上传成功: {onnx_url}")
+            # 查找生成的onnx文件
+            onnx_path = best_model.parent / "best.onnx"
+            if not onnx_path.exists():
+                onnx_path = best_model.parent.parent.parent / "best.onnx"
+            if onnx_path.exists():
+                print(f"[YOLO] ONNX文件: {onnx_path}")
+                result = subprocess.run(['curl', '--upload-file', str(onnx_path), onnx_url], capture_output=True, text=True)
+                if result.returncode == 0:
+                    print(f"[YOLO] ONNX上传成功: {onnx_url}")
+                else:
+                    print(f"[YOLO] ONNX上传失败: {result.stderr}")
             else:
-                print(f"[YOLO] ONNX上传失败: {result.stderr}")
+                print(f"[YOLO] 未找到ONNX文件")
             
             # 上传model.json
             train_id = self.train_id_input.text() or self.default_model_id
@@ -4667,7 +4673,7 @@ names: {class_names}
                 "id": train_id,
                 "displayname": train_name,
                 "description": train_desc,
-                "model_path": onnx_url,
+                "model_path": onnx_url if onnx_path.exists() else "",
                 "classes": class_names,
                 "nc": len(class_names),
                 "input_size": [640, 640]
