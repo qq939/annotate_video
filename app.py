@@ -4613,6 +4613,91 @@ names: {class_names}
             print("[YOLO] 未找到图片文件")
             return
         
+        # 统计每个类别的帧数
+        class_counts = {c: 0 for c in class_names}
+        img_with_class = {c: [] for c in class_names}
+        for img_file in img_files:
+            json_file = img_file.with_suffix('.json')
+            if json_file.exists():
+                try:
+                    with open(json_file, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    labels = set(shape.get('label') for shape in data.get('shapes', []))
+                    for label in labels:
+                        if label in class_counts:
+                            class_counts[label] += 1
+                            img_with_class[label].append(img_file)
+                except:
+                    pass
+        
+        # 数据增广：平衡类别数量
+        # 找出最多、第二多、最少的类别
+        sorted_classes = sorted(class_counts.items(), key=lambda x: x[1])
+        min_count = sorted_classes[0][1]
+        second_min_count = sorted_classes[1][1] if len(sorted_classes) > 1 else min_count
+        max_count = sorted_classes[-1][1] if sorted_classes else 0
+        
+        print(f"[YOLO] 类别帧数统计: {class_counts}")
+        print(f"[YOLO] 数据增广: 最小={min_count}, 第二少={second_min_count}, 最大={max_count}")
+        
+        # 对帧数最少的类别增广到第二少
+        if sorted_classes:
+            min_class = sorted_classes[0][0]
+            if class_counts[min_class] < second_min_count:
+                target = second_min_count
+                copies_needed = target - class_counts[min_class]
+                source_imgs = img_with_class[min_class]
+                if source_imgs:
+                    print(f"[YOLO] 增广 {min_class}: {class_counts[min_class]} -> {target}")
+                    for i in range(copies_needed):
+                        src = source_imgs[i % len(source_imgs)]
+                        # 水平翻转增广
+                        new_name = f"{src.stem}_aug{i}{src.suffix}"
+                        new_img = labelme_dir / new_name
+                        import cv2
+                        img = cv2.imread(str(src))
+                        if img is not None:
+                            flipped = cv2.flip(img, 1)  # 水平翻转
+                            cv2.imwrite(str(new_img), flipped)
+                            img_files.append(new_img)
+                            # 复制并翻转json
+                            json_file = src.with_suffix('.json')
+                            if json_file.exists():
+                                with open(json_file) as f:
+                                    data = json.load(f)
+                                new_json = new_img.with_suffix('.json')
+                                with open(new_json, 'w') as f:
+                                    json.dump(data, f)
+        
+        # 对第二少的类别增广到最多
+        if len(sorted_classes) > 1:
+            second_min_class = sorted_classes[1][0]
+            if class_counts[second_min_class] < max_count:
+                target = max_count
+                copies_needed = target - class_counts[second_min_class]
+                source_imgs = img_with_class[second_min_class]
+                if source_imgs:
+                    print(f"[YOLO] 增广 {second_min_class}: {class_counts[second_min_class]} -> {target}")
+                    for i in range(copies_needed):
+                        src = source_imgs[i % len(source_imgs)]
+                        new_name = f"{src.stem}_aug{i}{src.suffix}"
+                        new_img = labelme_dir / new_name
+                        import cv2
+                        img = cv2.imread(str(src))
+                        if img is not None:
+                            flipped = cv2.flip(img, 1)  # 水平翻转
+                            cv2.imwrite(str(new_img), flipped)
+                            img_files.append(new_img)
+                            json_file = src.with_suffix('.json')
+                            if json_file.exists():
+                                with open(json_file) as f:
+                                    data = json.load(f)
+                                new_json = new_img.with_suffix('.json')
+                                with open(new_json, 'w') as f:
+                                    json.dump(data, f)
+        
+        random.shuffle(img_files)
+        
         # 划分训练集和验证集 (8:2)
         split_idx = int(len(img_files) * 0.8)
         train_files = img_files[:split_idx]
