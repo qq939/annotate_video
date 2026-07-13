@@ -1901,6 +1901,13 @@ class UnifiedPanel(QMainWindow):
         self.undo_prompt_btn.setStyleSheet("QPushButton { background-color: #CC0000; color: white; border: none; border-radius: 3px; font-size: 11px; } QPushButton:hover { background-color: #990000; }")
         self.undo_prompt_btn.clicked.connect(self.undo_last_prompt)
         undo_layout.addWidget(self.undo_prompt_btn)
+        
+        self.undo_fixed_btn = QPushButton("回退固定框")
+        self.undo_fixed_btn.setFixedHeight(24)
+        self.undo_fixed_btn.setStyleSheet("QPushButton { background-color: #CC0000; color: white; border: none; border-radius: 3px; font-size: 11px; } QPushButton:hover { background-color: #990000; }")
+        self.undo_fixed_btn.clicked.connect(self.undo_last_fixed_bbox)
+        undo_layout.addWidget(self.undo_fixed_btn)
+        
         undo_layout.addStretch()
         layout.addLayout(undo_layout)
         
@@ -2776,7 +2783,11 @@ class UnifiedPanel(QMainWindow):
             self.reset_prompt_btn()
 
     def undo_last_prompt(self):
-        """回退上一次执行的提示帧标注或固定框"""
+        """回退上一次执行的提示帧标注"""
+        if self.last_prompt_first_id is None:
+            QMessageBox.warning(self, "提示", "没有可回退的提示帧标注")
+            return
+        
         temp_mid = Path(TEMP_DATA_MID_DIR)
         labels_dir = temp_mid / "labels"
         annotations_file = temp_mid / "annotations.json"
@@ -2786,48 +2797,6 @@ class UnifiedPanel(QMainWindow):
             return
         
         deleted_count = 0
-        
-        # 优先回退固定框
-        if self.last_fixed_trace_id is not None:
-            fixed_id = self.last_fixed_trace_id
-            if labels_dir.exists():
-                for label_file in labels_dir.glob("frame_*.json"):
-                    try:
-                        with open(label_file, 'r', encoding='utf-8') as f:
-                            data = json.load(f)
-                        original_len = len(data)
-                        data = [ann for ann in data if ann.get('track_id', 0) != fixed_id]
-                        if len(data) < original_len:
-                            with open(label_file, 'w', encoding='utf-8') as f:
-                                json.dump(data, f, ensure_ascii=False)
-                            deleted_count += original_len - len(data)
-                    except:
-                        pass
-            if annotations_file.exists():
-                try:
-                    with open(annotations_file, 'r', encoding='utf-8') as f:
-                        coco = json.load(f)
-                    original_len = len(coco.get('annotations', []))
-                    coco['annotations'] = [ann for ann in coco.get('annotations', []) 
-                                           if ann.get('track_id', 0) != fixed_id]
-                    with open(annotations_file, 'w', encoding='utf-8') as f:
-                        json.dump(coco, f, ensure_ascii=False)
-                    deleted_count += original_len - len(coco.get('annotations', []))
-                except:
-                    pass
-            self.last_fixed_trace_id = None
-            if deleted_count > 0:
-                self.refresh_trace_id_list()
-                if self.viewer:
-                    self.viewer.update_display()
-                QMessageBox.information(self, "完成", f"已回退固定框 (trace_id={fixed_id})，删除 {deleted_count} 个标注")
-                return
-        
-        # 回退提示帧标注
-        if self.last_prompt_first_id is None:
-            QMessageBox.warning(self, "提示", "没有可回退的操作")
-            return
-        
         first_id = self.last_prompt_first_id
         last_id = first_id + 999  # 1000档的范围
         
@@ -2873,6 +2842,53 @@ class UnifiedPanel(QMainWindow):
         self.prompt_btn.setStyleSheet("QPushButton { background-color: #FFA500; color: white; border: none; border-radius: 3px; } QPushButton:hover { background-color: #FF8C00; }")
         if self.viewer:
             self.viewer.enable_bbox_drawing(False)
+
+    def undo_last_fixed_bbox(self):
+        """回退上一次添加的固定框"""
+        if self.last_fixed_trace_id is None:
+            QMessageBox.warning(self, "提示", "没有可回退的固定框")
+            return
+        
+        temp_mid = Path(TEMP_DATA_MID_DIR)
+        labels_dir = temp_mid / "labels"
+        annotations_file = temp_mid / "annotations.json"
+        
+        fixed_id = self.last_fixed_trace_id
+        deleted_count = 0
+        
+        if labels_dir.exists():
+            for label_file in labels_dir.glob("frame_*.json"):
+                try:
+                    with open(label_file, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    original_len = len(data)
+                    data = [ann for ann in data if ann.get('track_id', 0) != fixed_id]
+                    if len(data) < original_len:
+                        with open(label_file, 'w', encoding='utf-8') as f:
+                            json.dump(data, f, ensure_ascii=False)
+                        deleted_count += original_len - len(data)
+                except:
+                    pass
+        
+        if annotations_file.exists():
+            try:
+                with open(annotations_file, 'r', encoding='utf-8') as f:
+                    coco = json.load(f)
+                original_len = len(coco.get('annotations', []))
+                coco['annotations'] = [ann for ann in coco.get('annotations', []) 
+                                       if ann.get('track_id', 0) != fixed_id]
+                with open(annotations_file, 'w', encoding='utf-8') as f:
+                    json.dump(coco, f, ensure_ascii=False)
+                deleted_count += original_len - len(coco.get('annotations', []))
+            except:
+                pass
+        
+        self.last_fixed_trace_id = None
+        if deleted_count > 0:
+            self.refresh_trace_id_list()
+            if self.viewer:
+                self.viewer.update_display()
+        QMessageBox.information(self, "完成", f"已回退固定框 (trace_id={fixed_id})，删除 {deleted_count} 个标注")
 
     def delete_trace_id(self):
         trace_id_text = self.delete_trace_input.text().strip()
