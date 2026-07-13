@@ -4736,7 +4736,7 @@ names: {class_names}
                     "input_size": [640, 640]
                 }
                 json_path = upload_dir / "model.json"
-                with open(json_path, 'w') as f:
+                with open(json_path, 'w', encoding='utf-8') as f:
                     json.dump(model_json, f, ensure_ascii=False, indent=2)
                 
                 # 压缩上传
