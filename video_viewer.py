@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 import json
 
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel)
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel, QInputDialog)
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QImage, QPixmap, QPainter, QPen, QColor
 from PyQt5.QtCore import pyqtSignal
@@ -68,6 +68,74 @@ class VideoLabel(QLabel):
         if event.button() == Qt.LeftButton:
             self.point_clicked.emit(event.x(), event.y())
         super().mousePressEvent(event)
+    
+    def mouseDoubleClickEvent(self, event):
+        """双击修改trace_id"""
+        if event.button() != Qt.LeftButton or self.drawing_enabled:
+            super().mouseDoubleClickEvent(event)
+            return
+        
+        # 将点击坐标转换为视频坐标
+        scaled_w = int(self.video_width * self.zoom_factor)
+        scaled_h = int(self.video_height * self.zoom_factor)
+        label_w = self.width()
+        label_h = self.height()
+        offset_x = (label_w - scaled_w) / 2
+        offset_y = (label_h - scaled_h) / 2
+        
+        click_x = int((event.x() - offset_x) / self.zoom_factor)
+        click_y = int((event.y() - offset_y) / self.zoom_factor)
+        
+        # 检查是否在视频区域内
+        if click_x < 0 or click_x >= self.video_width or click_y < 0 or click_y >= self.video_height:
+            super().mouseDoubleClickEvent(event)
+            return
+        
+        # 查找点击的annotation
+        frame_annotations = self._get_current_annotations()
+        for ann in frame_annotations:
+            bbox = ann.get('bbox', [])
+            if len(bbox) >= 4:
+                x, y, w, h = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+                if x <= click_x <= x + w and y <= click_y <= y + h:
+                    old_tid = ann.get('track_id', 0)
+                    new_tid, ok = QInputDialog.getInt(None, "修改Trace ID", 
+                        f"当前ID: {old_tid}\n输入新ID:", old_tid, 0, 9999999)
+                    if ok and new_tid != old_tid:
+                        ann['track_id'] = new_tid
+                        self._save_annotation(ann)
+                        self.update_display()
+                    return
+        
+        super().mouseDoubleClickEvent(event)
+    
+    def _get_current_annotations(self):
+        """获取当前帧的annotations"""
+        label_path = str(self.labels_dir / f"frame_{self.current_frame_idx:06d}.json")
+        if Path(label_path).exists():
+            with open(label_path) as f:
+                return json.load(f)
+        return []
+    
+    def _save_annotation(self, ann):
+        """保存annotation到文件"""
+        label_path = str(self.labels_dir / f"frame_{self.current_frame_idx:06d}.json")
+        annotations = self._get_current_annotations()
+        for i, a in enumerate(annotations):
+            if a.get('bbox') == ann.get('bbox') and a.get('track_id') == ann.get('track_id', 0) - 1:
+                annotations[i] = ann
+                break
+        else:
+            # 如果没找到，替换相同bbox的
+            for i, a in enumerate(annotations):
+                if a.get('bbox') == ann.get('bbox'):
+                    annotations[i] = ann
+                    break
+        with open(label_path, 'w') as f:
+            json.dump(annotations, f)
+        # 通知主面板刷新trace ID列表
+        if self.controller and hasattr(self.controller, 'refresh_trace_id_list'):
+            self.controller.refresh_trace_id_list()
 
     def mouseMoveEvent(self, event):
         if self.drawing_enabled and self._drag_start is not None:
