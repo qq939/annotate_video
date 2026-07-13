@@ -2121,6 +2121,11 @@ class UnifiedPanel(QMainWindow):
         self.train_desc_input.setFixedWidth(100)
         self.train_desc_input.setFixedHeight(22)
         train_params_layout.addWidget(self.train_desc_input)
+        train_params_layout.addWidget(QLabel("Epoch:"))
+        self.train_epochs_input = QLineEdit("30")
+        self.train_epochs_input.setFixedWidth(40)
+        self.train_epochs_input.setFixedHeight(22)
+        train_params_layout.addWidget(self.train_epochs_input)
         train_params_layout.addStretch()
         layout.addLayout(train_params_layout)
 
@@ -4589,9 +4594,10 @@ names: {class_names}
         print("[YOLO] 开始训练...")
         from ultralytics import YOLO
         model = YOLO("yolo11m.pt")
+        epochs = int(self.train_epochs_input.text()) if self.train_epochs_input.text() else 30
         model.train(
             data=yaml_path.as_posix(),
-            epochs=30,
+            epochs=epochs,
             imgsz=640,
             batch=8,
             device=0,
