@@ -335,7 +335,7 @@ class VideoViewer(QMainWindow):
         return ""
     
     def _change_trace_id_single_frame(self, old_tid, new_tid, click_x, click_y):
-        """修改当前帧中指定bbox的trace_id"""
+        """修改当前帧中被点击的那个bbox的trace_id"""
         frame_idx = self.current_frame_idx
         frame_file = self.labels_dir / f"frame_{frame_idx:06d}.json"
         if not frame_file.exists():
@@ -350,13 +350,13 @@ class VideoViewer(QMainWindow):
                 bbox = ann.get('bbox', [])
                 if len(bbox) >= 4:
                     x, y, w, h = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+                    # 检查点击坐标是否在这个bbox内
                     if x <= click_x <= x + w and y <= click_y <= y + h:
-                        if ann.get('track_id', 0) == old_tid:
-                            bbox_key = self._get_bbox_key(bbox)
-                            undo_data[frame_idx][bbox_key] = old_tid
-                            ann['track_id'] = new_tid
-                            changed = True
-                            break
+                        bbox_key = self._get_bbox_key(bbox)
+                        undo_data[frame_idx][bbox_key] = old_tid
+                        ann['track_id'] = new_tid
+                        changed = True
+                        break  # 只修改第一个匹配的bbox
             if changed:
                 with open(frame_file, 'w') as f:
                     json.dump(annotations, f)
@@ -368,6 +368,7 @@ class VideoViewer(QMainWindow):
         if self.controller and hasattr(self.controller, 'refresh_trace_id_list'):
             self.controller.refresh_trace_id_list()
         self.update_display()
+        print(f"[单帧修改] 修改了1个bbox")
     
     def set_zoom(self, factor):
         self.zoom_factor = factor
