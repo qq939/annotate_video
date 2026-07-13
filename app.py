@@ -4408,6 +4408,177 @@ class UnifiedPanel(QMainWindow):
         else:
             QMessageBox.information(self, "完成", f"视频已保存并上传!\n\nOBS地址: {obs_url}")
 
+    def _train_yolo_model(self, labelme_dir):
+        """训练YOLO模型"""
+        import yaml
+        import random
+        import shutil
+        
+        labelme_dir = Path(labelme_dir)
+        output_dir = Path("yolo_dataset")
+        yolo_project = Path("yolo_runs")
+        
+        # 清理旧数据
+        if output_dir.exists():
+            shutil.rmtree(output_dir)
+        
+        # 提取类别名
+        class_names = []
+        for json_file in labelme_dir.glob("*.json"):
+            try:
+                with open(json_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    for shape in data.get('shapes', []):
+                        if shape.get('label') not in class_names:
+                            class_names.append(shape.get('label'))
+            except:
+                pass
+        
+        if not class_names:
+            print("[YOLO] 未检测到类别")
+            return
+        
+        print(f"[YOLO] 检测到类别: {class_names}")
+        
+        # 创建dataset.yaml
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "images" / "train").mkdir(parents=True, exist_ok=True)
+        (output_dir / "images" / "val").mkdir(parents=True, exist_ok=True)
+        (output_dir / "labels" / "train").mkdir(parents=True, exist_ok=True)
+        (output_dir / "labels" / "val").mkdir(parents=True, exist_ok=True)
+        
+        yaml_content = f"""path: {output_dir.as_posix()}
+train: images/train
+val: images/val
+nc: {len(class_names)}
+names: {class_names}
+"""
+        yaml_path = output_dir / "dataset.yaml"
+        with open(yaml_path, 'w', encoding='utf-8') as f:
+            f.write(yaml_content)
+        
+        # 获取所有图片文件
+        img_files = []
+        for ext in ['*.jpg', '*.jpeg', '*.png', '*.jpg']:
+            img_files.extend(labelme_dir.glob(ext))
+        random.shuffle(img_files)
+        
+        if not img_files:
+            print("[YOLO] 未找到图片文件")
+            return
+        
+        # 划分训练集和验证集 (8:2)
+        split_idx = int(len(img_files) * 0.8)
+        train_files = img_files[:split_idx]
+        val_files = img_files[split_idx:]
+        
+        def convert_to_yolo(json_path, class_names):
+            """将labelme JSON转换为YOLO格式"""
+            with open(json_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            img_w = data.get('imageWidth', 640)
+            img_h = data.get('imageHeight', 480)
+            
+            yolo_lines = []
+            for shape in data.get('shapes', []):
+                label = shape.get('label')
+                if label not in class_names:
+                    continue
+                class_id = class_names.index(label)
+                points = shape['points']
+                
+                x_coords = [p[0] for p in points]
+                y_coords = [p[1] for p in points]
+                x_min, x_max = min(x_coords), max(x_coords)
+                y_min, y_max = min(y_coords), max(y_coords)
+                
+                x_center = (x_min + x_max) / 2 / img_w
+                y_center = (y_min + y_max) / 2 / img_h
+                width = (x_max - x_min) / img_w
+                height = (y_max - y_min) / img_h
+                
+                yolo_lines.append(f"{class_id} {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f}")
+            
+            return yolo_lines
+        
+        # 处理训练集
+        for img_file in train_files:
+            json_file = img_file.with_suffix('.json')
+            shutil.copy(img_file, output_dir / "images" / "train" / img_file.name)
+            if json_file.exists():
+                yolo_lines = convert_to_yolo(json_file, class_names)
+                with open(output_dir / "labels" / "train" / f"{img_file.stem}.txt", 'w') as f:
+                    f.write('\n'.join(yolo_lines))
+        
+        # 处理验证集
+        for img_file in val_files:
+            json_file = img_file.with_suffix('.json')
+            shutil.copy(img_file, output_dir / "images" / "val" / img_file.name)
+            if json_file.exists():
+                yolo_lines = convert_to_yolo(json_file, class_names)
+                with open(output_dir / "labels" / "val" / f"{img_file.stem}.txt", 'w') as f:
+                    f.write('\n'.join(yolo_lines))
+        
+        print(f"[YOLO] 训练集: {len(train_files)}, 验证集: {len(val_files)}")
+        
+        # 训练模型
+        print("[YOLO] 开始训练...")
+        from ultralytics import YOLO
+        model = YOLO("yolo11m.pt")
+        model.train(
+            data=yaml_path.as_posix(),
+            epochs=30,
+            imgsz=640,
+            batch=8,
+            device=0,
+            workers=0,
+            project=yolo_project.as_posix(),
+            name="train",
+            patience=10,
+            cache="ram"
+        )
+        
+        # 导出ONNX
+        best_model = yolo_project / "train" / "weights" / "best.pt"
+        if best_model.exists():
+            model = YOLO(str(best_model))
+            model.export(format="onnx")
+            onnx_path = best_model.parent / "weights" / "best.onnx"
+            
+            # 上传到OBS
+            print("[YOLO] 上传模型到OBS...")
+            onnx_url = "http://obs.dimond.top/best.onnx"
+            result = subprocess.run(['curl', '--upload-file', str(onnx_path), onnx_url], capture_output=True, text=True)
+            if result.returncode == 0:
+                print(f"[YOLO] ONNX上传成功: {onnx_url}")
+            else:
+                print(f"[YOLO] ONNX上传失败: {result.stderr}")
+            
+            # 上传model.json
+            model_json = {
+                "model_path": onnx_url,
+                "class_names": class_names,
+                "nc": len(class_names),
+                "input_size": [640, 640]
+            }
+            json_path = output_dir / "model.json"
+            with open(json_path, 'w') as f:
+                json.dump(model_json, f, ensure_ascii=False, indent=2)
+            
+            json_url = "http://obs.dimond.top/model.json"
+            result = subprocess.run(['curl', '--upload-file', str(json_path), json_url], capture_output=True, text=True)
+            if result.returncode == 0:
+                print(f"[YOLO] model.json上传成功: {json_url}")
+            else:
+                print(f"[YOLO] model.json上传失败: {result.stderr}")
+            
+            print(f"[YOLO] 训练完成!")
+            print(f"[YOLO] ONNX: {onnx_url}")
+            print(f"[YOLO] Model: {json_url}")
+        else:
+            print("[YOLO] 未找到训练好的模型")
+
 
 def main():
     import argparse
