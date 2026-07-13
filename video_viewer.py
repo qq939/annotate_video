@@ -198,18 +198,24 @@ class VideoViewer(QMainWindow):
         scaled_h = int(self.video_height * self.zoom_factor)
         label_w = self.image_label.width()
         label_h = self.image_label.height()
-        offset_x = (label_w - scaled_w) // 2
-        offset_y = (label_h - scaled_h) // 2
+        offset_x = (label_w - scaled_w) / 2
+        offset_y = (label_h - scaled_h) / 2
 
         video_x1 = int((display_x1 - offset_x) / self.zoom_factor)
         video_y1 = int((display_y1 - offset_y) / self.zoom_factor)
         video_x2 = int((display_x2 - offset_x) / self.zoom_factor)
         video_y2 = int((display_y2 - offset_y) / self.zoom_factor)
 
-        video_x1 = max(0, min(video_x1, self.video_width))
-        video_y1 = max(0, min(video_y1, self.video_height))
-        video_x2 = max(0, min(video_x2, self.video_width))
-        video_y2 = max(0, min(video_y2, self.video_height))
+        video_x1 = max(0, min(video_x1, self.video_width - 1))
+        video_y1 = max(0, min(video_y1, self.video_height - 1))
+        video_x2 = max(0, min(video_x2, self.video_width - 1))
+        video_y2 = max(0, min(video_y2, self.video_height - 1))
+        
+        # 确保x1<x2, y1<y2
+        if video_x1 > video_x2:
+            video_x1, video_x2 = video_x2, video_x1
+        if video_y1 > video_y2:
+            video_y1, video_y2 = video_y2, video_y1
 
         self.prompt_bboxes.append([video_x1, video_y1, video_x2, video_y2])
         self.update_display()
