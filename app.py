@@ -4509,9 +4509,9 @@ class UnifiedPanel(QMainWindow):
                     import traceback
                     traceback.print_exc()
             
-            QMessageBox.information(self, "完成", f"视频已保存并上传!\n\n视频: {obs_url}\n\nlabelme: {zip_url}")
+            print(f"视频已保存并上传!\n视频: {obs_url}\nlabelme: {zip_url}")
         else:
-            QMessageBox.information(self, "完成", f"视频已保存并上传!\n\nOBS地址: {obs_url}")
+            print(f"视频已保存并上传!\nOBS地址: {obs_url}")
 
     def _train_yolo_model(self, labelme_dir):
         """训练YOLO模型"""
