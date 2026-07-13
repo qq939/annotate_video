@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 import json
 
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel, QInputDialog)
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel)
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QImage, QPixmap, QPainter, QPen, QColor
 from PyQt5.QtCore import pyqtSignal
@@ -70,10 +70,17 @@ class VideoLabel(QLabel):
         super().mousePressEvent(event)
     
     def mouseDoubleClickEvent(self, event):
-        """双击修改trace_id"""
+        """双击将annotation的trace_id设置为当前ID"""
         if event.button() != Qt.LeftButton or self.drawing_enabled:
             super().mouseDoubleClickEvent(event)
             return
+        
+        # 获取当前设置的trace_id
+        if not self.controller or not hasattr(self.controller, 'trace_id_input'):
+            super().mouseDoubleClickEvent(event)
+            return
+        
+        current_tid = int(self.controller.trace_id_input.text()) if self.controller.trace_id_input.text() else 1000000
         
         # 将点击坐标转换为视频坐标
         scaled_w = int(self.video_width * self.zoom_factor)
@@ -99,12 +106,11 @@ class VideoLabel(QLabel):
                 x, y, w, h = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
                 if x <= click_x <= x + w and y <= click_y <= y + h:
                     old_tid = ann.get('track_id', 0)
-                    new_tid, ok = QInputDialog.getInt(None, "修改Trace ID", 
-                        f"当前ID: {old_tid}\n输入新ID:", old_tid, 0, 9999999)
-                    if ok and new_tid != old_tid:
-                        ann['track_id'] = new_tid
+                    if old_tid != current_tid:
+                        ann['track_id'] = current_tid
                         self._save_annotation(ann)
                         self.update_display()
+                        print(f"[DoubleClick] 已将 track_id {old_tid} -> {current_tid}")
                     return
         
         super().mouseDoubleClickEvent(event)

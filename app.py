@@ -2097,6 +2097,11 @@ class UnifiedPanel(QMainWindow):
         self.render_segment_check.setStyleSheet("QCheckBox { font-size: 11px; }")
         layout.addWidget(self.render_segment_check)
 
+        self.train_model_check = QCheckBox("训练YOLO模型")
+        self.train_model_check.setChecked(True)
+        self.train_model_check.setStyleSheet("QCheckBox { font-size: 11px; }")
+        layout.addWidget(self.train_model_check)
+
         trail_layout = QHBoxLayout()
         trail_layout.setSpacing(4)
         self.trail_check = QCheckBox("粒子效果")
@@ -4364,13 +4369,23 @@ class UnifiedPanel(QMainWindow):
                 )
                 if result.returncode == 0:
                     print(f"上传成功! labelme OBS地址: {zip_url}")
-                    QMessageBox.information(self, "完成", f"视频已保存并上传!\n\n视频: {obs_url}\n\nlabelme: {zip_url}")
                 else:
                     print(f"上传失败: {result.stderr}")
-                    QMessageBox.warning(self, "部分完成", f"视频已保存，但labelme上传失败")
             except Exception as e:
                 print(f"上传失败: {e}")
-                QMessageBox.warning(self, "错误", str(e))
+            
+            # 训练YOLO模型
+            if self.train_model_check.isChecked():
+                print(f"[YOLO] 开始训练模型...")
+                QMessageBox.information(self, "提示", "即将开始训练YOLO模型，这可能需要几分钟...")
+                try:
+                    self._train_yolo_model(labelme_dir)
+                except Exception as e:
+                    print(f"[YOLO] 训练失败: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            QMessageBox.information(self, "完成", f"视频已保存并上传!\n\n视频: {obs_url}\n\nlabelme: {zip_url}")
         else:
             QMessageBox.information(self, "完成", f"视频已保存并上传!\n\nOBS地址: {obs_url}")
 
