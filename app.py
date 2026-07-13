@@ -3600,9 +3600,10 @@ class UnifiedPanel(QMainWindow):
             if dst_temp.exists():
                 shutil.rmtree(dst_temp)
             shutil.copytree(src, dst_temp)
+            QMessageBox.information(self, "完成", f"已复制 {src.name} 到 temp_data 和 temp_data_mid")
+        else:
+            QMessageBox.information(self, "完成", f"已复制 {src.name} 到 temp_data_mid")
         
-        folder_name = src.name
-        QMessageBox.information(self, "完成", f"已复制 {folder_name} 到 temp_data_mid" + ("" if is_temp_data else " 和 temp_data"))
         if self.viewer:
             self.viewer.update_display()
     
