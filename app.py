@@ -1152,6 +1152,11 @@ class UnifiedPanel(QMainWindow):
         self.category_layout = None  # 将在create_viewer_section中初始化
         self.category_inputs = []
         self.category_labels = []
+        
+        # model.json默认值
+        self.default_model_id = "model_001"
+        self.default_model_name = "物体检测"
+        self.default_model_desc = "物体检测模型"
 
         self.palette_colors = [
             (0, 0, 255),     # 红 (BGR)
@@ -2101,6 +2106,27 @@ class UnifiedPanel(QMainWindow):
         self.train_model_check.setChecked(True)
         self.train_model_check.setStyleSheet("QCheckBox { font-size: 11px; }")
         layout.addWidget(self.train_model_check)
+
+        # 训练参数
+        train_params_layout = QHBoxLayout()
+        train_params_layout.setSpacing(4)
+        train_params_layout.addWidget(QLabel("ID:"))
+        self.train_id_input = QLineEdit(self.default_model_id)
+        self.train_id_input.setFixedWidth(100)
+        self.train_id_input.setFixedHeight(22)
+        train_params_layout.addWidget(self.train_id_input)
+        train_params_layout.addWidget(QLabel("名称:"))
+        self.train_name_input = QLineEdit(self.default_model_name)
+        self.train_name_input.setFixedWidth(80)
+        self.train_name_input.setFixedHeight(22)
+        train_params_layout.addWidget(self.train_name_input)
+        train_params_layout.addWidget(QLabel("描述:"))
+        self.train_desc_input = QLineEdit(self.default_model_desc)
+        self.train_desc_input.setFixedWidth(100)
+        self.train_desc_input.setFixedHeight(22)
+        train_params_layout.addWidget(self.train_desc_input)
+        train_params_layout.addStretch()
+        layout.addLayout(train_params_layout)
 
         trail_layout = QHBoxLayout()
         trail_layout.setSpacing(4)
@@ -4557,9 +4583,15 @@ names: {class_names}
                 print(f"[YOLO] ONNX上传失败: {result.stderr}")
             
             # 上传model.json
+            train_id = self.train_id_input.text() or self.default_model_id
+            train_name = self.train_name_input.text() or self.default_model_name
+            train_desc = self.train_desc_input.text() or self.default_model_desc
             model_json = {
+                "id": train_id,
+                "displayname": train_name,
+                "description": train_desc,
                 "model_path": onnx_url,
-                "class_names": class_names,
+                "classes": class_names,
                 "nc": len(class_names),
                 "input_size": [640, 640]
             }
