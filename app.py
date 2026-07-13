@@ -689,6 +689,10 @@ class TrimMidDialog(QDialog):
         controls.addStretch()
         layout.addLayout(controls)
         
+        # 播放定时器
+        self.play_timer = None
+        self.is_playing = False
+        
         # 待删除列表
         list_layout = QHBoxLayout()
         list_layout.addWidget(QLabel("待删除片段:"))
@@ -748,7 +752,13 @@ class TrimMidDialog(QDialog):
         self.slider.setDeleteRanges(self.ranges)
     
     def toggle_play(self):
-        pass
+        self.is_playing = not self.is_playing
+        if self.is_playing:
+            self.play_timer = QTimer()
+            self.play_timer.timeout.connect(self.forward)
+            self.play_timer.start(100)
+        elif self.play_timer:
+            self.play_timer.stop()
     
     def _get_color(self, track_id):
         """获取track_id对应的颜色"""
@@ -3766,14 +3776,19 @@ class UnifiedPanel(QMainWindow):
         print(f"正在生成视频: {output_path}")
         print(f"[DEBUG run_save] 粒子效果: {'开启' if enable_particle else '关闭'}, 白色乳胶漆: {'开启' if enable_latex else '关闭'}, 轨迹: {'开启' if enable_trail_line else '关闭'}, 消散时间: {fade_duration_ms}ms ({fade_frames}帧)")
 
+        written = 0
         for i in range(total_frames):
             frame_path = frames_dir / f"frame_{i:06d}.jpg"
+            # 跳过不存在的帧（被删除的帧）
+            if not frame_path.exists():
+                continue
             frame = cv2.imread(str(frame_path))
 
             if frame is None:
                 frame = np.zeros((height, width, 3), dtype=np.uint8)
 
             label_path = labels_dir / f"frame_{i:06d}.json"
+            annotations = []
             if label_path.exists():
                 with open(label_path) as f:
                     annotations = json.load(f)
@@ -4109,9 +4124,10 @@ class UnifiedPanel(QMainWindow):
                 frame = result_frame
 
             out.write(frame)
+            written += 1
 
         out.release()
-        print(f"视频已保存: {output_path}")
+        print(f"视频已保存: {output_path} ({written}/{total_frames}帧)")
 
         # 转换为labelme格式
         try:
