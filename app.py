@@ -1904,8 +1904,9 @@ class UnifiedPanel(QMainWindow):
         undo_layout.addStretch()
         layout.addLayout(undo_layout)
         
-        # 记录上一次执行的FIRST_ID
+        # 记录上一次执行的FIRST_ID和固定框trace_id
         self.last_prompt_first_id = None
+        self.last_fixed_trace_id = None
 
         delete_trace_layout = QHBoxLayout()
         delete_trace_layout.setSpacing(4)
@@ -2775,11 +2776,7 @@ class UnifiedPanel(QMainWindow):
             self.reset_prompt_btn()
 
     def undo_last_prompt(self):
-        """回退上一次执行的提示帧标注"""
-        if self.last_prompt_first_id is None:
-            QMessageBox.warning(self, "提示", "没有可回退的操作")
-            return
-        
+        """回退上一次执行的提示帧标注或固定框"""
         temp_mid = Path(TEMP_DATA_MID_DIR)
         labels_dir = temp_mid / "labels"
         annotations_file = temp_mid / "annotations.json"
@@ -2789,6 +2786,48 @@ class UnifiedPanel(QMainWindow):
             return
         
         deleted_count = 0
+        
+        # 优先回退固定框
+        if self.last_fixed_trace_id is not None:
+            fixed_id = self.last_fixed_trace_id
+            if labels_dir.exists():
+                for label_file in labels_dir.glob("frame_*.json"):
+                    try:
+                        with open(label_file, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+                        original_len = len(data)
+                        data = [ann for ann in data if ann.get('track_id', 0) != fixed_id]
+                        if len(data) < original_len:
+                            with open(label_file, 'w', encoding='utf-8') as f:
+                                json.dump(data, f, ensure_ascii=False)
+                            deleted_count += original_len - len(data)
+                    except:
+                        pass
+            if annotations_file.exists():
+                try:
+                    with open(annotations_file, 'r', encoding='utf-8') as f:
+                        coco = json.load(f)
+                    original_len = len(coco.get('annotations', []))
+                    coco['annotations'] = [ann for ann in coco.get('annotations', []) 
+                                           if ann.get('track_id', 0) != fixed_id]
+                    with open(annotations_file, 'w', encoding='utf-8') as f:
+                        json.dump(coco, f, ensure_ascii=False)
+                    deleted_count += original_len - len(coco.get('annotations', []))
+                except:
+                    pass
+            self.last_fixed_trace_id = None
+            if deleted_count > 0:
+                self.refresh_trace_id_list()
+                if self.viewer:
+                    self.viewer.update_display()
+                QMessageBox.information(self, "完成", f"已回退固定框 (trace_id={fixed_id})，删除 {deleted_count} 个标注")
+                return
+        
+        # 回退提示帧标注
+        if self.last_prompt_first_id is None:
+            QMessageBox.warning(self, "提示", "没有可回退的操作")
+            return
+        
         first_id = self.last_prompt_first_id
         last_id = first_id + 999  # 1000档的范围
         
@@ -2822,8 +2861,9 @@ class UnifiedPanel(QMainWindow):
                 print(f"处理 annotations.json 失败: {e}")
         
         self.last_prompt_first_id = None
-        print(f"已回退 {deleted_count} 个标注 (track_id: {first_id}-{last_id})")
-        QMessageBox.information(self, "完成", f"已删除 {deleted_count} 个标注\ntrack_id范围: {first_id}-{last_id}")
+        if self.viewer:
+            self.viewer.update_display()
+        QMessageBox.information(self, "完成", f"已回退提示帧标注，删除 {deleted_count} 个标注\ntrack_id范围: {first_id}-{last_id}")
 
     def reset_prompt_btn(self):
         self.prompt_drawing_mode = False
@@ -2902,25 +2942,19 @@ class UnifiedPanel(QMainWindow):
         self._update_category_list()
     
     def _update_category_list(self):
-        """根据ID映射终点更新类别列表"""
-        mappings_file = self._get_trace_id_mappings_file()
-        if not mappings_file.exists():
-            target_ids = [1000000]  # 默认只有1000000
-        else:
-            with open(mappings_file, 'r') as f:
-                mappings = json.load(f)
-            target_ids = set()
-            for m in mappings:
-                try:
-                    parts = m.replace("ID:", "").split("→")
-                    if len(parts) == 2:
-                        target_ids.add(int(parts[1].strip()))
-                except:
-                    pass
-            if not target_ids:
-                target_ids = [1000000]
-            else:
-                target_ids = sorted(target_ids)
+        """根据Trace ID列表更新类别列表"""
+        # 从trace_id_list获取trace_id
+        target_ids = []
+        for i in range(self.trace_id_list.count()):
+            text = self.trace_id_list.item(i).text()
+            try:
+                # 解析 "ID: 1000000 (123帧)"
+                tid = int(text.split(":")[1].split("(")[0].strip())
+                target_ids.append(tid)
+            except:
+                pass
+        if not target_ids:
+            target_ids = [1000000]
         
         # 清除旧UI
         for label in self.category_labels:
@@ -3580,6 +3614,7 @@ class UnifiedPanel(QMainWindow):
             return
         bbox = prompt_bboxes[0]  # 使用第一个框
         trace_id = int(self.trace_id_input.text())
+        self.last_fixed_trace_id = trace_id  # 记录用于回退
         
         # 获取起始帧和终止帧
         try:
