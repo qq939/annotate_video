@@ -1788,8 +1788,12 @@ class UnifiedPanel(QMainWindow):
         path_layout.addWidget(open_btn)
         show_btn = QPushButton("显示")
         show_btn.setFixedSize(44, 22)
-        show_btn.clicked.connect(self.show_viewer)
+        show_btn.clicked.connect(self.show_viewer_only)
         path_layout.addWidget(show_btn)
+        redo_btn = QPushButton("重做")
+        redo_btn.setFixedSize(44, 22)
+        redo_btn.clicked.connect(self.show_viewer)
+        path_layout.addWidget(redo_btn)
         trim_mid_btn = QPushButton("帧删除")
         trim_mid_btn.setFixedSize(60, 22)
         trim_mid_btn.setStyleSheet("QPushButton { background-color: #e74c3c; color: white; border: none; border-radius: 3px; }")
@@ -3484,6 +3488,42 @@ class UnifiedPanel(QMainWindow):
             shutil.copytree(self.temp_data_path, temp_mid)
             print(f"已从 {self.temp_data_path} 拷贝到 {temp_mid}")
             viewer_path = str(temp_mid)
+
+        self._load_trace_id_mappings()
+        self._apply_trace_id_mappings_to_mid()
+
+        self.viewer = VideoViewer(viewer_path, controller=self.ctrl)
+        self.viewer.video_clicked.connect(self.handle_viewer_click)
+        zoom_factor = self.zoom_slider.value() / 100.0
+        self.viewer.set_zoom(zoom_factor)
+        geo = self.geometry()
+        self.viewer.move(geo.right(), geo.top())
+        self.viewer.show()
+        self.viewer.update_display()
+
+        self.frame_label.setText(f"1/{self.total_frames}")
+
+    def show_viewer_only(self):
+        """只显示预览，不复制数据到temp_data_mid"""
+        from video_viewer import VideoViewer
+        self.temp_data_path = Path(self.path_input.text())
+        if not self.temp_data_path.exists():
+            QMessageBox.warning(self, "错误", "数据目录不存在")
+            return
+        ann_file = self.temp_data_path / "annotations.json"
+        if not ann_file.exists():
+            QMessageBox.warning(self, "错误", "annotations.json 不存在")
+            return
+
+        try:
+            with open(ann_file) as f:
+                coco_data = json.load(f)
+        except json.JSONDecodeError:
+            QMessageBox.critical(self, "错误", "annotations.json 文件损坏!")
+            return
+        self.total_frames = len(coco_data.get('images', []))
+
+        viewer_path = str(self.temp_data_path)
 
         self._load_trace_id_mappings()
         self._apply_trace_id_mappings_to_mid()
