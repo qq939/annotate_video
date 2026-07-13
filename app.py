@@ -4446,6 +4446,19 @@ class UnifiedPanel(QMainWindow):
         out.release()
         print(f"视频已保存: {output_path} ({written}/{total_frames}帧)")
 
+        # 如果勾选了继续训练，跳过上传视频和labelme
+        if self.train_resume_check.isChecked():
+            print("[YOLO] 继续训练模式，跳过视频和labelme上传")
+            if self.train_model_check.isChecked():
+                print(f"[YOLO] 开始训练模型...")
+                try:
+                    self._train_yolo_model(Path("label_x_label_me"))
+                except Exception as e:
+                    print(f"[YOLO] 训练失败: {e}")
+                    import traceback
+                    traceback.print_exc()
+            return
+
         # 转换为labelme格式
         try:
             self._export_to_labelme(input_path)
