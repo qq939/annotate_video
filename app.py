@@ -1513,13 +1513,13 @@ class UnifiedPanel(QMainWindow):
             print(f"正在使用 {predictor_name} 进行视频分割跟踪...")
             if has_text and has_bbox:
                 for i, t in enumerate(find_list):
-                    bbox_str = " | ".join(f"({int(b[0])},{int(b[1])},{int(b[2])},{int(b[3])})" for b in boxes)
-                    print(f"  [{i}] 文本: '{t}' | bboxes: {bbox_str}")
+                    bbox_str = " | ".join(f"({int(b['x1'])},{int(b['y1'])},{int(b['x2'])},{int(b['y2'])},{b.get('angle',0):.1f})" for b in boxes)
+                    print(f"  [{i}] 文本: '{t}' | obb: {bbox_str}")
             elif has_text:
                 print(f"  文本提示词: {find_list}")
             elif has_bbox:
                 bbox_str_list = [f"({int(b['x1'])},{int(b['y1'])},{int(b['x2'])},{int(b['y2'])},{b.get('angle',0):.1f})" for b in boxes]
-                print(f"  bbox提示框: {bbox_str_list}")
+                print(f"  obb提示框: {bbox_str_list}")
 
             device, device_type = get_device()
             print(f"[DEBUG run_annotate] get_device() 返回: device={device}, device_type={device_type}")
