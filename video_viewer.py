@@ -204,27 +204,23 @@ class VideoViewer(QMainWindow):
             video_x = int((display_x - offset_x) / self.zoom_factor)
             video_y = int((display_y - offset_y) / self.zoom_factor)
             # 单击修改annotation的trace_id为当前ID
-            print(f"[DEBUG] controller: {self.controller}")
-            if self.controller and hasattr(self.controller, 'trace_id_input'):
-                current_tid = int(self.controller.trace_id_input.text()) if self.controller.trace_id_input.text() else 1000000
-                print(f"[DEBUG] current_tid: {current_tid}")
+            # controller实际上是UnifiedPanel实例
+            panel = self.controller
+            if panel and hasattr(panel, 'trace_id_input'):
+                current_tid = int(panel.trace_id_input.text()) if panel.trace_id_input.text() else 1000000
+                is_single = self.single_frame_radio.isChecked()
+                print(f"[DEBUG] 单帧={is_single}, current_tid={current_tid}")
                 frame_annotations = self._get_current_annotations()
-                print(f"[DEBUG] annotations count: {len(frame_annotations)}")
                 for ann in frame_annotations:
                     bbox = ann.get('bbox', [])
                     if len(bbox) >= 4:
                         x, y, w, h = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
                         if x <= video_x <= x + w and y <= video_y <= y + h:
                             old_tid = ann.get('track_id', 0)
-                            print(f"[DEBUG] old_tid: {old_tid}")
                             if old_tid != current_tid:
-                                is_single = self.single_frame_radio.isChecked()
-                                print(f"[DEBUG] 单帧模式: {is_single}, track_id {old_tid} -> {current_tid}")
                                 if is_single:
-                                    # 单帧模式
                                     self._change_trace_id_single_frame(old_tid, current_tid, video_x, video_y)
                                 else:
-                                    # 多帧模式
                                     self._change_trace_id_in_all_frames(old_tid, current_tid)
                             return
             self.video_clicked.emit(video_x, video_y, self.current_frame_idx)
@@ -303,8 +299,7 @@ class VideoViewer(QMainWindow):
     
     def _change_trace_id_in_all_frames(self, old_tid, new_tid):
         """批量修改所有帧中指定track_id的annotation"""
-        # 记录回退信息
-        undo_data = {}  # {frame_idx: {bbox_key: old_trace_id}}
+        undo_data = {}
         for frame_file in sorted(self.labels_dir.glob("frame_*.json")):
             try:
                 with open(frame_file) as f:
@@ -324,13 +319,13 @@ class VideoViewer(QMainWindow):
                     json.dump(new_anns, f)
             except:
                 pass
-        # 通知主面板记录回退
+        # 通知主面板
         if undo_data and self.controller and hasattr(self.controller, 'push_undo'):
             self.controller.push_undo(undo_data)
         if self.controller and hasattr(self.controller, 'refresh_trace_id_list'):
             self.controller.refresh_trace_id_list()
         self.update_display()
-        print(f"[批量修改] 共修改 {len(undo_data)} 帧")
+        print(f"[多帧修改] 共修改 {len(undo_data)} 帧")
     
     def _get_bbox_key(self, bbox):
         """生成bbox的唯一键"""
