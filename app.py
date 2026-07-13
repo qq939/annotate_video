@@ -2878,14 +2878,28 @@ class UnifiedPanel(QMainWindow):
             try:
                 with open(frame_file) as f:
                     anns = json.load(f)
-                for ann in anns:
-                    bbox = ann.get('bbox', [])
-                    if len(bbox) >= 4:
-                        key = f"{int(bbox[0])},{int(bbox[1])},{int(bbox[2])},{int(bbox[3])}"
-                        if key == bbox_key:
-                            ann['track_id'] = old_tid
-                            restored += 1
-                            break
+                if old_tid == -1:
+                    # 新增的bbox，删除它
+                    new_anns = []
+                    for ann in anns:
+                        bbox = ann.get('bbox', [])
+                        if len(bbox) >= 4:
+                            key = f"{int(bbox[0])},{int(bbox[1])},{int(bbox[2])},{int(bbox[3])}"
+                            if key == bbox_key:
+                                restored += 1
+                                continue  # 删除
+                        new_anns.append(ann)
+                    anns = new_anns
+                else:
+                    # 恢复旧值
+                    for ann in anns:
+                        bbox = ann.get('bbox', [])
+                        if len(bbox) >= 4:
+                            key = f"{int(bbox[0])},{int(bbox[1])},{int(bbox[2])},{int(bbox[3])}"
+                            if key == bbox_key:
+                                ann['track_id'] = old_tid
+                                restored += 1
+                                break
                 with open(frame_file, 'w') as f:
                     json.dump(anns, f, ensure_ascii=False)
             except:
@@ -2903,53 +2917,6 @@ class UnifiedPanel(QMainWindow):
         self.prompt_btn.setStyleSheet("QPushButton { background-color: #FFA500; color: white; border: none; border-radius: 3px; } QPushButton:hover { background-color: #FF8C00; }")
         if self.viewer:
             self.viewer.enable_bbox_drawing(False)
-
-    def undo_last_fixed_bbox(self):
-        """回退上一次添加的固定框"""
-        if self.last_fixed_trace_id is None:
-            QMessageBox.warning(self, "提示", "没有可回退的固定框")
-            return
-        
-        temp_mid = Path(TEMP_DATA_MID_DIR)
-        labels_dir = temp_mid / "labels"
-        annotations_file = temp_mid / "annotations.json"
-        
-        fixed_id = self.last_fixed_trace_id
-        deleted_count = 0
-        
-        if labels_dir.exists():
-            for label_file in labels_dir.glob("frame_*.json"):
-                try:
-                    with open(label_file, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                    original_len = len(data)
-                    data = [ann for ann in data if ann.get('track_id', 0) != fixed_id]
-                    if len(data) < original_len:
-                        with open(label_file, 'w', encoding='utf-8') as f:
-                            json.dump(data, f, ensure_ascii=False)
-                        deleted_count += original_len - len(data)
-                except:
-                    pass
-        
-        if annotations_file.exists():
-            try:
-                with open(annotations_file, 'r', encoding='utf-8') as f:
-                    coco = json.load(f)
-                original_len = len(coco.get('annotations', []))
-                coco['annotations'] = [ann for ann in coco.get('annotations', []) 
-                                       if ann.get('track_id', 0) != fixed_id]
-                with open(annotations_file, 'w', encoding='utf-8') as f:
-                    json.dump(coco, f, ensure_ascii=False)
-                deleted_count += original_len - len(coco.get('annotations', []))
-            except:
-                pass
-        
-        self.last_fixed_trace_id = None
-        if deleted_count > 0:
-            self.refresh_trace_id_list()
-            if self.viewer:
-                self.viewer.update_display()
-        QMessageBox.information(self, "完成", f"已回退固定框 (trace_id={fixed_id})，删除 {deleted_count} 个标注")
 
     def show_undo_menu(self):
         """显示回退菜单"""
@@ -3732,7 +3699,6 @@ class UnifiedPanel(QMainWindow):
             return
         bbox = prompt_bboxes[0]  # 使用第一个框
         trace_id = int(self.trace_id_input.text())
-        self.last_fixed_trace_id = trace_id  # 记录用于回退
         
         # 获取起始帧和终止帧
         try:
@@ -3749,32 +3715,69 @@ class UnifiedPanel(QMainWindow):
         if end_frame == -1 or end_frame >= total_frames:
             end_frame = total_frames - 1
         
-        added = 0
         # 转换为coco格式: [x, y, w, h]
         coco_bbox = [min(bbox[0], bbox[2]), min(bbox[1], bbox[3]), 
                      abs(bbox[2] - bbox[0]), abs(bbox[3] - bbox[1])]
+        bbox_key = f"{int(coco_bbox[0])},{int(coco_bbox[1])},{int(coco_bbox[2])},{int(coco_bbox[3])}"
+        
+        # 记录回退信息
+        undo_changes = []
+        added = 0
         for i in range(start_frame, end_frame + 1):
             frame_file = labels_dir / f"frame_{i:06d}.json"
+            old_trace_id = None
             if frame_file.exists():
                 with open(frame_file) as fp:
                     anns = json.load(fp)
+                # 检查是否已有相同的bbox
+                for ann in anns:
+                    ann_bbox = ann.get('bbox', [])
+                    if len(ann_bbox) >= 4 and ann_bbox == coco_bbox:
+                        old_trace_id = ann.get('track_id', 0)
+                        break
             else:
                 anns = []
-            anns.append({
-                'bbox': coco_bbox,
-                'track_id': trace_id,
-                'segmentation': [[
-                    coco_bbox[0], coco_bbox[1],
-                    coco_bbox[0] + coco_bbox[2], coco_bbox[1],
-                    coco_bbox[0] + coco_bbox[2], coco_bbox[1] + coco_bbox[3],
-                    coco_bbox[0], coco_bbox[1] + coco_bbox[3]
-                ]],
-                'category': 'Fixed',
-                'confidence': 1.0
-            })
+            
+            if old_trace_id is not None:
+                # 已有bbox，更新trace_id
+                for ann in anns:
+                    if ann.get('bbox') == coco_bbox:
+                        ann['track_id'] = trace_id
+                        undo_changes.append({
+                            'frame_idx': i,
+                            'bbox_key': bbox_key,
+                            'old_trace_id': old_trace_id,
+                            'new_trace_id': trace_id
+                        })
+                        break
+            else:
+                # 新增bbox
+                undo_changes.append({
+                    'frame_idx': i,
+                    'bbox_key': bbox_key,
+                    'old_trace_id': -1,  # -1表示新增
+                    'new_trace_id': trace_id
+                })
+                anns.append({
+                    'bbox': coco_bbox,
+                    'track_id': trace_id,
+                    'segmentation': [[
+                        coco_bbox[0], coco_bbox[1],
+                        coco_bbox[0] + coco_bbox[2], coco_bbox[1],
+                        coco_bbox[0] + coco_bbox[2], coco_bbox[1] + coco_bbox[3],
+                        coco_bbox[0], coco_bbox[1] + coco_bbox[3]
+                    ]],
+                    'category': 'Fixed',
+                    'confidence': 1.0
+                })
+                added += 1
+            
             with open(frame_file, 'w') as fp:
                 json.dump(anns, fp)
-            added += 1
+        
+        # 记录到回退栈
+        if undo_changes:
+            self.push_undo(undo_changes)
         
         self.viewer.clear_prompt_bboxes()
         self.viewer.enable_bbox_drawing(False)
@@ -3782,7 +3785,7 @@ class UnifiedPanel(QMainWindow):
         self.fixed_edit_btn.setText("编辑固定框")
         self.viewer.update_display()
         self.refresh_trace_id_list()
-        QMessageBox.information(self, "完成", f"已添加固定框 (trace_id={trace_id}) 到 {added} 帧 ({start_frame}-{end_frame})")
+        print(f"[固定框] 已添加 {len(undo_changes)} 个框")
     
     def refresh_trace_id_list(self):
         """刷新Trace ID列表"""
