@@ -1985,17 +1985,6 @@ class UnifiedPanel(QMainWindow):
         assign_layout.addStretch()
         layout.addLayout(assign_layout)
 
-        # 重叠IoU：merge拷贝时bbox大于此值就合并
-        overlap_layout = QHBoxLayout()
-        overlap_layout.setSpacing(4)
-        overlap_layout.addWidget(QLabel("重叠IoU:"))
-        self.overlap_iou_input = QLineEdit("0.8")
-        self.overlap_iou_input.setFixedWidth(50)
-        self.overlap_iou_input.setFixedHeight(22)
-        overlap_layout.addWidget(self.overlap_iou_input)
-        overlap_layout.addStretch()
-        layout.addLayout(overlap_layout)
-
         self.export_btn = QPushButton("📦 导出到 temp_data_post")
         self.export_btn.setFixedHeight(26)
         self.export_btn.clicked.connect(self.export_to_temp_data_post)
@@ -3717,7 +3706,7 @@ class UnifiedPanel(QMainWindow):
                     annotations = json.load(f)
 
                 # IoU去重：根据traceId和IoU过滤
-                iou_threshold = float(self.overlap_iou_input.text()) if self.overlap_iou_input.text() else 0.8
+                iou_threshold = float(self.merge_iou_input.text()) if self.merge_iou_input.text() else 0.5
                 filtered_anns = []
                 
                 for i, ann in enumerate(annotations):
