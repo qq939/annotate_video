@@ -4446,7 +4446,15 @@ class UnifiedPanel(QMainWindow):
         out.release()
         print(f"视频已保存: {output_path} ({written}/{total_frames}帧)")
 
-        # 如果勾选了继续训练，跳过上传视频和labelme
+        # 转换为labelme格式
+        try:
+            self._export_to_labelme(input_path)
+        except Exception as e:
+            import traceback
+            print(f"[ERROR] 导出labelme格式失败: {e}")
+            traceback.print_exc()
+
+        # 如果勾选了继续训练，跳过上传视频和labelme压缩包
         if self.train_resume_check.isChecked():
             print("[YOLO] 继续训练模式，跳过视频和labelme上传")
             if self.train_model_check.isChecked():
@@ -4459,14 +4467,7 @@ class UnifiedPanel(QMainWindow):
                     traceback.print_exc()
             return
 
-        # 转换为labelme格式
-        try:
-            self._export_to_labelme(input_path)
-        except Exception as e:
-            import traceback
-            print(f"[ERROR] 导出labelme格式失败: {e}")
-            traceback.print_exc()
-
+        # 上传视频和labelme压缩包
         # OBS文件名添加时间戳，使用原视频名称
         import time
         timestamp = time.strftime("%Y%m%d_%H%M%S")
