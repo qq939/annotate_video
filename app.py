@@ -2043,6 +2043,12 @@ class UnifiedPanel(QMainWindow):
         browse_btn.setFixedHeight(22)
         browse_btn.clicked.connect(self.select_save_input_dir)
         input_dir_name_layout.addWidget(browse_btn)
+        input_dir_name_layout.addWidget(QLabel("前"))
+        self.export_frame_limit = QLineEdit("-1")
+        self.export_frame_limit.setFixedWidth(50)
+        self.export_frame_limit.setFixedHeight(22)
+        input_dir_name_layout.addWidget(self.export_frame_limit)
+        input_dir_name_layout.addWidget(QLabel("帧"))
         input_dir_name_layout.addWidget(QLabel("名称:"))
         self.save_output_name = QLineEdit("1dst.mp4")
         self.save_output_name.setFixedWidth(80)
@@ -3788,6 +3794,21 @@ class UnifiedPanel(QMainWindow):
         if total_frames == 0:
             QMessageBox.warning(self, "错误", "没有帧数据")
             return
+        
+        # 读取帧数限制
+        frame_limit_str = self.export_frame_limit.text().strip()
+        frame_limit = -1
+        if frame_limit_str and frame_limit_str != "-1":
+            try:
+                frame_limit = int(frame_limit_str)
+                if frame_limit <= 0:
+                    frame_limit = -1
+                elif frame_limit > total_frames:
+                    frame_limit = total_frames
+            except:
+                frame_limit = -1
+        export_frames = total_frames if frame_limit == -1 else frame_limit
+        print(f"[导出] 总帧数: {total_frames}, 导出帧数: {export_frames}")
 
         # 清空temp_data_post
         import shutil
@@ -3805,7 +3826,7 @@ class UnifiedPanel(QMainWindow):
         cat_id_set = set()
 
         print("步骤1: 保存到 temp_data_post...")
-        for i in range(total_frames):
+        for i in range(export_frames):
             frame_path = str(frames_dir / f"frame_{i:06d}.jpg")
             frame = cv2.imread(frame_path)
 
@@ -3842,7 +3863,7 @@ class UnifiedPanel(QMainWindow):
 
         all_annotations = []
         all_seen_ids = set()  # 用于全局去重: (image_id, track_id)
-        for i in range(total_frames):
+        for i in range(export_frames):
             label_path = labels_dir / f"frame_{i:06d}.json"
             if label_path.exists():
                 with open(label_path) as f:
@@ -3864,7 +3885,7 @@ class UnifiedPanel(QMainWindow):
         categories_list = [{'id': cid, 'name': cname} for cid, cname in sorted(cat_id_set, key=lambda x: x[0])]
         coco_output = {
             'info': video_info,
-            'images': [{'id': i, 'frame_idx': i} for i in range(total_frames)],
+            'images': [{'id': i, 'frame_idx': i} for i in range(export_frames)],
             'annotations': all_annotations,
             'categories': categories_list
         }
