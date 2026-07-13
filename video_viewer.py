@@ -216,7 +216,7 @@ class VideoViewer(QMainWindow):
                             if old_tid != current_tid:
                                 if self.single_frame_radio.isChecked():
                                     # 单帧模式
-                                    self._change_trace_id_single_frame(old_tid, current_tid)
+                                    self._change_trace_id_single_frame(old_tid, current_tid, video_x, video_y)
                                     print(f"[Click] 单帧修改: track_id {old_tid} -> {current_tid}")
                                 else:
                                     # 多帧模式
@@ -334,30 +334,36 @@ class VideoViewer(QMainWindow):
             return f"{int(bbox[0])},{int(bbox[1])},{int(bbox[2])},{int(bbox[3])}"
         return ""
     
-    def _change_trace_id_single_frame(self, old_tid, new_tid):
-        """修改当前帧中指定track_id的annotation"""
+    def _change_trace_id_single_frame(self, old_tid, new_tid, click_x, click_y):
+        """修改当前帧中指定bbox的trace_id"""
         frame_idx = self.current_frame_idx
         frame_file = self.labels_dir / f"frame_{frame_idx:06d}.json"
         if not frame_file.exists():
             return
         
         undo_data = {frame_idx: {}}
+        changed = False
         try:
             with open(frame_file) as f:
                 annotations = json.load(f)
-            new_anns = []
             for ann in annotations:
-                if ann.get('track_id', 0) == old_tid:
-                    bbox_key = self._get_bbox_key(ann.get('bbox', []))
-                    undo_data[frame_idx][bbox_key] = old_tid
-                    ann['track_id'] = new_tid
-                new_anns.append(ann)
-            with open(frame_file, 'w') as f:
-                json.dump(new_anns, f)
+                bbox = ann.get('bbox', [])
+                if len(bbox) >= 4:
+                    x, y, w, h = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+                    if x <= click_x <= x + w and y <= click_y <= y + h:
+                        if ann.get('track_id', 0) == old_tid:
+                            bbox_key = self._get_bbox_key(bbox)
+                            undo_data[frame_idx][bbox_key] = old_tid
+                            ann['track_id'] = new_tid
+                            changed = True
+                            break
+            if changed:
+                with open(frame_file, 'w') as f:
+                    json.dump(annotations, f)
         except:
             return
         
-        if undo_data[frame_idx] and self.controller and hasattr(self.controller, 'push_undo'):
+        if changed and self.controller and hasattr(self.controller, 'push_undo'):
             self.controller.push_undo(undo_data)
         if self.controller and hasattr(self.controller, 'refresh_trace_id_list'):
             self.controller.refresh_trace_id_list()
