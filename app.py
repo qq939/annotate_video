@@ -3370,26 +3370,12 @@ class UnifiedPanel(QMainWindow):
         self.viewer.update_display()
 
     def select_data_dir(self):
-        msg = QMessageBox(self)
-        msg.setWindowTitle("选择类型")
-        msg.setText("请选择要打开的类型：")
-        btn_video = msg.addButton("视频文件", QMessageBox.ActionRole)
-        btn_dir = msg.addButton("文件夹", QMessageBox.ActionRole)
-        msg.addButton("取消", QMessageBox.RejectRole)
-        msg.exec()
-
-        if msg.clickedButton() == btn_video:
-            path, _ = QFileDialog.getOpenFileName(
-                self, "选择视频文件", ".",
-                "视频文件 (*.mp4 *.avi *.mov *.mkv *.MP4 *.AVI *.MOV *.MKV);;所有文件 (*)"
-            )
-            if path:
-                self._extract_video_to_temp_data(Path(path))
-        elif msg.clickedButton() == btn_dir:
-            folder = QFileDialog.getExistingDirectory(self, "选择数据目录", ".")
-            if folder:
-                self.path_input.setText(folder)
-                self.temp_data_path = Path(folder)
+        path, _ = QFileDialog.getOpenFileName(
+            self, "选择视频文件", ".",
+            "视频文件 (*.mp4 *.avi *.mov *.mkv *.MP4 *.AVI *.MOV *.MKV);;所有文件 (*)"
+        )
+        if path:
+            self._extract_video_to_temp_data(Path(path))
 
     def _extract_video_to_temp_data(self, video_path=None):
         if video_path is None:
