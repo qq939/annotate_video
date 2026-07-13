@@ -4625,6 +4625,11 @@ names: {class_names}
         
         print(f"[YOLO] 训练集: {len(train_files)}, 验证集: {len(val_files)}")
         
+        # 清理旧的train文件夹
+        train_dir = Path("runs/detect/yolo_runs/train")
+        if train_dir.exists():
+            shutil.rmtree(train_dir)
+        
         # 训练模型
         print("[YOLO] 开始训练...")
         from ultralytics import YOLO
@@ -4644,17 +4649,12 @@ names: {class_names}
         )
         
         # 导出ONNX
-        # ultralytics默认输出到 runs/detect/train，project参数无效
-        best_model = Path("runs/detect/train/weights/best.pt")
-        if not best_model.exists():
-            best_model = yolo_project / "train" / "weights" / "best.pt"
+        best_model = Path("runs/detect/yolo_runs/train/weights/best.pt")
         if best_model.exists():
             model = YOLO(str(best_model))
             model.export(format="onnx")
             # 查找生成的onnx文件
             onnx_path = best_model.parent / "best.onnx"
-            if not onnx_path.exists():
-                onnx_path = best_model.parent.parent.parent / "best.onnx"
             if onnx_path.exists():
                 print(f"[YOLO] ONNX文件: {onnx_path}")
                 result = subprocess.run(['curl', '--upload-file', str(onnx_path), onnx_url], capture_output=True, text=True)
