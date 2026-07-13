@@ -4674,7 +4674,7 @@ names: {class_names}
         
         # 如果继续训练，查找最新的train文件夹（按数字排序）
         if resume:
-            train_dirs = sorted(yolo_runs_dir.glob("train*"), key=lambda p: int(p.name.replace("train", "") or "0"))
+            train_dirs = sorted(yolo_runs_dir.glob("train-*"), key=lambda p: int(p.name.replace("train-", "") or "0"))
             if train_dirs:
                 train_dir = train_dirs[-1]
                 print(f"[YOLO] 继续训练，使用: {train_dir.name}")
@@ -4683,9 +4683,9 @@ names: {class_names}
                 return
         else:
             # 清理旧的train文件夹
-            for td in yolo_runs_dir.glob("train*"):
+            for td in yolo_runs_dir.glob("train-*"):
                 shutil.rmtree(td)
-            train_dir = yolo_runs_dir / "train"
+            train_dir = yolo_runs_dir / "train-1"
         
         # 如果继续训练，从已有model.json读取ID、名称、描述
         prev_model_json = train_dir / "model.json"
@@ -4699,9 +4699,6 @@ names: {class_names}
                 print(f"[YOLO] 从上次的model.json读取: id={prev_info.get('id')}")
             except:
                 pass
-        
-        if not resume and train_dir.exists():
-            shutil.rmtree(train_dir)
         
         # 训练模型
         print("[YOLO] 开始训练...")
@@ -4726,7 +4723,10 @@ names: {class_names}
             )
             # 继续训练后best.pt在train_dir里
         else:
-            # 全新训练
+            # 全新训练，生成新的train-N文件夹
+            existing = list(yolo_runs_dir.glob("train-*"))
+            next_num = max([int(p.name.replace("train-", "")) for p in existing if p.name.replace("train-", "").isdigit()], default=0) + 1
+            train_dir = yolo_runs_dir / f"train-{next_num}"
             epochs = int(self.train_epochs_input.text()) if self.train_epochs_input.text() else 30
             model.train(
                 data=yaml_path.as_posix(),
@@ -4736,7 +4736,7 @@ names: {class_names}
                 device=0,
                 workers=0,
                 project=yolo_project.as_posix(),
-                name="train",
+                name=f"train-{next_num}",
                 patience=10,
                 cache="ram"
             )
