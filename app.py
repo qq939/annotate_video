@@ -1321,6 +1321,11 @@ class UnifiedPanel(QMainWindow):
 
         iou_layout = QHBoxLayout()
         iou_layout.setSpacing(4)
+        iou_layout.addWidget(QLabel("帧IoU:"))
+        self.merge_iou_input = QLineEdit("0.5")
+        self.merge_iou_input.setFixedWidth(40)
+        self.merge_iou_input.setFixedHeight(22)
+        iou_layout.addWidget(self.merge_iou_input)
         iou_layout.addWidget(QLabel("前后IoU:"))
         self.iou_input = QLineEdit("0.02")
         self.iou_input.setFixedWidth(40)
@@ -1980,6 +1985,17 @@ class UnifiedPanel(QMainWindow):
         assign_layout.addStretch()
         layout.addLayout(assign_layout)
 
+        # 重叠IoU：merge拷贝时bbox大于此值就合并
+        overlap_layout = QHBoxLayout()
+        overlap_layout.setSpacing(4)
+        overlap_layout.addWidget(QLabel("重叠IoU:"))
+        self.overlap_iou_input = QLineEdit("0.8")
+        self.overlap_iou_input.setFixedWidth(50)
+        self.overlap_iou_input.setFixedHeight(22)
+        overlap_layout.addWidget(self.overlap_iou_input)
+        overlap_layout.addStretch()
+        layout.addLayout(overlap_layout)
+
         self.export_btn = QPushButton("📦 导出到 temp_data_post")
         self.export_btn.setFixedHeight(26)
         self.export_btn.clicked.connect(self.export_to_temp_data_post)
@@ -2024,17 +2040,6 @@ class UnifiedPanel(QMainWindow):
         self.labelme_digit.setFixedHeight(22)
         input_dir_name_layout.addWidget(self.labelme_digit)
         layout.addLayout(input_dir_name_layout)
-
-        # 重叠IoU设置
-        iou_layout = QHBoxLayout()
-        iou_layout.setSpacing(4)
-        iou_layout.addWidget(QLabel("重叠IoU:"))
-        self.merge_iou_input = QLineEdit("0.5")
-        self.merge_iou_input.setFixedWidth(40)
-        self.merge_iou_input.setFixedHeight(22)
-        iou_layout.addWidget(self.merge_iou_input)
-        iou_layout.addStretch()
-        layout.addLayout(iou_layout)
 
         save_alpha_layout = QHBoxLayout()
         save_alpha_layout.setSpacing(4)
@@ -2096,16 +2101,6 @@ class UnifiedPanel(QMainWindow):
         trail_layout.addWidget(QLabel("ms"))
         trail_layout.addStretch()
         layout.addLayout(trail_layout)
-
-        overlap_layout = QHBoxLayout()
-        overlap_layout.setSpacing(4)
-        overlap_layout.addWidget(QLabel("重叠IoU:"))
-        self.overlap_iou_input = QLineEdit("0.8")
-        self.overlap_iou_input.setFixedWidth(50)
-        self.overlap_iou_input.setFixedHeight(22)
-        overlap_layout.addWidget(self.overlap_iou_input)
-        overlap_layout.addStretch()
-        layout.addLayout(overlap_layout)
 
         self.save_btn = QPushButton("💾 保存视频并上传OBS")
         self.save_btn.setFixedHeight(28)
@@ -3581,60 +3576,6 @@ class UnifiedPanel(QMainWindow):
         frames_dir = data_dir / "frames"
         cat_id_set = set()
 
-        # 重叠IoU阈值 - IoU大于此值则合并
-        overlap_iou = float(self.merge_iou_input.text()) if self.merge_iou_input.text() else 0.0
-        print(f"[导出] 重叠IoU阈值: {overlap_iou}")
-
-        def calculate_iou(b1, b2):
-            """计算两个bbox的IoU"""
-            x1 = max(b1[0], b2[0])
-            y1 = max(b1[1], b2[1])
-            x2 = min(b1[0] + b1[2], b2[0] + b2[2])
-            y2 = min(b1[1] + b1[3], b2[1] + b2[3])
-            inter = max(0, x2 - x1) * max(0, y2 - y1)
-            area1 = b1[2] * b1[3]
-            area2 = b2[2] * b2[3]
-            union = area1 + area2 - inter
-            return inter / union if union > 0 else 0
-
-        def merge_bboxes(b1, b2):
-            """合并两个bbox"""
-            x1 = min(b1[0], b2[0])
-            y1 = min(b1[1], b2[1])
-            x2 = max(b1[0] + b1[2], b2[0] + b2[2])
-            y2 = max(b1[1] + b1[3], b2[1] + b2[3])
-            return [x1, y1, x2 - x1, y2 - y1]
-
-        def merge_overlapping_annotations(anns, iou_threshold):
-            """合并IoU大于阈值的annotations"""
-            if len(anns) <= 1 or iou_threshold <= 0:
-                return anns
-            result = []
-            used = set()
-            for i, ann in enumerate(anns):
-                if i in used:
-                    continue
-                bbox = ann.get('bbox', [])
-                if not bbox:
-                    result.append(ann)
-                    continue
-                merged = ann.copy()
-                for j, other in enumerate(anns[i + 1:], start=i + 1):
-                    if j in used:
-                        continue
-                    other_bbox = other.get('bbox', [])
-                    if not other_bbox:
-                        continue
-                    iou = calculate_iou(bbox, other_bbox)
-                    if iou > iou_threshold:
-                        # 合并bbox
-                        merged_bbox = merge_bboxes(bbox, other_bbox)
-                        merged['bbox'] = merged_bbox
-                        bbox = merged_bbox
-                        used.add(j)
-                result.append(merged)
-            return result
-
         print("步骤1: 保存到 temp_data_post...")
         for i in range(total_frames):
             frame_path = str(frames_dir / f"frame_{i:06d}.jpg")
@@ -3667,9 +3608,6 @@ class UnifiedPanel(QMainWindow):
                     ann_copy['category_id'] = cat_id
                     ann_copy['category'] = cat_name
                     frame_anns.append(ann_copy)
-                
-                # 合并重叠的bbox
-                frame_anns = merge_overlapping_annotations(frame_anns, overlap_iou)
 
                 with open(output_label_path, 'w') as f:
                     json.dump(frame_anns, f)
