@@ -4769,43 +4769,31 @@ names: {class_names}
             with open(weights_json, 'w', encoding='utf-8') as f:
                 json.dump(model_json, f, ensure_ascii=False, indent=2)
             
-            # 查找生成的onnx文件
-            onnx_path = best_model.parent / "best.onnx"
-            if onnx_path.exists():
-                print(f"[YOLO] ONNX文件: {onnx_path}")
-                
-                # 创建以ID+train命名的文件夹
-                upload_dir = Path("1dst") / f"{train_id}_train"
-                upload_dir.mkdir(parents=True, exist_ok=True)
-                
-                # 复制onnx到上传文件夹
-                upload_onnx = upload_dir / "best.onnx"
-                shutil.copy(onnx_path, upload_onnx)
-                
-                # 复制model.json到上传文件夹
-                json_path = upload_dir / "model.json"
-                shutil.copy(weights_json, json_path)
-                
-                # 压缩上传
-                import zipfile
-                zip_filename = f"{train_id}_train.zip"
-                zip_path = Path("1dst") / zip_filename
-                with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-                    zf.write(upload_onnx, upload_onnx.name)
-                    zf.write(json_path, json_path.name)
-                
-                zip_url = f"http://obs.dimond.top/{zip_filename}"
-                print(f"[ZIP] 正在上传模型压缩包...")
-                result = subprocess.run(['curl', '--upload-file', str(zip_path), zip_url], capture_output=True, text=True)
-                if result.returncode == 0:
-                    print(f"[YOLO] 模型上传成功: {zip_url}")
-                else:
-                    print(f"[YOLO] 模型上传失败: {result.stderr}")
-                
-                print(f"[YOLO] 训练完成!")
-                print(f"[YOLO] 模型ID: {train_id}")
+            # 整体拷贝train文件夹到1dst/{ID}_train
+            upload_dir = Path("1dst") / f"{train_id}_train"
+            if upload_dir.exists():
+                shutil.rmtree(upload_dir)
+            shutil.copytree(train_dir, upload_dir)
+            print(f"[YOLO] 已拷贝train文件夹到 {upload_dir}")
+            
+            # 压缩上传整个train文件夹
+            import zipfile
+            zip_filename = f"{train_id}_train.zip"
+            zip_path = Path("1dst") / zip_filename
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                for f in upload_dir.rglob("*"):
+                    if f.is_file():
+                        zf.write(f, f.relative_to(upload_dir.parent))
+            print(f"[ZIP] 正在上传模型压缩包...")
+            zip_url = f"http://obs.dimond.top/{zip_filename}"
+            result = subprocess.run(['curl', '--upload-file', str(zip_path), zip_url], capture_output=True, text=True)
+            if result.returncode == 0:
+                print(f"[YOLO] 模型上传成功: {zip_url}")
             else:
-                print(f"[YOLO] 未找到ONNX文件")
+                print(f"[YOLO] 模型上传失败: {result.stderr}")
+            
+            print(f"[YOLO] 训练完成!")
+            print(f"[YOLO] 模型ID: {train_id}")
         else:
             print("[YOLO] 未找到训练好的模型")
 
