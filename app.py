@@ -1916,44 +1916,29 @@ class UnifiedPanel(QMainWindow):
         delete_trace_layout.addWidget(delete_trace_btn)
         layout.addLayout(delete_trace_layout)
 
-        trace_change_layout = QHBoxLayout()
-        trace_change_layout.setSpacing(4)
+        # Trace ID列表
+        trace_list_layout = QHBoxLayout()
+        trace_list_layout.setSpacing(4)
 
         list_area = QVBoxLayout()
         list_area.setSpacing(2)
-        list_area.addWidget(QLabel("ID映射"))
+        list_area.addWidget(QLabel("Trace ID列表"))
         self.trace_id_list = QListWidget()
         self.trace_id_list.setAlternatingRowColors(True)
         self.trace_id_list.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.trace_id_list.itemDoubleClicked.connect(self.on_trace_id_double_clicked)
         list_area.addWidget(self.trace_id_list)
-        trace_change_layout.addLayout(list_area)
+        trace_list_layout.addLayout(list_area)
 
         btn_col = QVBoxLayout()
         btn_col.setSpacing(4)
-        btn_col.addStretch()
 
-        btn_style = "QPushButton { background-color: #6c757d; color: white; border: none; border-radius: 3px; font-size: 11px; } QPushButton:hover { background-color: #5a6268; }"
-        btn_blue = "QPushButton { background-color: #007bff; color: white; border: none; border-radius: 3px; font-size: 11px; } QPushButton:hover { background-color: #0069d9; }"
         btn_red = "QPushButton { background-color: #dc3545; color: white; border: none; border-radius: 3px; font-size: 11px; } QPushButton:hover { background-color: #c82333; }"
 
-        clear_trace_btn = QPushButton("清空")
-        clear_trace_btn.setFixedSize(44, 22)
-        clear_trace_btn.setStyleSheet(btn_style)
-        clear_trace_btn.clicked.connect(self.clear_trace_id_mappings)
-        btn_col.addWidget(clear_trace_btn)
-
-        revert_trace_btn = QPushButton("撤回")
-        revert_trace_btn.setFixedSize(44, 22)
-        revert_trace_btn.setStyleSheet(btn_style)
-        revert_trace_btn.clicked.connect(self._revert_trace_id_mapping)
-        btn_col.addWidget(revert_trace_btn)
-
-        modify_btn = QPushButton("变更")
-        modify_btn.setFixedSize(44, 22)
-        modify_btn.setStyleSheet(btn_blue)
-        modify_btn.clicked.connect(self.modify_selected_trace_mapping)
-        btn_col.addWidget(modify_btn)
+        refresh_btn = QPushButton("刷新")
+        refresh_btn.setFixedSize(44, 22)
+        refresh_btn.setStyleSheet("QPushButton { background-color: #6c757d; color: white; border: none; border-radius: 3px; font-size: 11px; }")
+        refresh_btn.clicked.connect(self.refresh_trace_id_list)
+        btn_col.addWidget(refresh_btn)
 
         delete_btn = QPushButton("删除")
         delete_btn.setFixedSize(44, 22)
@@ -1961,8 +1946,9 @@ class UnifiedPanel(QMainWindow):
         delete_btn.clicked.connect(self.remove_selected_trace_id)
         btn_col.addWidget(delete_btn)
 
-        trace_change_layout.addLayout(btn_col)
-        layout.addLayout(trace_change_layout)
+        btn_col.addStretch()
+        trace_list_layout.addLayout(btn_col)
+        layout.addLayout(trace_list_layout)
 
         # 固定框功能
         fixed_bbox_layout = QVBoxLayout()
@@ -3070,26 +3056,36 @@ class UnifiedPanel(QMainWindow):
                 self.viewer.update_display()
 
     def remove_selected_trace_id(self):
+        """删除选中的trace_id"""
         row = self.trace_id_list.currentRow()
         if row < 0:
             return
         item = self.trace_id_list.item(row)
-        mapping_text = item.text()
-        parts = mapping_text.replace("ID:", "").split("→")
-        if len(parts) == 2:
+        # 解析 trace_id: 1000000 (123帧)
+        text = item.text()
+        try:
+            tid = int(text.split(":")[1].split("(")[0].strip())
+        except:
+            return
+        
+        labels_dir = Path(TEMP_DATA_MID_DIR) / "labels"
+        deleted = 0
+        for f in sorted(labels_dir.glob("*.json")):
             try:
-                old_id = int(parts[0].strip())
-                new_id = int(parts[1].strip())
-                self._apply_single_mapping_to_mid(new_id, old_id)
-                if self.ctrl.next_track_id > old_id:
-                    self.ctrl.next_track_id = old_id
-                    self.trace_id_input.setText(str(self.ctrl.next_track_id))
-            except ValueError:
+                with open(f) as fp:
+                    anns = json.load(fp)
+                new_anns = [a for a in anns if a.get('track_id', 0) != tid]
+                if len(new_anns) != len(anns):
+                    with open(f, 'w') as fp:
+                        json.dump(new_anns, fp)
+                    deleted += len(anns) - len(new_anns)
+            except:
                 pass
+        
         self.trace_id_list.takeItem(row)
-        self._save_trace_id_mappings()
         if self.viewer:
             self.viewer.update_display()
+        QMessageBox.information(self, "完成", f"已删除 trace_id={tid}，共 {deleted} 个标注")
 
     def clear_trace_id_mappings(self):
         self.trace_id_list.clear()
