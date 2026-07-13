@@ -1901,13 +1901,6 @@ class UnifiedPanel(QMainWindow):
         self.undo_prompt_btn.setStyleSheet("QPushButton { background-color: #CC0000; color: white; border: none; border-radius: 3px; font-size: 11px; } QPushButton:hover { background-color: #990000; }")
         self.undo_prompt_btn.clicked.connect(self.undo_last_prompt)
         undo_layout.addWidget(self.undo_prompt_btn)
-        
-        self.undo_fixed_btn = QPushButton("回退固定框")
-        self.undo_fixed_btn.setFixedHeight(24)
-        self.undo_fixed_btn.setStyleSheet("QPushButton { background-color: #CC0000; color: white; border: none; border-radius: 3px; font-size: 11px; } QPushButton:hover { background-color: #990000; }")
-        self.undo_fixed_btn.clicked.connect(self.undo_last_fixed_bbox)
-        undo_layout.addWidget(self.undo_fixed_btn)
-        
         undo_layout.addStretch()
         layout.addLayout(undo_layout)
         
@@ -1971,12 +1964,28 @@ class UnifiedPanel(QMainWindow):
         self.fixed_edit_btn.setStyleSheet("QPushButton { background-color: #ffc107; color: black; border: none; border-radius: 3px; }")
         self.fixed_edit_btn.clicked.connect(self.toggle_fixed_bbox_mode)
         row1.addWidget(self.fixed_edit_btn)
+        fixed_bbox_layout.addLayout(row1)
+        
+        row2 = QHBoxLayout()
+        row2.setSpacing(4)
         self.fixed_bbox_btn = QPushButton("执行固定框")
         self.fixed_bbox_btn.setFixedHeight(24)
+        self.fixed_bbox_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.fixed_bbox_btn.setStyleSheet("QPushButton { background-color: #28a745; color: white; border: none; border-radius: 3px; }")
         self.fixed_bbox_btn.clicked.connect(self.apply_fixed_bbox)
-        row1.addWidget(self.fixed_bbox_btn)
-        fixed_bbox_layout.addLayout(row1)
+        row2.addWidget(self.fixed_bbox_btn)
+        fixed_bbox_layout.addLayout(row2)
+        
+        # 回退固定框单独一行
+        undo_fixed_layout = QHBoxLayout()
+        undo_fixed_layout.setSpacing(4)
+        self.undo_fixed_btn = QPushButton("回退固定框")
+        self.undo_fixed_btn.setFixedHeight(24)
+        self.undo_fixed_btn.setStyleSheet("QPushButton { background-color: #CC0000; color: white; border: none; border-radius: 3px; font-size: 11px; }")
+        self.undo_fixed_btn.clicked.connect(self.undo_last_fixed_bbox)
+        undo_fixed_layout.addWidget(self.undo_fixed_btn)
+        undo_fixed_layout.addStretch()
+        fixed_bbox_layout.addLayout(undo_fixed_layout)
         
         layout.addLayout(fixed_bbox_layout)
 
