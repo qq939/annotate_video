@@ -4649,7 +4649,10 @@ names: {class_names}
         )
         
         # 导出ONNX
+        # ultralytics 默认输出到 runs/detect/train
         best_model = Path("runs/detect/train/weights/best.pt")
+        print(f"[YOLO] 检查模型路径: {best_model.resolve()}")
+        print(f"[YOLO] 路径存在: {best_model.exists()}")
         if best_model.exists():
             model = YOLO(str(best_model))
             model.export(format="onnx")
