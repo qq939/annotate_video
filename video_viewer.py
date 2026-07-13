@@ -271,12 +271,15 @@ class VideoViewer(QMainWindow):
                         cv2.putText(annotated_frame, label, (cx + 8, cy - 5),
                                  cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
-        for bbox in self.prompt_bboxes:
-            x1, y1, x2, y2 = bbox
-            cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), (0, 255, 0), 3)
-            label = f"prompt {self.prompt_bboxes.index(bbox) + 1}"
-            cv2.putText(annotated_frame, label, (x1, max(10, y1 - 5)),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        # 只在prompt帧上显示绿色提示框
+        if hasattr(self.controller, 'prompt_frame_idx') and self.controller.prompt_frame_idx >= 0:
+            if self.controller.get_current_frame() == self.controller.prompt_frame_idx:
+                for bbox in self.prompt_bboxes:
+                    x1, y1, x2, y2 = bbox
+                    cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), (0, 255, 0), 3)
+                    label = f"prompt {self.prompt_bboxes.index(bbox) + 1}"
+                    cv2.putText(annotated_frame, label, (x1, max(10, y1 - 5)),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
         annotated_frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
         h, w, ch = annotated_frame_rgb.shape
