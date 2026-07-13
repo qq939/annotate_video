@@ -1159,7 +1159,9 @@ class UnifiedPanel(QMainWindow):
         self.default_model_desc = "物体检测模型"
         
         # 回退栈：记录每次操作
-        self.undo_stack = []  # [{frame_idx: {bbox_key: old_trace_id}}, ...]
+        # [{'type': 'single', 'frame_idx': 10, 'bbox_key': 'x,y,w,h', 'old_trace_id': 1000, 'new_trace_id': 2000}, ...]
+        # [{'type': 'multi', 'changes': [{'frame_idx': 5, 'bbox_key': '...', 'old_trace_id': 1000, 'new_trace_id': 2000}, ...]}, ...]
+        self.undo_stack = []
 
         self.palette_colors = [
             (0, 0, 255),     # 红 (BGR)
@@ -2821,9 +2823,26 @@ class UnifiedPanel(QMainWindow):
 
     def push_undo(self, undo_data):
         """记录回退信息到栈"""
-        if undo_data:
-            self.undo_stack.append(undo_data)
-            print(f"[Undo] 记录回退: {len(undo_data)} 帧")
+        if not undo_data:
+            return
+        # 统一格式：单条记录的列表
+        if isinstance(undo_data, dict):
+            if 'changes' in undo_data:
+                # 多帧格式
+                entry = {'type': 'multi', 'changes': undo_data['changes']}
+            else:
+                # 单帧格式
+                entry = undo_data
+            self.undo_stack.append(entry)
+        elif isinstance(undo_data, list):
+            # 已经是列表格式
+            if len(undo_data) == 1:
+                self.undo_stack.append(undo_data[0])
+            else:
+                # 多帧记录
+                self.undo_stack.append({'type': 'multi', 'changes': undo_data})
+        self.refresh_trace_id_list()
+        print(f"[Undo] 记录回退")
     
     def pop_undo(self):
         """从栈中弹出回退信息并执行回退"""
@@ -2833,36 +2852,48 @@ class UnifiedPanel(QMainWindow):
     
     def undo_last_prompt(self):
         """回退上一次的trace_id修改"""
-        undo_data = self.pop_undo()
-        if not undo_data:
+        if not self.undo_stack:
             QMessageBox.warning(self, "提示", "没有可回退的操作")
             return
-        
+        entry = self.undo_stack.pop()
+        self._do_undo(entry)
+        self.refresh_trace_id_list()
+    
+    def _do_undo(self, entry):
+        """执行回退"""
         labels_dir = Path(TEMP_DATA_MID_DIR) / "labels"
+        if entry.get('type') == 'multi':
+            changes = entry.get('changes', [])
+        else:
+            changes = [entry]
+        
         restored = 0
-        for frame_idx, frame_undo in undo_data.items():
+        for change in changes:
+            frame_idx = change.get('frame_idx')
+            bbox_key = change.get('bbox_key')
+            old_tid = change.get('old_trace_id')
             frame_file = labels_dir / f"frame_{frame_idx:06d}.json"
             if not frame_file.exists():
                 continue
             try:
-                with open(frame_file, 'r', encoding='utf-8') as f:
+                with open(frame_file) as f:
                     anns = json.load(f)
                 for ann in anns:
                     bbox = ann.get('bbox', [])
                     if len(bbox) >= 4:
-                        bbox_key = f"{int(bbox[0])},{int(bbox[1])},{int(bbox[2])},{int(bbox[3])}"
-                        if bbox_key in frame_undo:
-                            ann['track_id'] = frame_undo[bbox_key]
+                        key = f"{int(bbox[0])},{int(bbox[1])},{int(bbox[2])},{int(bbox[3])}"
+                        if key == bbox_key:
+                            ann['track_id'] = old_tid
                             restored += 1
-                with open(frame_file, 'w', encoding='utf-8') as f:
+                            break
+                with open(frame_file, 'w') as f:
                     json.dump(anns, f, ensure_ascii=False)
-            except Exception as e:
-                print(f"回退失败 {frame_file}: {e}")
+            except:
+                pass
         
         if self.viewer:
             self.viewer.update_display()
-        self.refresh_trace_id_list()
-        QMessageBox.information(self, "完成", f"已回退 {len(undo_data)} 帧，共 {restored} 个标注")
+        print(f"[Undo] 已回退 {restored} 个标注")
 
     def reset_prompt_btn(self):
         self.prompt_drawing_mode = False
@@ -2927,9 +2958,15 @@ class UnifiedPanel(QMainWindow):
             return
         
         menu = QMenu(self)
-        for i, undo_data in enumerate(self.undo_stack):
-            frame_count = len(undo_data)
-            label = f"回退步骤{i+1}: {frame_count}帧"
+        for i, entry in enumerate(self.undo_stack):
+            if entry.get('type') == 'multi':
+                frame_count = len(entry.get('changes', []))
+                label = f"回退步骤{i+1}: 多帧{frame_count}个"
+            else:
+                frame_idx = entry.get('frame_idx', '?')
+                old_id = entry.get('old_trace_id', '?')
+                new_id = entry.get('new_trace_id', '?')
+                label = f"回退步骤{i+1}: 帧{frame_idx} {old_id}→{new_id}"
             action = menu.addAction(label)
             action.triggered.connect(lambda checked, idx=i: self.undo_by_index(idx))
         
@@ -2939,33 +2976,9 @@ class UnifiedPanel(QMainWindow):
         """按索引回退"""
         if idx < 0 or idx >= len(self.undo_stack):
             return
-        undo_data = self.undo_stack.pop(idx)
-        
-        labels_dir = Path(TEMP_DATA_MID_DIR) / "labels"
-        restored = 0
-        for frame_idx, frame_undo in undo_data.items():
-            frame_file = labels_dir / f"frame_{frame_idx:06d}.json"
-            if not frame_file.exists():
-                continue
-            try:
-                with open(frame_file, 'r', encoding='utf-8') as f:
-                    anns = json.load(f)
-                for ann in anns:
-                    bbox = ann.get('bbox', [])
-                    if len(bbox) >= 4:
-                        bbox_key = f"{int(bbox[0])},{int(bbox[1])},{int(bbox[2])},{int(bbox[3])}"
-                        if bbox_key in frame_undo:
-                            ann['track_id'] = frame_undo[bbox_key]
-                            restored += 1
-                with open(frame_file, 'w', encoding='utf-8') as f:
-                    json.dump(anns, f, ensure_ascii=False)
-            except Exception as e:
-                print(f"回退失败 {frame_file}: {e}")
-        
-        if self.viewer:
-            self.viewer.update_display()
+        entry = self.undo_stack.pop(idx)
+        self._do_undo(entry)
         self.refresh_trace_id_list()
-        QMessageBox.information(self, "完成", f"已回退步骤{idx+1}，{len(undo_data)}帧，{restored}个标注")
 
     def _get_trace_id_mappings_file(self):
         return Path(TEMP_DATA_MID_DIR) / "trace_id_changes.json"

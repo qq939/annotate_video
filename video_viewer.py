@@ -299,33 +299,35 @@ class VideoViewer(QMainWindow):
     
     def _change_trace_id_in_all_frames(self, old_tid, new_tid):
         """批量修改所有帧中指定track_id的annotation"""
-        undo_data = {}
+        undo_changes = []
         for frame_file in sorted(self.labels_dir.glob("frame_*.json")):
             try:
                 with open(frame_file) as f:
                     annotations = json.load(f)
-                frame_undo = {}
                 new_anns = []
                 for ann in annotations:
                     if ann.get('track_id', 0) == old_tid:
                         bbox_key = self._get_bbox_key(ann.get('bbox', []))
-                        frame_undo[bbox_key] = old_tid
+                        frame_idx = int(frame_file.stem.split('_')[1])
+                        undo_changes.append({
+                            'frame_idx': frame_idx,
+                            'bbox_key': bbox_key,
+                            'old_trace_id': old_tid,
+                            'new_trace_id': new_tid
+                        })
                         ann['track_id'] = new_tid
                     new_anns.append(ann)
-                if frame_undo:
-                    frame_idx = int(frame_file.stem.split('_')[1])
-                    undo_data[frame_idx] = frame_undo
                 with open(frame_file, 'w') as f:
                     json.dump(new_anns, f)
             except:
                 pass
         # 通知主面板
-        if undo_data and self.controller and hasattr(self.controller, 'push_undo'):
-            self.panel.push_undo(undo_data)
-        if self.controller and hasattr(self.controller, 'refresh_trace_id_list'):
+        if undo_changes and self.panel and hasattr(self.panel, 'push_undo'):
+            self.panel.push_undo(undo_changes)
+        if self.panel and hasattr(self.panel, 'refresh_trace_id_list'):
             self.panel.refresh_trace_id_list()
         self.update_display()
-        print(f"[多帧修改] 共修改 {len(undo_data)} 帧")
+        print(f"[多帧修改] 共修改 {len(undo_changes)} 帧")
     
     def _get_bbox_key(self, bbox):
         """生成bbox的唯一键"""
@@ -340,7 +342,6 @@ class VideoViewer(QMainWindow):
         if not frame_file.exists():
             return
         
-        undo_data = {frame_idx: {}}
         changed = False
         try:
             with open(frame_file) as f:
@@ -352,7 +353,6 @@ class VideoViewer(QMainWindow):
                     # 检查点击坐标是否在这个bbox内
                     if x <= click_x <= x + w and y <= click_y <= y + h:
                         bbox_key = self._get_bbox_key(bbox)
-                        undo_data[frame_idx][bbox_key] = old_tid
                         ann['track_id'] = new_tid
                         changed = True
                         break  # 只修改第一个匹配的bbox
@@ -362,9 +362,15 @@ class VideoViewer(QMainWindow):
         except:
             return
         
-        if changed and self.controller and hasattr(self.controller, 'push_undo'):
-            self.panel.push_undo(undo_data)
-        if self.controller and hasattr(self.controller, 'refresh_trace_id_list'):
+        if changed and self.panel and hasattr(self.panel, 'push_undo'):
+            undo_entry = {
+                'frame_idx': frame_idx,
+                'bbox_key': bbox_key,
+                'old_trace_id': old_tid,
+                'new_trace_id': new_tid
+            }
+            self.panel.push_undo(undo_entry)
+        if self.panel and hasattr(self.panel, 'refresh_trace_id_list'):
             self.panel.refresh_trace_id_list()
         self.update_display()
         print(f"[单帧修改] 修改了1个bbox")
