@@ -1790,10 +1790,6 @@ class UnifiedPanel(QMainWindow):
         show_btn.setFixedSize(44, 22)
         show_btn.clicked.connect(self.show_viewer)
         path_layout.addWidget(show_btn)
-        redo_btn = QPushButton("重做")
-        redo_btn.setFixedSize(44, 22)
-        redo_btn.clicked.connect(self.redo_copy_to_mid)
-        path_layout.addWidget(redo_btn)
         trim_mid_btn = QPushButton("帧删除")
         trim_mid_btn.setFixedSize(60, 22)
         trim_mid_btn.setStyleSheet("QPushButton { background-color: #e74c3c; color: white; border: none; border-radius: 3px; }")
@@ -3457,29 +3453,25 @@ class UnifiedPanel(QMainWindow):
 
     def show_viewer(self):
         from video_viewer import VideoViewer
-        self.temp_data_path = Path(self.path_input.text())
-        if not self.temp_data_path.exists():
-            QMessageBox.warning(self, "错误", "数据目录不存在")
+        # 直接使用temp_data_mid作为预览路径
+        temp_mid = Path(TEMP_DATA_MID_DIR)
+        if not temp_mid.exists():
+            QMessageBox.warning(self, "错误", "temp_data_mid 目录不存在")
             return
-        ann_file = self.temp_data_path / "annotations.json"
+        ann_file = temp_mid / "annotations.json"
         if not ann_file.exists():
-            QMessageBox.warning(self, "错误", "annotations.json 不存在")
+            QMessageBox.warning(self, "错误", "temp_data_mid/annotations.json 不存在")
             return
 
         try:
             with open(ann_file) as f:
                 coco_data = json.load(f)
         except json.JSONDecodeError:
-            QMessageBox.critical(self, "错误",
-                f"annotations.json 文件损坏!\n"
-                f"请删除 {self.temp_data_path} 文件夹后重新选择数据。\n"
-                f"（之前切帧过程中程序崩溃导致文件未写完）")
+            QMessageBox.critical(self, "错误", f"annotations.json 文件损坏!")
             return
         self.total_frames = len(coco_data.get('images', []))
-
-        # 直接使用当前目录，不复制到temp_data_mid
-        viewer_path = str(self.temp_data_path)
-        print(f"预览: {viewer_path}")
+        self.temp_data_path = temp_mid
+        viewer_path = str(temp_mid)
 
         self._load_trace_id_mappings()
         self._apply_trace_id_mappings_to_mid()
@@ -3494,19 +3486,6 @@ class UnifiedPanel(QMainWindow):
         self.viewer.update_display()
 
         self.frame_label.setText(f"1/{self.total_frames}")
-
-    def redo_copy_to_mid(self):
-        """将当前目录复制到temp_data_mid"""
-        src_path = Path(self.path_input.text())
-        if not src_path.exists():
-            QMessageBox.warning(self, "错误", "数据目录不存在")
-            return
-        temp_mid = Path(TEMP_DATA_MID_DIR)
-        if temp_mid.exists():
-            shutil.rmtree(temp_mid)
-        shutil.copytree(src_path, temp_mid)
-        print(f"已从 {src_path} 复制到 {temp_mid}")
-        QMessageBox.information(self, "完成", f"已复制到temp_data_mid\n\n{src_path} → {temp_mid}")
 
     def select_save_input_dir(self):
         folder = QFileDialog.getExistingDirectory(self, "选择输入目录", ".")
