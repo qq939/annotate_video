@@ -1157,6 +1157,9 @@ class UnifiedPanel(QMainWindow):
         self.default_model_id = "model_001"
         self.default_model_name = "物体检测"
         self.default_model_desc = "物体检测模型"
+        
+        # 回退栈：记录每次操作
+        self.undo_stack = []  # [{frame_idx: {bbox_key: old_trace_id}}, ...]
 
         self.palette_colors = [
             (0, 0, 255),     # 红 (BGR)
@@ -2803,57 +2806,50 @@ class UnifiedPanel(QMainWindow):
         finally:
             self.reset_prompt_btn()
 
+    def push_undo(self, undo_data):
+        """记录回退信息到栈"""
+        if undo_data:
+            self.undo_stack.append(undo_data)
+            print(f"[Undo] 记录回退: {len(undo_data)} 帧")
+    
+    def pop_undo(self):
+        """从栈中弹出回退信息并执行回退"""
+        if not self.undo_stack:
+            return None
+        return self.undo_stack.pop()
+    
     def undo_last_prompt(self):
-        """回退上一次执行的提示帧标注"""
-        if self.last_prompt_first_id is None:
-            QMessageBox.warning(self, "提示", "没有可回退的提示帧标注")
+        """回退上一次的trace_id修改"""
+        undo_data = self.pop_undo()
+        if not undo_data:
+            QMessageBox.warning(self, "提示", "没有可回退的操作")
             return
         
-        temp_mid = Path(TEMP_DATA_MID_DIR)
-        labels_dir = temp_mid / "labels"
-        annotations_file = temp_mid / "annotations.json"
-        
-        if not labels_dir.exists() and not annotations_file.exists():
-            QMessageBox.warning(self, "提示", "temp_data_mid 目录不存在")
-            return
-        
-        deleted_count = 0
-        first_id = self.last_prompt_first_id
-        last_id = first_id + 999  # 1000档的范围
-        
-        # 删除labels目录中属于该档位的标注
-        if labels_dir.exists():
-            for label_file in labels_dir.glob("frame_*.json"):
-                try:
-                    with open(label_file, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                    original_len = len(data)
-                    data = [ann for ann in data if not (first_id <= ann.get('track_id', 0) <= last_id)]
-                    if len(data) < original_len:
-                        with open(label_file, 'w', encoding='utf-8') as f:
-                            json.dump(data, f, ensure_ascii=False)
-                        deleted_count += original_len - len(data)
-                except Exception as e:
-                    print(f"处理 {label_file} 失败: {e}")
-        
-        # 删除annotations.json中属于该档位的标注
-        if annotations_file.exists():
+        labels_dir = Path(TEMP_DATA_MID_DIR) / "labels"
+        restored = 0
+        for frame_idx, frame_undo in undo_data.items():
+            frame_file = labels_dir / f"frame_{frame_idx:06d}.json"
+            if not frame_file.exists():
+                continue
             try:
-                with open(annotations_file, 'r', encoding='utf-8') as f:
-                    coco = json.load(f)
-                original_len = len(coco.get('annotations', []))
-                coco['annotations'] = [ann for ann in coco.get('annotations', []) 
-                                       if not (first_id <= ann.get('track_id', 0) <= last_id)]
-                with open(annotations_file, 'w', encoding='utf-8') as f:
-                    json.dump(coco, f, ensure_ascii=False)
-                deleted_count += original_len - len(coco.get('annotations', []))
+                with open(frame_file, 'r', encoding='utf-8') as f:
+                    anns = json.load(f)
+                for ann in anns:
+                    bbox = ann.get('bbox', [])
+                    if len(bbox) >= 4:
+                        bbox_key = f"{int(bbox[0])},{int(bbox[1])},{int(bbox[2])},{int(bbox[3])}"
+                        if bbox_key in frame_undo:
+                            ann['track_id'] = frame_undo[bbox_key]
+                            restored += 1
+                with open(frame_file, 'w', encoding='utf-8') as f:
+                    json.dump(anns, f, ensure_ascii=False)
             except Exception as e:
-                print(f"处理 annotations.json 失败: {e}")
+                print(f"回退失败 {frame_file}: {e}")
         
-        self.last_prompt_first_id = None
         if self.viewer:
             self.viewer.update_display()
-        QMessageBox.information(self, "完成", f"已回退提示帧标注，删除 {deleted_count} 个标注\ntrack_id范围: {first_id}-{last_id}")
+        self.refresh_trace_id_list()
+        QMessageBox.information(self, "完成", f"已回退 {len(undo_data)} 帧，共 {restored} 个标注")
 
     def reset_prompt_btn(self):
         self.prompt_drawing_mode = False

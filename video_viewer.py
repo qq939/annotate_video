@@ -77,9 +77,11 @@ class VideoLabel(QLabel):
     
     def _set_annotation_trace_id(self, display_x, display_y):
         """右键双击修改单帧annotation的trace_id"""
-        if not self.controller or not hasattr(self.controller, 'trace_id_input'):
+        # 获取parent的controller
+        parent = self.parent()
+        if not parent or not hasattr(parent, 'controller') or not hasattr(parent.controller, 'trace_id_input'):
             return
-        current_tid = int(self.controller.trace_id_input.text()) if self.controller.trace_id_input.text() else 1000000
+        current_tid = int(parent.controller.trace_id_input.text()) if parent.controller.trace_id_input.text() else 1000000
         scaled_w = int(self.video_width * self.zoom_factor)
         scaled_h = int(self.video_height * self.zoom_factor)
         label_w = self.width()
@@ -98,6 +100,13 @@ class VideoLabel(QLabel):
                 if x <= click_x <= x + w and y <= click_y <= y + h:
                     old_tid = ann.get('track_id', 0)
                     if old_tid != current_tid:
+                        # 记录回退信息
+                        frame_idx = parent.current_frame_idx
+                        bbox_key = f"{x},{y},{w},{h}"
+                        undo_data = {frame_idx: {bbox_key: old_tid}}
+                        if hasattr(parent.controller, 'push_undo'):
+                            parent.controller.push_undo(undo_data)
+                        # 修改并保存
                         ann['track_id'] = current_tid
                         self._save_annotation(ann)
                         self.update_display()
@@ -248,6 +257,9 @@ class VideoViewer(QMainWindow):
                                 # 批量修改所有帧
                                 self._change_trace_id_in_all_frames(old_tid, current_tid)
                                 print(f"[Click] 批量修改: track_id {old_tid} -> {current_tid}")
+                                # 通知主面板记录回退
+                                if self.controller and hasattr(self.controller, 'push_undo'):
+                                    self.controller.push_undo()
                             return
             self.video_clicked.emit(video_x, video_y, self.current_frame_idx)
 
@@ -325,25 +337,40 @@ class VideoViewer(QMainWindow):
     
     def _change_trace_id_in_all_frames(self, old_tid, new_tid):
         """批量修改所有帧中指定track_id的annotation"""
-        changed = 0
+        # 记录回退信息
+        undo_data = {}  # {frame_idx: {bbox_key: old_trace_id}}
         for frame_file in sorted(self.labels_dir.glob("frame_*.json")):
             try:
                 with open(frame_file) as f:
                     annotations = json.load(f)
+                frame_undo = {}
                 new_anns = []
                 for ann in annotations:
                     if ann.get('track_id', 0) == old_tid:
+                        bbox_key = self._get_bbox_key(ann.get('bbox', []))
+                        frame_undo[bbox_key] = old_tid
                         ann['track_id'] = new_tid
-                        changed += 1
                     new_anns.append(ann)
+                if frame_undo:
+                    frame_idx = int(frame_file.stem.split('_')[1])
+                    undo_data[frame_idx] = frame_undo
                 with open(frame_file, 'w') as f:
                     json.dump(new_anns, f)
             except:
                 pass
+        # 通知主面板记录回退
+        if undo_data and self.controller and hasattr(self.controller, 'push_undo'):
+            self.controller.push_undo(undo_data)
         if self.controller and hasattr(self.controller, 'refresh_trace_id_list'):
             self.controller.refresh_trace_id_list()
         self.update_display()
-        print(f"[批量修改] 共修改 {changed} 个标注")
+        print(f"[批量修改] 共修改 {len(undo_data)} 帧")
+    
+    def _get_bbox_key(self, bbox):
+        """生成bbox的唯一键"""
+        if len(bbox) >= 4:
+            return f"{int(bbox[0])},{int(bbox[1])},{int(bbox[2])},{int(bbox[3])}"
+        return ""
     
     def set_zoom(self, factor):
         self.zoom_factor = factor
