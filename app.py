@@ -1872,7 +1872,7 @@ class UnifiedPanel(QMainWindow):
         frame_nav_layout.addWidget(self.forward_fast_btn)
         layout.addLayout(frame_nav_layout)
 
-        # 第二行：后向、提示帧、帧数、前向、回退
+        # 第二行：后向、提示帧、帧数、前向
         frame_play_layout = QHBoxLayout()
         frame_play_layout.setSpacing(4)
         self.backward_cb = QCheckBox("后向")
@@ -1880,12 +1880,6 @@ class UnifiedPanel(QMainWindow):
         self.backward_cb.setChecked(True)
         self.backward_cb.setStyleSheet("QCheckBox { font-size: 11px; }")
         frame_play_layout.addWidget(self.backward_cb)
-
-        self.prompt_btn = QPushButton("提示帧")
-        self.prompt_btn.setFixedHeight(24)
-        self.prompt_btn.setStyleSheet("QPushButton { background-color: #FFA500; color: white; border: none; border-radius: 3px; font-size: 11px; } QPushButton:hover { background-color: #FF8C00; }")
-        self.prompt_btn.clicked.connect(self.toggle_prompt_mode)
-        frame_play_layout.addWidget(self.prompt_btn)
 
         self.frame_label = QLabel("1/1")
         self.frame_label.setAlignment(Qt.AlignCenter)
@@ -1900,6 +1894,16 @@ class UnifiedPanel(QMainWindow):
         self.forward_cb.setStyleSheet("QCheckBox { font-size: 11px; }")
         frame_play_layout.addWidget(self.forward_cb)
         layout.addLayout(frame_play_layout)
+
+        # 第三行：提示帧按钮单独一行（撑满）
+        prompt_layout = QHBoxLayout()
+        self.prompt_btn = QPushButton("提示帧")
+        self.prompt_btn.setFixedHeight(24)
+        self.prompt_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.prompt_btn.setStyleSheet("QPushButton { background-color: #FFA500; color: white; border: none; border-radius: 3px; font-size: 11px; } QPushButton:hover { background-color: #FF8C00; }")
+        self.prompt_btn.clicked.connect(self.toggle_prompt_mode)
+        prompt_layout.addWidget(self.prompt_btn)
+        layout.addLayout(prompt_layout)
 
         # 回退按钮单独一行（撑满）
         undo_layout = QHBoxLayout()
