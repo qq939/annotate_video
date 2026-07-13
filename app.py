@@ -4630,21 +4630,18 @@ names: {class_names}
                 except:
                     pass
         
-        # 数据增广：平衡类别数量
-        # 找出最多、第二多、最少的类别
+        # 数据增广：最少和第二少都增广到最多
         sorted_classes = sorted(class_counts.items(), key=lambda x: x[1])
-        min_count = sorted_classes[0][1]
-        second_min_count = sorted_classes[1][1] if len(sorted_classes) > 1 else min_count
         max_count = sorted_classes[-1][1] if sorted_classes else 0
         
         print(f"[YOLO] 类别帧数统计: {class_counts}")
-        print(f"[YOLO] 数据增广: 最小={min_count}, 第二少={second_min_count}, 最大={max_count}")
+        print(f"[YOLO] 数据增广目标: 最大帧数={max_count}")
         
-        # 对帧数最少的类别增广到第二少
+        # 对帧数最少的类别增广到最多
         if sorted_classes:
             min_class = sorted_classes[0][0]
-            if class_counts[min_class] < second_min_count:
-                target = second_min_count
+            if class_counts[min_class] < max_count:
+                target = max_count
                 copies_needed = target - class_counts[min_class]
                 source_imgs = img_with_class[min_class]
                 if source_imgs:
@@ -4660,7 +4657,7 @@ names: {class_names}
                             flipped = cv2.flip(img, 1)  # 水平翻转
                             cv2.imwrite(str(new_img), flipped)
                             img_files.append(new_img)
-                            # 复制并翻转json
+                            # 复制json
                             json_file = src.with_suffix('.json')
                             if json_file.exists():
                                 with open(json_file) as f:
