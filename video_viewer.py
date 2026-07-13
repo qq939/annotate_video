@@ -66,7 +66,6 @@ class VideoLabel(QLabel):
             self._drag_current = (event.x(), event.y())
             return
         if event.button() == Qt.LeftButton:
-            print(f"[VideoLabel click] x={event.x()}, y={event.y()}")
             self.point_clicked.emit(event.x(), event.y())
         super().mousePressEvent(event)
     
@@ -194,7 +193,6 @@ class VideoViewer(QMainWindow):
             self.timer.stop()
 
     def on_click(self, display_x, display_y):
-        print(f"[on_click] received: x={display_x}, y={display_y}")
         scaled_w = int(self.video_width * self.zoom_factor)
         scaled_h = int(self.video_height * self.zoom_factor)
         label_w = self.image_label.width()
@@ -206,15 +204,19 @@ class VideoViewer(QMainWindow):
             video_x = int((display_x - offset_x) / self.zoom_factor)
             video_y = int((display_y - offset_y) / self.zoom_factor)
             # 单击修改annotation的trace_id为当前ID
+            print(f"[DEBUG] controller: {self.controller}")
             if self.controller and hasattr(self.controller, 'trace_id_input'):
                 current_tid = int(self.controller.trace_id_input.text()) if self.controller.trace_id_input.text() else 1000000
+                print(f"[DEBUG] current_tid: {current_tid}")
                 frame_annotations = self._get_current_annotations()
+                print(f"[DEBUG] annotations count: {len(frame_annotations)}")
                 for ann in frame_annotations:
                     bbox = ann.get('bbox', [])
                     if len(bbox) >= 4:
                         x, y, w, h = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
                         if x <= video_x <= x + w and y <= video_y <= y + h:
                             old_tid = ann.get('track_id', 0)
+                            print(f"[DEBUG] old_tid: {old_tid}")
                             if old_tid != current_tid:
                                 is_single = self.single_frame_radio.isChecked()
                                 print(f"[DEBUG] 单帧模式: {is_single}, track_id {old_tid} -> {current_tid}")
