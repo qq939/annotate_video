@@ -4502,7 +4502,6 @@ class UnifiedPanel(QMainWindow):
             # 训练YOLO模型
             if self.train_model_check.isChecked():
                 print(f"[YOLO] 开始训练模型...")
-                QMessageBox.information(self, "提示", "即将开始训练YOLO模型，这可能需要几分钟...")
                 try:
                     self._train_yolo_model(labelme_dir)
                 except Exception as e:
