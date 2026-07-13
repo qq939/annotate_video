@@ -2961,14 +2961,17 @@ class UnifiedPanel(QMainWindow):
         """根据Trace ID列表更新类别列表"""
         # 从trace_id_list获取trace_id
         target_ids = []
-        for i in range(self.trace_id_list.count()):
-            text = self.trace_id_list.item(i).text()
-            try:
-                # 解析 "ID: 1000000 (123帧)"
-                tid = int(text.split(":")[1].split("(")[0].strip())
-                target_ids.append(tid)
-            except:
-                pass
+        if not hasattr(self, 'trace_id_list') or self.trace_id_list is None:
+            target_ids = [1000000]
+        else:
+            for i in range(self.trace_id_list.count()):
+                text = self.trace_id_list.item(i).text()
+                try:
+                    # 解析 "ID: 1000000 (123帧)"
+                    tid = int(text.split(":")[1].split("(")[0].strip())
+                    target_ids.append(tid)
+                except:
+                    pass
         if not target_ids:
             target_ids = [1000000]
         
