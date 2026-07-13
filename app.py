@@ -3504,13 +3504,13 @@ class UnifiedPanel(QMainWindow):
         self.frame_label.setText(f"1/{self.total_frames}")
 
     def show_viewer_only(self):
-        """只显示预览，不复制数据到temp_data_mid"""
+        """只显示预览temp_data_mid"""
         from video_viewer import VideoViewer
-        self.temp_data_path = Path(self.path_input.text())
-        if not self.temp_data_path.exists():
-            QMessageBox.warning(self, "错误", "数据目录不存在")
+        temp_mid = Path(TEMP_DATA_MID_DIR)
+        if not temp_mid.exists():
+            QMessageBox.warning(self, "错误", "temp_data_mid 目录不存在，请先点击重做")
             return
-        ann_file = self.temp_data_path / "annotations.json"
+        ann_file = temp_mid / "annotations.json"
         if not ann_file.exists():
             QMessageBox.warning(self, "错误", "annotations.json 不存在")
             return
@@ -3523,7 +3523,8 @@ class UnifiedPanel(QMainWindow):
             return
         self.total_frames = len(coco_data.get('images', []))
 
-        viewer_path = str(self.temp_data_path)
+        viewer_path = str(temp_mid)
+        self.temp_data_path = temp_mid
 
         self._load_trace_id_mappings()
         self._apply_trace_id_mappings_to_mid()
