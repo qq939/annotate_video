@@ -1915,20 +1915,6 @@ class UnifiedPanel(QMainWindow):
         self.last_prompt_first_id = None
         self.last_fixed_trace_id = None
 
-        delete_trace_layout = QHBoxLayout()
-        delete_trace_layout.setSpacing(4)
-        delete_trace_layout.addWidget(QLabel("删除trace"))
-        self.delete_trace_input = QLineEdit()
-        self.delete_trace_input.setPlaceholderText("输入")
-        self.delete_trace_input.setFixedHeight(24)
-        delete_trace_layout.addWidget(self.delete_trace_input)
-        delete_trace_btn = QPushButton("删除")
-        delete_trace_btn.setFixedSize(40, 24)
-        delete_trace_btn.setStyleSheet("QPushButton { background-color: #FF4444; color: white; border: none; border-radius: 3px; } QPushButton:hover { background-color: #CC0000; }")
-        delete_trace_btn.clicked.connect(self.delete_trace_id)
-        delete_trace_layout.addWidget(delete_trace_btn)
-        layout.addLayout(delete_trace_layout)
-
         # Trace ID列表
         trace_list_layout = QHBoxLayout()
         trace_list_layout.setSpacing(4)
@@ -2889,47 +2875,6 @@ class UnifiedPanel(QMainWindow):
             if self.viewer:
                 self.viewer.update_display()
         QMessageBox.information(self, "完成", f"已回退固定框 (trace_id={fixed_id})，删除 {deleted_count} 个标注")
-
-    def delete_trace_id(self):
-        trace_id_text = self.delete_trace_input.text().strip()
-        if not trace_id_text:
-            QMessageBox.warning(self, "错误", "请输入要删除的 trace id")
-            return
-        try:
-            trace_id = int(trace_id_text)
-        except ValueError:
-            QMessageBox.warning(self, "错误", "trace id 必须是整数")
-            return
-
-        labels_dir = self.temp_data_path / "labels"
-        annotations_file = self.temp_data_path / "annotations.json"
-        if not labels_dir.exists():
-            QMessageBox.warning(self, "错误", "labels 目录不存在")
-            return
-
-        frame_count = 0
-        for label_file in sorted(labels_dir.glob("frame_*.json")):
-            with open(label_file) as f:
-                anns = json.load(f)
-            original_len = len(anns)
-            anns = [ann for ann in anns if ann.get('track_id') != trace_id]
-            if len(anns) < original_len:
-                with open(label_file, 'w') as f:
-                    json.dump(anns, f)
-                frame_count += 1
-
-        if annotations_file.exists():
-            with open(annotations_file) as f:
-                coco = json.load(f)
-            original_len = len(coco.get('annotations', []))
-            coco['annotations'] = [ann for ann in coco.get('annotations', []) if ann.get('track_id') != trace_id]
-            if len(coco['annotations']) < original_len:
-                with open(annotations_file, 'w') as f:
-                    json.dump(coco, f)
-
-        QMessageBox.information(self, "完成", f"已从 {frame_count} 帧中删除 trace_id={trace_id}")
-        if self.viewer:
-            self.viewer.update_display()
 
     def _get_trace_id_mappings_file(self):
         return Path(TEMP_DATA_MID_DIR) / "trace_id_changes.json"
