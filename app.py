@@ -1336,7 +1336,7 @@ class UnifiedPanel(QMainWindow):
         self.morph_kernel.setMinimum(0)
         self.morph_kernel.setMaximum(20)
         self.morph_kernel.setValue(0)
-        self.morph_kernel.setFixedWidth(200)
+        self.morph_kernel.setFixedHeight(16)
         self.morph_kernel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.morph_kernel.valueChanged.connect(self.on_morph_kernel_changed)
         morph_layout.addWidget(self.morph_kernel)
