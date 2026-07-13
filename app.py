@@ -2126,6 +2126,10 @@ class UnifiedPanel(QMainWindow):
         self.train_epochs_input.setFixedWidth(40)
         self.train_epochs_input.setFixedHeight(22)
         train_params_layout.addWidget(self.train_epochs_input)
+        self.train_resume_check = QCheckBox("继续训练")
+        self.train_resume_check.setChecked(False)
+        self.train_resume_check.setStyleSheet("QCheckBox { font-size: 11px; }")
+        train_params_layout.addWidget(self.train_resume_check)
         train_params_layout.addStretch()
         layout.addLayout(train_params_layout)
 
@@ -4627,28 +4631,47 @@ names: {class_names}
         
         print(f"[YOLO] 训练集: {len(train_files)}, 验证集: {len(val_files)}")
         
-        # 清理旧的train文件夹
+        # 清理旧的train文件夹（仅当不继续训练时）
         train_dir = Path("runs/detect/yolo_runs/train")
-        if train_dir.exists():
+        resume = self.train_resume_check.isChecked()
+        if not resume and train_dir.exists():
             shutil.rmtree(train_dir)
         
         # 训练模型
         print("[YOLO] 开始训练...")
         from ultralytics import YOLO
         model = YOLO("yolo11m.pt")
-        epochs = int(self.train_epochs_input.text()) if self.train_epochs_input.text() else 30
-        model.train(
-            data=yaml_path.as_posix(),
-            epochs=epochs,
-            imgsz=640,
-            batch=8,
-            device=0,
-            workers=0,
-            project=yolo_project.as_posix(),
-            name="train",
-            patience=10,
-            cache="ram"
-        )
+        
+        if resume:
+            # 继续训练：加载已有模型继续训练
+            print("[YOLO] 继续训练模式...")
+            model.train(
+                data=yaml_path.as_posix(),
+                model=str(train_dir / "weights" / "last.pt"),
+                epochs=100,  # 继续训练固定100轮
+                imgsz=640,
+                batch=8,
+                device=0,
+                workers=0,
+                project=yolo_project.as_posix(),
+                name="train",
+                resume=True
+            )
+        else:
+            # 全新训练
+            epochs = int(self.train_epochs_input.text()) if self.train_epochs_input.text() else 30
+            model.train(
+                data=yaml_path.as_posix(),
+                epochs=epochs,
+                imgsz=640,
+                batch=8,
+                device=0,
+                workers=0,
+                project=yolo_project.as_posix(),
+                name="train",
+                patience=10,
+                cache="ram"
+            )
         
         # 导出ONNX
         # ultralytics 输出到 runs/detect/yolo_runs/train
