@@ -142,6 +142,21 @@ class VideoViewer(QMainWindow):
         self.drawing_mode = False
 
         self.init_ui()
+    
+    def reload_data(self, new_path):
+        """重新加载数据到新路径"""
+        self.temp_data_path = Path(new_path)
+        with open(self.temp_data_path / "annotations.json") as f:
+            self.coco_data = json.load(f)
+        self.video_info = self.coco_data['info']
+        self.video_width = self.video_info['width']
+        self.video_height = self.video_info['height']
+        self.labels_dir = self.temp_data_path / "labels"
+        self.frames_dir = self.temp_data_path / "frames"
+        self.total_frames = len(self.coco_data['images'])
+        self.current_frame_idx = 0
+        self.prompt_bboxes = []
+        self.prompt_frame_idx = -1
 
     def init_ui(self):
         self.setWindowTitle('视频查看器')

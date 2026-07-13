@@ -3504,8 +3504,7 @@ class UnifiedPanel(QMainWindow):
         self.frame_label.setText(f"1/{self.total_frames}")
 
     def show_viewer_only(self):
-        """只显示预览temp_data_mid"""
-        from video_viewer import VideoViewer
+        """只显示预览temp_data_mid，复用已有窗口"""
         temp_mid = Path(TEMP_DATA_MID_DIR)
         if not temp_mid.exists():
             QMessageBox.warning(self, "错误", "temp_data_mid 目录不存在，请先点击重做")
@@ -3526,17 +3525,23 @@ class UnifiedPanel(QMainWindow):
         viewer_path = str(temp_mid)
         self.temp_data_path = temp_mid
 
-        self._load_trace_id_mappings()
-        self._apply_trace_id_mappings_to_mid()
-
-        self.viewer = VideoViewer(viewer_path, controller=self.ctrl)
-        self.viewer.video_clicked.connect(self.handle_viewer_click)
-        zoom_factor = self.zoom_slider.value() / 100.0
-        self.viewer.set_zoom(zoom_factor)
-        geo = self.geometry()
-        self.viewer.move(geo.right(), geo.top())
-        self.viewer.show()
-        self.viewer.update_display()
+        # 如果已有窗口，直接更新路径
+        if self.viewer:
+            self.viewer.reload_data(viewer_path)
+            self.viewer.go_to_frame(0)
+            self.viewer.update_display()
+        else:
+            from video_viewer import VideoViewer
+            self._load_trace_id_mappings()
+            self._apply_trace_id_mappings_to_mid()
+            self.viewer = VideoViewer(viewer_path, controller=self.ctrl)
+            self.viewer.video_clicked.connect(self.handle_viewer_click)
+            zoom_factor = self.zoom_slider.value() / 100.0
+            self.viewer.set_zoom(zoom_factor)
+            geo = self.geometry()
+            self.viewer.move(geo.right(), geo.top())
+            self.viewer.show()
+            self.viewer.update_display()
 
         self.frame_label.setText(f"1/{self.total_frames}")
 
