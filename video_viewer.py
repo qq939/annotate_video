@@ -214,14 +214,14 @@ class VideoViewer(QMainWindow):
                         if x <= video_x <= x + w and y <= video_y <= y + h:
                             old_tid = ann.get('track_id', 0)
                             if old_tid != current_tid:
-                                if self.single_frame_radio.isChecked():
+                                is_single = self.single_frame_radio.isChecked()
+                                print(f"[DEBUG] 单帧模式: {is_single}, track_id {old_tid} -> {current_tid}")
+                                if is_single:
                                     # 单帧模式
                                     self._change_trace_id_single_frame(old_tid, current_tid, video_x, video_y)
-                                    print(f"[Click] 单帧修改: track_id {old_tid} -> {current_tid}")
                                 else:
                                     # 多帧模式
                                     self._change_trace_id_in_all_frames(old_tid, current_tid)
-                                    print(f"[Click] 多帧修改: track_id {old_tid} -> {current_tid}")
                             return
             self.video_clicked.emit(video_x, video_y, self.current_frame_idx)
 
