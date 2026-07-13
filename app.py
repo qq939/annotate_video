@@ -3048,11 +3048,14 @@ class UnifiedPanel(QMainWindow):
             self.category_inputs.append(inp)
             self.category_layout.addLayout(row)
         
-        # 重建颜色按钮
-        self._rebuild_color_buttons()
+        # 重建颜色按钮（仅当布局已初始化时）
+        if hasattr(self, 'color_btn_layout'):
+            self._rebuild_color_buttons()
     
     def _rebuild_color_buttons(self):
         """重建颜色按钮以匹配类别数量"""
+        if not hasattr(self, 'color_btn_layout'):
+            return
         # 找到并清空color_btn_layout
         for i in reversed(range(self.color_btn_layout.count())):
             widget = self.color_btn_layout.itemAt(i).widget()
