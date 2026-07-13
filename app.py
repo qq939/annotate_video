@@ -1964,6 +1964,44 @@ class UnifiedPanel(QMainWindow):
         trace_change_layout.addLayout(btn_col)
         layout.addLayout(trace_change_layout)
 
+        # 固定框功能
+        fixed_bbox_layout = QVBoxLayout()
+        fixed_bbox_layout.setSpacing(2)
+        fixed_bbox_layout.addWidget(QLabel("固定框 (起始帧-终止帧):"))
+        
+        row1 = QHBoxLayout()
+        row1.setSpacing(4)
+        row1.addWidget(QLabel("ID:"))
+        self.fixed_trace_id_label = QLabel("1000000")
+        self.fixed_trace_id_label.setFixedWidth(70)
+        row1.addWidget(self.fixed_trace_id_label)
+        row1.addWidget(QLabel("起始:"))
+        self.fixed_start_input = QLineEdit("0")
+        self.fixed_start_input.setFixedWidth(50)
+        self.fixed_start_input.setFixedHeight(22)
+        row1.addWidget(self.fixed_start_input)
+        row1.addWidget(QLabel("终止:"))
+        self.fixed_end_input = QLineEdit("-1")
+        self.fixed_end_input.setFixedWidth(50)
+        self.fixed_end_input.setFixedHeight(22)
+        row1.addWidget(self.fixed_end_input)
+        fixed_bbox_layout.addLayout(row1)
+        
+        row2 = QHBoxLayout()
+        row2.setSpacing(4)
+        self.fixed_bbox_btn = QPushButton("执行固定框")
+        self.fixed_bbox_btn.setFixedHeight(24)
+        self.fixed_bbox_btn.setStyleSheet("QPushButton { background-color: #6c757d; color: white; border: none; border-radius: 3px; }")
+        self.fixed_bbox_btn.clicked.connect(self.apply_fixed_bbox)
+        row2.addWidget(self.fixed_bbox_btn)
+        self.refresh_trace_btn = QPushButton("刷新ID")
+        self.refresh_trace_btn.setFixedSize(60, 24)
+        self.refresh_trace_btn.clicked.connect(self.refresh_trace_id_list)
+        row2.addWidget(self.refresh_trace_btn)
+        fixed_bbox_layout.addLayout(row2)
+        
+        layout.addLayout(fixed_bbox_layout)
+
         assign_layout = QHBoxLayout()
         assign_layout.setSpacing(4)
         assign_layout.addWidget(QLabel("当前ID:"))
@@ -2071,21 +2109,6 @@ class UnifiedPanel(QMainWindow):
         self.render_segment_check.setChecked(False)
         self.render_segment_check.setStyleSheet("QCheckBox { font-size: 11px; }")
         layout.addWidget(self.render_segment_check)
-
-        # 固定框功能
-        fixed_bbox_layout = QHBoxLayout()
-        fixed_bbox_layout.setSpacing(4)
-        fixed_bbox_layout.addWidget(QLabel("固定框:"))
-        self.fixed_trace_id = QLabel("1000000")
-        self.fixed_trace_id.setFixedWidth(60)
-        fixed_bbox_layout.addWidget(self.fixed_trace_id)
-        self.fixed_bbox_btn = QPushButton("执行固定框")
-        self.fixed_bbox_btn.setFixedHeight(22)
-        self.fixed_bbox_btn.setStyleSheet("QPushButton { background-color: #6c757d; color: white; border: none; border-radius: 3px; }")
-        self.fixed_bbox_btn.clicked.connect(self.apply_fixed_bbox)
-        fixed_bbox_layout.addWidget(self.fixed_bbox_btn)
-        fixed_bbox_layout.addStretch()
-        layout.addLayout(fixed_bbox_layout)
 
         trail_layout = QHBoxLayout()
         trail_layout.setSpacing(4)
@@ -3555,7 +3578,7 @@ class UnifiedPanel(QMainWindow):
         return 1000000 + len(used_ids)
     
     def apply_fixed_bbox(self):
-        """在每一帧添加固定框"""
+        """在指定帧范围添加固定框"""
         if not self.viewer:
             QMessageBox.warning(self, "错误", "请先显示预览")
             return
@@ -3565,13 +3588,31 @@ class UnifiedPanel(QMainWindow):
             return
         bbox = prompt_bboxes[0]  # 使用第一个框
         trace_id = self._find_available_trace_id()
-        self.fixed_trace_id.setText(str(trace_id))
+        self.fixed_trace_id_label.setText(str(trace_id))
+        
+        # 获取起始帧和终止帧
+        try:
+            start_frame = int(self.fixed_start_input.text() or "0")
+            end_frame = int(self.fixed_end_input.text() if self.fixed_end_input.text() != "-1" else "-1")
+        except ValueError:
+            QMessageBox.warning(self, "错误", "帧号必须是整数")
+            return
+        
         labels_dir = Path(TEMP_DATA_MID_DIR) / "labels"
         labels_dir.mkdir(exist_ok=True)
-        frame_idx = 0
-        for f in sorted(labels_dir.glob("frame_*.json")):
-            with open(f) as fp:
-                anns = json.load(fp)
+        
+        total_frames = self.total_frames
+        if end_frame == -1 or end_frame >= total_frames:
+            end_frame = total_frames - 1
+        
+        added = 0
+        for i in range(start_frame, end_frame + 1):
+            frame_file = labels_dir / f"frame_{i:06d}.json"
+            if frame_file.exists():
+                with open(frame_file) as fp:
+                    anns = json.load(fp)
+            else:
+                anns = []
             anns.append({
                 'bbox': list(bbox),
                 'track_id': trace_id,
@@ -3584,12 +3625,34 @@ class UnifiedPanel(QMainWindow):
                 'category': 'Fixed',
                 'confidence': 1.0
             })
-            with open(f, 'w') as fp:
+            with open(frame_file, 'w') as fp:
                 json.dump(anns, fp)
-            frame_idx += 1
+            added += 1
+        
         self.viewer.clear_prompt_bboxes()
         self.viewer.update_display()
-        QMessageBox.information(self, "完成", f"已添加固定框 (trace_id={trace_id}) 到 {frame_idx} 帧")
+        self.refresh_trace_id_list()
+        QMessageBox.information(self, "完成", f"已添加固定框 (trace_id={trace_id}) 到 {added} 帧 ({start_frame}-{end_frame})")
+    
+    def refresh_trace_id_list(self):
+        """刷新Trace ID列表"""
+        labels_dir = Path(TEMP_DATA_MID_DIR) / "labels"
+        if not labels_dir.exists():
+            return
+        used_ids = {}
+        for f in labels_dir.glob("*.json"):
+            try:
+                with open(f) as fp:
+                    data = json.load(fp)
+                    for ann in data:
+                        tid = ann.get('track_id', 0)
+                        if tid >= 1000000:
+                            used_ids[tid] = used_ids.get(tid, 0) + 1
+            except:
+                pass
+        self.trace_id_list.clear()
+        for tid in sorted(used_ids.keys()):
+            self.trace_id_list.addItem(f"ID: {tid} ({used_ids[tid]}帧)")
     
     def export_to_temp_data_post(self):
         data_dir = Path(TEMP_DATA_MID_DIR)
