@@ -2074,9 +2074,9 @@ class UnifiedPanel(QMainWindow):
         save_alpha_layout.addWidget(self.save_alpha_label)
         layout.addLayout(save_alpha_layout)
 
-        color_btn_layout = QHBoxLayout()
-        color_btn_layout.setSpacing(2)
-        color_btn_layout.addWidget(QLabel("颜色:"))
+        self.color_btn_layout = QHBoxLayout()
+        self.color_btn_layout.setSpacing(2)
+        self.color_btn_layout.addWidget(QLabel("颜色:"))
         self.color_btns = []
         self.color_styles = []
         for idx, (b_val, g_val, r_val) in enumerate(self.palette_colors):
@@ -2090,8 +2090,8 @@ class UnifiedPanel(QMainWindow):
             )
             btn.clicked.connect(lambda _, i=idx: self.on_color_select(i))
             self.color_btns.append(btn)
-            color_btn_layout.addWidget(btn)
-        layout.addLayout(color_btn_layout)
+            self.color_btn_layout.addWidget(btn)
+        layout.addLayout(self.color_btn_layout)
 
         self.render_segment_check = QCheckBox("只展示bbox")
         self.render_segment_check.setChecked(False)
@@ -3007,6 +3007,15 @@ class UnifiedPanel(QMainWindow):
         if not target_ids:
             target_ids = [1000000]
         
+        # 更新palette_colors数量与类别数量一致
+        self.palette_colors = []
+        for _ in target_ids:
+            # 生成随机BGR颜色
+            b = random.randint(50, 255)
+            g = random.randint(50, 255)
+            r = random.randint(50, 255)
+            self.palette_colors.append((b, g, r))
+        
         # 清除旧UI
         for label in self.category_labels:
             label.setParent(None)
@@ -3026,7 +3035,7 @@ class UnifiedPanel(QMainWindow):
         self.category_layout.addWidget(title)
         
         # 添加新的类别行
-        for tid in target_ids:
+        for idx, tid in enumerate(target_ids):
             row = QHBoxLayout()
             row.setSpacing(2)
             label = QLabel(f"{tid}:")
@@ -3038,6 +3047,32 @@ class UnifiedPanel(QMainWindow):
             self.category_labels.append(label)
             self.category_inputs.append(inp)
             self.category_layout.addLayout(row)
+        
+        # 重建颜色按钮
+        self._rebuild_color_buttons()
+    
+    def _rebuild_color_buttons(self):
+        """重建颜色按钮以匹配类别数量"""
+        # 找到并清空color_btn_layout
+        for i in reversed(range(self.color_btn_layout.count())):
+            widget = self.color_btn_layout.itemAt(i).widget()
+            if widget:
+                widget.setParent(None)
+        
+        self.color_btns = []
+        self.color_styles = []
+        for idx, (b_val, g_val, r_val) in enumerate(self.palette_colors):
+            btn = QPushButton()
+            btn.setFixedSize(20, 20)
+            color = f"rgb({r_val},{g_val},{b_val})"
+            active_color = "border: 2px solid #FFD700;" if idx == self.selected_color_index else ""
+            btn.setStyleSheet(
+                f"QPushButton {{ background-color: {color}; border-radius: 3px; {active_color} }}"
+                f"QPushButton:selected {{ border: 2px solid #FFD700; }}"
+            )
+            btn.clicked.connect(lambda _, i=idx: self.on_color_select(i))
+            self.color_btns.append(btn)
+            self.color_btn_layout.addWidget(btn)
     
     def _apply_single_mapping_to_mid(self, from_id, to_id):
         temp_mid = Path(TEMP_DATA_MID_DIR)
