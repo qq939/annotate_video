@@ -4748,13 +4748,33 @@ names: {class_names}
         if best_model.exists():
             model = YOLO(str(best_model))
             model.export(format="onnx")
+            
+            # 创建model.json
+            train_id = self.train_id_input.text() or self.default_model_id
+            train_name = self.train_name_input.text() or self.default_model_name
+            train_desc = self.train_desc_input.text() or self.default_model_desc
+            model_json = {
+                "id": train_id,
+                "displayname": train_name,
+                "description": train_desc,
+                "model_path": f"{train_id}_train/best.onnx",
+                "classes": class_names,
+                "nc": len(class_names),
+                "input_size": [640, 640]
+            }
+            
+            # 保存model.json到weights文件夹
+            weights_dir = best_model.parent
+            weights_json = weights_dir / "model.json"
+            with open(weights_json, 'w', encoding='utf-8') as f:
+                json.dump(model_json, f, ensure_ascii=False, indent=2)
+            
             # 查找生成的onnx文件
             onnx_path = best_model.parent / "best.onnx"
             if onnx_path.exists():
                 print(f"[YOLO] ONNX文件: {onnx_path}")
                 
                 # 创建以ID+train命名的文件夹
-                train_id = self.train_id_input.text() or self.default_model_id
                 upload_dir = Path("1dst") / f"{train_id}_train"
                 upload_dir.mkdir(parents=True, exist_ok=True)
                 
@@ -4762,21 +4782,9 @@ names: {class_names}
                 upload_onnx = upload_dir / "best.onnx"
                 shutil.copy(onnx_path, upload_onnx)
                 
-                # 创建model.json
-                train_name = self.train_name_input.text() or self.default_model_name
-                train_desc = self.train_desc_input.text() or self.default_model_desc
-                model_json = {
-                    "id": train_id,
-                    "displayname": train_name,
-                    "description": train_desc,
-                    "model_path": f"{train_id}_train/best.onnx",
-                    "classes": class_names,
-                    "nc": len(class_names),
-                    "input_size": [640, 640]
-                }
+                # 复制model.json到上传文件夹
                 json_path = upload_dir / "model.json"
-                with open(json_path, 'w', encoding='utf-8') as f:
-                    json.dump(model_json, f, ensure_ascii=False, indent=2)
+                shutil.copy(weights_json, json_path)
                 
                 # 压缩上传
                 import zipfile
