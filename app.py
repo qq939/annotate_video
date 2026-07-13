@@ -4649,7 +4649,7 @@ names: {class_names}
         )
         
         # 导出ONNX
-        best_model = Path("runs/detect/yolo_runs/train/weights/best.pt")
+        best_model = Path("runs/detect/train/weights/best.pt")
         if best_model.exists():
             model = YOLO(str(best_model))
             model.export(format="onnx")
