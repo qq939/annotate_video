@@ -280,6 +280,16 @@ class VideoViewer(QMainWindow):
                     label = f"prompt {self.prompt_bboxes.index(bbox) + 1}"
                     cv2.putText(annotated_frame, label, (x1, max(10, y1 - 5)),
                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        
+        # 固定框模式：bboxes始终可见（黄色）
+        if self.controller and hasattr(self.controller, 'fixed_bbox_mode') and self.controller.fixed_bbox_mode:
+            if self.current_frame_idx == getattr(self.controller, 'fixed_bbox_frame_idx', 0):
+                for bbox in self.prompt_bboxes:
+                    x1, y1, x2, y2 = bbox
+                    cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), (0, 255, 255), 3)
+                    label = f"fixed {self.prompt_bboxes.index(bbox) + 1}"
+                    cv2.putText(annotated_frame, label, (x1, max(10, y1 - 5)),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 
         annotated_frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
         h, w, ch = annotated_frame_rgb.shape

@@ -1981,9 +1981,14 @@ class UnifiedPanel(QMainWindow):
         self.fixed_end_input.setFixedWidth(50)
         self.fixed_end_input.setFixedHeight(22)
         row1.addWidget(self.fixed_end_input)
+        self.fixed_edit_btn = QPushButton("编辑固定框")
+        self.fixed_edit_btn.setFixedHeight(24)
+        self.fixed_edit_btn.setStyleSheet("QPushButton { background-color: #ffc107; color: black; border: none; border-radius: 3px; }")
+        self.fixed_edit_btn.clicked.connect(self.toggle_fixed_bbox_mode)
+        row1.addWidget(self.fixed_edit_btn)
         self.fixed_bbox_btn = QPushButton("执行固定框")
         self.fixed_bbox_btn.setFixedHeight(24)
-        self.fixed_bbox_btn.setStyleSheet("QPushButton { background-color: #6c757d; color: white; border: none; border-radius: 3px; }")
+        self.fixed_bbox_btn.setStyleSheet("QPushButton { background-color: #28a745; color: white; border: none; border-radius: 3px; }")
         self.fixed_bbox_btn.clicked.connect(self.apply_fixed_bbox)
         row1.addWidget(self.fixed_bbox_btn)
         fixed_bbox_layout.addLayout(row1)
@@ -2291,6 +2296,26 @@ class UnifiedPanel(QMainWindow):
             self.viewer.enable_bbox_drawing(False)
             self.prompt_drawing_mode = False
             self.do_bidirectional_inject()
+    
+    def toggle_fixed_bbox_mode(self):
+        """切换固定框编辑模式"""
+        if not self.viewer:
+            QMessageBox.warning(self, "错误", "请先显示预览")
+            return
+        if self.prompt_drawing_mode:
+            QMessageBox.warning(self, "提示", "请先退出提示帧模式")
+            return
+        if not hasattr(self, 'fixed_bbox_mode') or not self.fixed_bbox_mode:
+            self.fixed_bbox_mode = True
+            self.fixed_bbox_frame_idx = self.viewer.get_current_frame()
+            self.fixed_edit_btn.setText("退出编辑")
+            self.viewer.enable_bbox_drawing(True)
+            self.viewer.clear_prompt_bboxes()
+            print(f"固定框编辑模式：在帧 {self.fixed_bbox_frame_idx + 1} 上绘制 Bbox")
+        else:
+            self.fixed_bbox_mode = False
+            self.fixed_edit_btn.setText("编辑固定框")
+            self.viewer.enable_bbox_drawing(False)
     
     def extract_video_clip_from_frames(self, frames_dir, start_idx, total_frames, output_path, fps=30):
         sample = cv2.imread(str(frames_dir / f"frame_{start_idx:06d}.jpg"))
@@ -3595,6 +3620,9 @@ class UnifiedPanel(QMainWindow):
             added += 1
         
         self.viewer.clear_prompt_bboxes()
+        self.viewer.enable_bbox_drawing(False)
+        self.fixed_bbox_mode = False
+        self.fixed_edit_btn.setText("编辑固定框")
         self.viewer.update_display()
         self.refresh_trace_id_list()
         QMessageBox.information(self, "完成", f"已添加固定框 (trace_id={trace_id}) 到 {added} 帧 ({start_frame}-{end_frame})")
