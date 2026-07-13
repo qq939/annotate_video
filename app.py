@@ -2958,20 +2958,22 @@ class UnifiedPanel(QMainWindow):
         self._update_category_list()
     
     def _update_category_list(self):
-        """根据Trace ID列表更新类别列表"""
-        # 从trace_id_list获取trace_id
+        """根据temp_data_mid中的trace_id更新类别列表"""
+        # 直接从temp_data_mid扫描所有trace_id
+        labels_dir = Path(TEMP_DATA_MID_DIR) / "labels"
         target_ids = []
-        if not hasattr(self, 'trace_id_list') or self.trace_id_list is None:
-            target_ids = [1000000]
-        else:
-            for i in range(self.trace_id_list.count()):
-                text = self.trace_id_list.item(i).text()
+        if labels_dir.exists():
+            for f in labels_dir.glob("*.json"):
                 try:
-                    # 解析 "ID: 1000000 (123帧)"
-                    tid = int(text.split(":")[1].split("(")[0].strip())
-                    target_ids.append(tid)
+                    with open(f) as fp:
+                        data = json.load(fp)
+                        for ann in data:
+                            tid = ann.get('track_id', 0)
+                            if tid >= 1000000 and tid not in target_ids:
+                                target_ids.append(tid)
                 except:
                     pass
+        target_ids = sorted(target_ids)
         if not target_ids:
             target_ids = [1000000]
         
