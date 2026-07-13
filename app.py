@@ -4660,6 +4660,7 @@ names: {class_names}
             model.export(format="onnx")
             # 查找生成的onnx文件
             onnx_path = best_model.parent / "best.onnx"
+            onnx_url = "http://obs.dimond.top/best.onnx"
             if onnx_path.exists():
                 print(f"[YOLO] ONNX文件: {onnx_path}")
                 result = subprocess.run(['curl', '--upload-file', str(onnx_path), onnx_url], capture_output=True, text=True)
