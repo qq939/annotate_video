@@ -1971,10 +1971,6 @@ class UnifiedPanel(QMainWindow):
         
         row1 = QHBoxLayout()
         row1.setSpacing(4)
-        row1.addWidget(QLabel("ID:"))
-        self.fixed_trace_id_label = QLabel("1000000")
-        self.fixed_trace_id_label.setFixedWidth(70)
-        row1.addWidget(self.fixed_trace_id_label)
         row1.addWidget(QLabel("起始:"))
         self.fixed_start_input = QLineEdit("0")
         self.fixed_start_input.setFixedWidth(50)
@@ -1985,20 +1981,12 @@ class UnifiedPanel(QMainWindow):
         self.fixed_end_input.setFixedWidth(50)
         self.fixed_end_input.setFixedHeight(22)
         row1.addWidget(self.fixed_end_input)
-        fixed_bbox_layout.addLayout(row1)
-        
-        row2 = QHBoxLayout()
-        row2.setSpacing(4)
         self.fixed_bbox_btn = QPushButton("执行固定框")
         self.fixed_bbox_btn.setFixedHeight(24)
         self.fixed_bbox_btn.setStyleSheet("QPushButton { background-color: #6c757d; color: white; border: none; border-radius: 3px; }")
         self.fixed_bbox_btn.clicked.connect(self.apply_fixed_bbox)
-        row2.addWidget(self.fixed_bbox_btn)
-        self.refresh_trace_btn = QPushButton("刷新ID")
-        self.refresh_trace_btn.setFixedSize(60, 24)
-        self.refresh_trace_btn.clicked.connect(self.refresh_trace_id_list)
-        row2.addWidget(self.refresh_trace_btn)
-        fixed_bbox_layout.addLayout(row2)
+        row1.addWidget(self.fixed_bbox_btn)
+        fixed_bbox_layout.addLayout(row1)
         
         layout.addLayout(fixed_bbox_layout)
 
@@ -3555,28 +3543,6 @@ class UnifiedPanel(QMainWindow):
         shutil.copytree(src, dst)
         QMessageBox.information(self, "完成", f"已从temp_data复制到temp_data_mid")
     
-    def _find_available_trace_id(self):
-        """查找temp_data_mid中未使用的trace_id"""
-        labels_dir = Path(TEMP_DATA_MID_DIR) / "labels"
-        if not labels_dir.exists():
-            return 1000000
-        used_ids = set()
-        for f in labels_dir.glob("*.json"):
-            try:
-                with open(f) as fp:
-                    data = json.load(fp)
-                    for ann in data:
-                        tid = ann.get('track_id', 0)
-                        if tid >= 1000000:
-                            used_ids.add(tid)
-            except:
-                pass
-        # 从1000000开始找第一个未使用的
-        for i in range(1000000, 2000000):
-            if i not in used_ids:
-                return i
-        return 1000000 + len(used_ids)
-    
     def apply_fixed_bbox(self):
         """在指定帧范围添加固定框"""
         if not self.viewer:
@@ -3587,8 +3553,7 @@ class UnifiedPanel(QMainWindow):
             QMessageBox.warning(self, "错误", "请先在预览中画框")
             return
         bbox = prompt_bboxes[0]  # 使用第一个框
-        trace_id = self._find_available_trace_id()
-        self.fixed_trace_id_label.setText(str(trace_id))
+        trace_id = int(self.trace_id_input.text())
         
         # 获取起始帧和终止帧
         try:
