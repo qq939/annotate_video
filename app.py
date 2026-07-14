@@ -1034,28 +1034,69 @@ class TrimDialog(QDialog):
             self.toggle_play()
     
     def add_video_to_trim(self):
-        """添加视频到当前视频后面"""
+        """添加视频到当前视频后面（合并成临时视频）"""
         file_paths, _ = QFileDialog.getOpenFileNames(self, "选择视频(支持多选)", "", "视频文件 (*.mp4 *.avi *.mov *.mkv)")
         if not file_paths:
             return
         
-        # 添加新视频
+        # 先合并成临时视频
+        print(f"[Trim] 正在合并 {len(file_paths)} 个视频...")
+        all_frames = []
+        all_fps = None
+        
         for vp in file_paths:
             cap = cv2.VideoCapture(vp)
-            if cap.isOpened():
-                frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                self.video_caps.append(cap)
-                self.video_frame_counts.append(frame_count)
-                self.video_paths.append(vp)
-                self.video_frame_starts.append(self.video_frame_starts[-1] + frame_count)
-            else:
+            if not cap.isOpened():
+                continue
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            if all_fps is None:
+                all_fps = fps
+            
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                all_frames.append(frame.copy())
+            cap.release()
+        
+        if not all_frames:
+            print("[Trim] 无法读取视频帧")
+            return
+        
+        # 保存临时视频
+        import tempfile
+        temp_video = tempfile.NamedTemporaryFile(suffix='.mp4', delete=False)
+        temp_video.close()
+        temp_path = temp_video.name
+        
+        height, width = all_frames[0].shape[:2]
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(temp_path, fourcc, all_fps, (width, height))
+        for frame in all_frames:
+            out.write(frame)
+        out.release()
+        
+        # 替换为单个合并后的视频
+        for cap in self.video_caps:
+            if cap:
                 cap.release()
+        
+        self.video_paths = [temp_path]
+        self.video_caps = []
+        self.video_frame_counts = []
+        self.video_frame_starts = [0]
+        
+        cap = cv2.VideoCapture(temp_path)
+        if cap.isOpened():
+            frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            self.video_caps.append(cap)
+            self.video_frame_counts.append(frame_count)
+            self.video_frame_starts.append(frame_count)
         
         self.total = self.video_frame_starts[-1]
         self.slider.setMaximum(self.total - 1)
-        # 跳到最后一帧
-        self.show_frame(self.total - 1)
-        print(f"[Trim] 添加了 {len(file_paths)} 个视频，当前总帧数: {self.total}")
+        self.show_frame(0)
+        print(f"[Trim] 视频合并完成: {temp_path}, 总帧数: {self.total}")
     
     def backward(self):
         idx = self.slider.value()
