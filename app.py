@@ -4814,8 +4814,9 @@ names: {class_names}
         
         # 获取所有图片文件
         img_files = []
-        for ext in ['*.jpg', '*.jpeg', '*.png', '*.jpg']:
+        for ext in ['*.jpg', '*.jpeg', '*.png']:
             img_files.extend(labelme_dir.glob(ext))
+        img_files = list(set(img_files))  # 去重
         random.shuffle(img_files)
         
         if not img_files:
