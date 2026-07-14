@@ -4852,8 +4852,10 @@ names: {class_names}
         else:
             # 全新训练，生成新的train-N文件夹
             existing = list(yolo_runs_dir.glob("train-*"))
+            print(f"[YOLO] 现有训练文件夹: {[p.name for p in existing]}")
             next_num = max([int(p.name.replace("train-", "")) for p in existing if p.name.replace("train-", "").isdigit()], default=0) + 1
             train_dir = yolo_runs_dir / f"train-{next_num}"
+            print(f"[YOLO] 新训练文件夹: {train_dir.name}")
             epochs = int(self.train_epochs_input.text()) if self.train_epochs_input.text() else 30
             model = YOLO("yolo11m.pt")
             model.train(
