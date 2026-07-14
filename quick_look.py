@@ -11,7 +11,7 @@ CLASS_NAMES = ['压紧', '检测接头', '产品', '产品1']
 
 def export_model():
     # 模型路径
-    pt_path = Path("runs/detect/yolo_runs/train-1/weights/best.pt")
+    pt_path = Path("runs/detect/yolo_runs/train-1-2/weights/best.pt")
     if not pt_path.exists():
         print(f"[错误] 模型文件不存在: {pt_path}")
         return
