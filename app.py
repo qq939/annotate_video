@@ -5037,7 +5037,7 @@ names: {class_names}
             best_onnx = train_dir / "weights" / "best.onnx"
             
             if last_pt.exists():
-                # 有last.pt，加载它从头训练（生成新的train-N）
+                # 有last.pt，用resume=True继续训练
                 model = YOLO(str(last_pt))
                 model.train(
                     data=yaml_path.as_posix(),
@@ -5048,7 +5048,7 @@ names: {class_names}
                     workers=0,
                     project=yolo_project.as_posix(),
                     name=train_dir.name,
-                    resume=False  # 不用resume，因为last.pt缺少epoch/optimizer状态
+                    resume=True
                 )
             elif best_onnx.exists():
                 # 只有onnx，从onnx加载训练
