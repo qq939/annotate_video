@@ -4660,10 +4660,10 @@ names: {class_names}
                             # 复制json
                             json_file = src.with_suffix('.json')
                             if json_file.exists():
-                                with open(json_file) as f:
+                                with open(json_file, 'r', encoding='utf-8') as f:
                                     data = json.load(f)
                                 new_json = new_img.with_suffix('.json')
-                                with open(new_json, 'w') as f:
+                                with open(new_json, 'w', encoding='utf-8') as f:
                                     json.dump(data, f)
         
         # 对第二少的类别增广到最多
@@ -4687,10 +4687,10 @@ names: {class_names}
                             img_files.append(new_img)
                             json_file = src.with_suffix('.json')
                             if json_file.exists():
-                                with open(json_file) as f:
+                                with open(json_file, 'r', encoding='utf-8') as f:
                                     data = json.load(f)
                                 new_json = new_img.with_suffix('.json')
-                                with open(new_json, 'w') as f:
+                                with open(new_json, 'w', encoding='utf-8') as f:
                                     json.dump(data, f)
         
         random.shuffle(img_files)
