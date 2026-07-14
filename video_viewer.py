@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 import json
 
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QRadioButton)
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QRadioButton, QPushButton, QFileDialog)
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QImage, QPixmap, QPainter, QPen, QColor
 from PyQt5.QtCore import pyqtSignal
@@ -163,6 +163,10 @@ class VideoViewer(QMainWindow):
         mode_layout.addWidget(self.single_frame_radio)
         mode_layout.addWidget(self.multi_frame_radio)
         mode_layout.addStretch()
+        # 添加视频按钮
+        add_btn = QPushButton("+添加视频")
+        add_btn.clicked.connect(self.add_video_frames)
+        mode_layout.addWidget(add_btn)
         layout.addLayout(mode_layout)
 
         self.image_label = VideoLabel()

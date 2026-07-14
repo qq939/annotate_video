@@ -1039,18 +1039,27 @@ class TrimDialog(QDialog):
         if not file_paths:
             return
         
-        # 先合并成临时视频
-        print(f"[Trim] 正在合并 {len(file_paths)} 个视频...")
+        # 先读取现有视频的所有帧
+        print(f"[Trim] 正在读取现有视频...")
         all_frames = []
-        all_fps = None
+        all_fps = self.fps
         
+        for i, cap in enumerate(self.video_caps):
+            if cap is None:
+                continue
+            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                all_frames.append(frame.copy())
+        
+        # 读取新视频的所有帧
+        print(f"[Trim] 正在合并 {len(file_paths)} 个新视频...")
         for vp in file_paths:
             cap = cv2.VideoCapture(vp)
             if not cap.isOpened():
                 continue
-            fps = cap.get(cv2.CAP_PROP_FPS)
-            if all_fps is None:
-                all_fps = fps
             
             while True:
                 ret, frame = cap.read()
