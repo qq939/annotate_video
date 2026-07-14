@@ -976,6 +976,44 @@ class TrimDialog(QDialog):
         self.show_frame(0)
         # 初始显示一帧以确定label尺寸
         QTimer.singleShot(100, lambda: self.show_frame(0))
+        
+        # 自动保存到临时视频
+        QTimer.singleShot(200, self._save_temp_video)
+    
+    def _save_temp_video(self):
+        """保存所有视频帧到temp/temp.mp4"""
+        if hasattr(self, 'temp_video_path') and Path(self.temp_video_path).exists():
+            return  # 已存在则跳过
+        
+        all_frames = []
+        all_fps = self.fps
+        
+        for cap in self.video_caps:
+            if cap is None:
+                continue
+            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                all_frames.append(frame.copy())
+        
+        if not all_frames:
+            return
+        
+        temp_dir = Path("temp")
+        temp_dir.mkdir(exist_ok=True)
+        temp_path = str(temp_dir / "temp.mp4")
+        
+        height, width = all_frames[0].shape[:2]
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(temp_path, fourcc, all_fps, (width, height))
+        for frame in all_frames:
+            out.write(frame)
+        out.release()
+        
+        self.temp_video_path = temp_path
+        print(f"[Trim] 临时视频已保存: {temp_path}, 总帧数: {len(all_frames)}")
     
     def show_frame(self, idx):
         # 根据帧号找到对应的视频
@@ -1177,22 +1215,22 @@ class TrimDialog(QDialog):
         output_files = []
         timestamp = time.strftime("%Y%m%d%H%M%S")
         
-        # 使用临时视频路径生成clip
+        # 使用临时视频
         temp_video_path = str(Path("temp") / "temp.mp4")
         if not Path(temp_video_path).exists():
-            QMessageBox.warning(self, "错误", "临时视频不存在")
+            QMessageBox.warning(self, "错误", "临时视频不存在，请重新加载视频")
             return
         
         base_name = ""
         if self.parent_panel and hasattr(self.parent_panel, 'last_video_name'):
             base_name = self.parent_panel.last_video_name
         if not base_name:
-            base_name = "clip"
+            base_name = Path(self.video_path).stem
         
         for idx, (s, e) in enumerate(keep_ranges):
             clip_name = f"{base_name}_clip{idx + 1}_{timestamp}.mp4"
             # 保存到原视频同一个文件夹
-            out_path = Path(temp_video_path).parent / clip_name
+            out_path = Path(self.video_path).parent / clip_name
             
             cap_in = cv2.VideoCapture(temp_video_path)
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
@@ -4869,8 +4907,6 @@ names: {class_names}
                 A.VerticalFlip(p=0.2),
                 A.Rotate(limit=10, p=0.3),
                 A.ShiftScaleRotate(shift_limit=0.05, scale_limit=0.1, rotate_limit=5, p=0.3),
-                A.ElasticTransform(alpha=1, sigma=50, p=0.2),
-                A.GridDistortion(p=0.2),
                 A.RandomBrightnessContrast(brightness_limit=0.1, contrast_limit=0.1, p=0.3),
                 A.HueSaturationValue(hue_shift_limit=10, sat_shift_limit=20, val_shift_limit=10, p=0.3),
             ], bbox_params=A.BboxParams(format='pascal_voc', label_fields=['class_labels']))
