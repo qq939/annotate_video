@@ -5100,8 +5100,7 @@ names: {class_names}
                     workers=0,
                     project=yolo_project.as_posix(),
                     name=train_dir.name,
-                    resume=False,
-                    save_period=5
+                    resume=False
                 )
             elif best_onnx.exists():
                 # 只有onnx，从onnx加载
@@ -5115,8 +5114,7 @@ names: {class_names}
                     device=0,
                     workers=0,
                     project=yolo_project.as_posix(),
-                    name=train_dir.name,
-                    save_period=5
+                    name=train_dir.name
                 )
             else:
                 print("[YOLO] 未找到last.pt或best.onnx")
@@ -5134,8 +5132,7 @@ names: {class_names}
                 project=yolo_project.as_posix(),
                 name=train_dir.name,
                 patience=10,
-                cache="ram",
-                save_period=5  # 每5轮保存完整断点，可用于resume
+                cache="ram"
             )
         
         # 导出ONNX
