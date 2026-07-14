@@ -4818,21 +4818,12 @@ names: {class_names}
                     resume=True
                 )
             elif best_onnx.exists():
-                # 只有onnx，从onnx加载继续训练
-                print("[YOLO] 只有best.onnx，从ONNX加载...")
-                model = YOLO(str(best_onnx))
-                model.train(
-                    data=yaml_path.as_posix(),
-                    epochs=epochs,
-                    imgsz=640,
-                    batch=8,
-                    device=0,
-                    workers=0,
-                    project=yolo_project.as_posix(),
-                    name=train_dir.name
-                )
+                # 只有onnx，不支持继续训练，提示用户
+                print("[YOLO] 只有best.onnx，ultralytics不支持从ONNX继续训练")
+                print("[YOLO] 请使用.pt文件继续训练，或取消勾选继续训练从零开始")
+                return
             else:
-                print("[YOLO] 未找到last.pt或best.onnx，无法继续训练")
+                print("[YOLO] 未找到last.pt，无法继续训练")
                 return
         else:
             # 全新训练，生成新的train-N文件夹
