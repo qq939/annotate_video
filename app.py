@@ -727,7 +727,7 @@ class TrimMidDialog(QDialog):
         label_file = self.labels_dir / f"frame_{idx:06d}.json"
         if label_file.exists():
             import json
-            with open(label_file) as f:
+            with open(label_file, encoding='utf-8') as f:
                 annotations = json.load(f)
             overlay = frame.copy()
             for ann in annotations:
@@ -1921,7 +1921,7 @@ class UnifiedPanel(QMainWindow):
                         pass
 
             with open(temp_data_path / 'annotations.json', 'w', encoding='utf-8') as f:
-                json.dump(coco_data, f)
+                json.dump(coco_data, f, ensure_ascii=False)
 
             out.release()
             print(f"✓ 标注视频已保存到: {output_path}")
@@ -2591,7 +2591,7 @@ class UnifiedPanel(QMainWindow):
 
             occupied_bands = set()
             if src_annotations_file.exists():
-                with open(src_annotations_file) as f:
+                with open(src_annotations_file, encoding='utf-8') as f:
                     coco = json.load(f)
                 for ann in coco.get('annotations', []):
                     tid = ann.get('track_id', 0)
@@ -2804,12 +2804,12 @@ class UnifiedPanel(QMainWindow):
                     label_file = src_labels_dir / f"frame_{orig_frame_idx:06d}.json"
                     existing_anns = []
                     if label_file.exists():
-                        with open(label_file) as f:
+                        with open(label_file, encoding='utf-8') as f:
                             existing_anns = json.load(f)
                         print(f"[DEBUG {direction}] [帧{total_results}] 已存在标注{len(existing_anns)}条，追加新标注")
                     merged_anns = existing_anns + frame_anns
                     with open(label_file, 'w') as f:
-                        json.dump(merged_anns, f)
+                        json.dump(merged_anns, f, ensure_ascii=False)
                     print(f"[DEBUG {direction}] [帧{total_results}] 保存label文件: frame_{orig_frame_idx:06d}.json, 保留{len(existing_anns)}+新增{len(frame_anns)}=合计{len(merged_anns)}")
                     frame_idx += 1
 
@@ -2847,11 +2847,11 @@ class UnifiedPanel(QMainWindow):
                 # 保存到label文件
                 existing = []
                 if prompt_frame_file.exists():
-                    with open(prompt_frame_file) as f:
+                    with open(prompt_frame_file, encoding='utf-8') as f:
                         existing = json.load(f)
                 merged = existing + prompt_anns
                 with open(prompt_frame_file, 'w') as f:
-                    json.dump(merged, f)
+                    json.dump(merged, f, ensure_ascii=False)
                 prompt_frame_anns = prompt_anns
                 print(f"[提示帧] 已保存 {len(prompt_anns)} 个标注到 frame_{prompt_idx:06d}.json")
             
@@ -2873,7 +2873,7 @@ class UnifiedPanel(QMainWindow):
                 return
 
             if src_annotations_file.exists():
-                with open(src_annotations_file) as f:
+                with open(src_annotations_file, encoding='utf-8') as f:
                     coco = json.load(f)
                 print(f"[DEBUG 汇总] 现有coco: 已有annotations={len(coco.get('annotations', []))}")
             else:
@@ -2928,7 +2928,7 @@ class UnifiedPanel(QMainWindow):
             print(f"[DEBUG 汇总] 追加 {new_anns_count} 条标注, 最终track_id范围: {FIRST_ID}~{max_track_id}")
 
             with open(src_annotations_file, 'w') as f:
-                json.dump(coco, f)
+                json.dump(coco, f, ensure_ascii=False)
             print(f"[DEBUG 汇总] ✓ annotations.json 已写入")
 
             # 更新labels目录下的帧标注文件
@@ -2965,8 +2965,8 @@ class UnifiedPanel(QMainWindow):
                 
                 if not skip:
                     frame_anns.append(ann)
-                    with open(label_file, 'w') as f:
-                        json.dump(frame_anns, f)
+                    with open(label_file, 'w', encoding='utf-8') as f:
+                        json.dump(frame_anns, f, ensure_ascii=False)
             print(f"[DEBUG 汇总] ✓ labels目录已更新")
 
             shutil.rmtree(Path("temp_inject"), ignore_errors=True)
@@ -3043,8 +3043,8 @@ class UnifiedPanel(QMainWindow):
             if not frame_file.exists():
                 continue
             try:
-                with open(frame_file) as f:
-                    anns = json.load(f)
+                with open(frame_file, encoding='utf-8') as f:
+                        anns = json.load(f)
                 if old_tid == -1:
                     # 新增的bbox，删除它
                     new_anns = []
@@ -3124,8 +3124,8 @@ class UnifiedPanel(QMainWindow):
         for i in range(self.trace_id_list.count()):
             text = self.trace_id_list.item(i).text()
             mappings.append(text)
-        with open(mappings_file, 'w') as f:
-            json.dump(mappings, f)
+        with open(mappings_file, 'w', encoding='utf-8') as f:
+            json.dump(mapping, f)
         print(f"已保存 trace_id_mappings 到 {mappings_file}")
         self._update_category_list()
 
@@ -3137,7 +3137,7 @@ class UnifiedPanel(QMainWindow):
             tid_frames = {}
             for f in labels_dir.glob("*.json"):
                 try:
-                    with open(f) as fp:
+                    with open(f, encoding='utf-8') as fp:
                         data = json.load(fp)
                         for ann in data:
                             tid = ann.get('track_id', 0)
@@ -3251,8 +3251,8 @@ class UnifiedPanel(QMainWindow):
                     ann['trace_id_list'] = [to_id]
                     changed = True
             if changed:
-                with open(label_file, 'w') as f:
-                    json.dump(frame_anns, f)
+                with open(label_file, 'w', encoding='utf-8') as f:
+                    json.dump(existing_anns, f)
                 count += 1
         if annotations_file.exists():
             with open(annotations_file) as f:
@@ -3262,7 +3262,7 @@ class UnifiedPanel(QMainWindow):
                     ann['track_id'] = to_id
                     ann['trace_id_list'] = [to_id]
             with open(annotations_file, 'w') as f:
-                json.dump(coco, f)
+                json.dump(coco, f, ensure_ascii=False)
         print(f"恢复映射: {from_id} → {to_id}, 影响 {count} 帧")
 
     def _apply_trace_id_mappings_to_mid(self):
@@ -3305,8 +3305,8 @@ class UnifiedPanel(QMainWindow):
                             ann['trace_id_list'] = trace_list
                         changed = True
             if changed:
-                with open(label_file, 'w') as f:
-                    json.dump(frame_anns, f)
+                with open(label_file, 'w', encoding='utf-8') as f:
+                    json.dump(existing_anns, f)
                 converted_count += 1
 
         if annotations_file.exists():
@@ -3324,7 +3324,7 @@ class UnifiedPanel(QMainWindow):
                         changed = True
             if changed:
                 with open(annotations_file, 'w') as f:
-                    json.dump(coco, f)
+                    json.dump(coco, f, ensure_ascii=False)
 
         with open(history_file, 'w') as f:
             json.dump(history_records, f)
@@ -3397,8 +3397,8 @@ class UnifiedPanel(QMainWindow):
             print("没有可撤回的映射记录")
             return
 
-        with open(history_file) as f:
-            history_records = json.load(f)
+        with open(history_file, encoding='utf-8') as f:
+                    history_records = json.load(f)
 
         if not history_records:
             print("没有可撤回的映射记录")
@@ -3420,8 +3420,8 @@ class UnifiedPanel(QMainWindow):
                     ann['trace_id_list'] = [history_records[-1]['old_id']]
                     changed = True
             if changed:
-                with open(label_file, 'w') as f:
-                    json.dump(frame_anns, f)
+                with open(label_file, 'w', encoding='utf-8') as f:
+                    json.dump(existing_anns, f)
                 converted_count += 1
 
         if annotations_file.exists():
@@ -3440,7 +3440,7 @@ class UnifiedPanel(QMainWindow):
                     changed = True
             if changed:
                 with open(annotations_file, 'w') as f:
-                    json.dump(coco, f)
+                    json.dump(coco, f, ensure_ascii=False)
 
         history_file.unlink()
         self.trace_id_list.clear()
@@ -3703,8 +3703,8 @@ class UnifiedPanel(QMainWindow):
         all_images = []
 
         for json_file in json_files:
-            with open(json_file) as f:
-                data = json.load(f)
+            with open(json_file, encoding='utf-8') as f:
+                        data = json.load(f)
 
             # 获取图片文件名
             image_name = data.get('imagePath', '')
@@ -3791,7 +3791,7 @@ class UnifiedPanel(QMainWindow):
 
             # 保存帧标注
             with open(labels_dir / f"frame_{frame_idx:06d}.json", 'w', encoding='utf-8') as f:
-                json.dump(frame_anns, f)
+                json.dump(frame_anns, f, ensure_ascii=False)
 
         # 保存annotations.json
         coco_data = {
@@ -3801,7 +3801,7 @@ class UnifiedPanel(QMainWindow):
             'categories': [{'id': 0, 'name': 'Detect'}]
         }
         with open(temp_data / "annotations.json", 'w', encoding='utf-8') as f:
-            json.dump(coco_data, f)
+            json.dump(coco_data, f, ensure_ascii=False)
 
         print(f"[labelme import] 完成: {len(all_images)} 帧, {len(all_annotations)} 标注")
         self.path_input.setText("temp_data")
@@ -3932,7 +3932,7 @@ class UnifiedPanel(QMainWindow):
             print(f"[固定框] 正在标注帧 {i}")
             old_trace_id = None
             if frame_file.exists():
-                with open(frame_file) as fp:
+                with open(frame_file, encoding='utf-8') as fp:
                     anns = json.load(fp)
                 # 检查是否已有相同的bbox
                 for ann in anns:
@@ -4007,8 +4007,8 @@ class UnifiedPanel(QMainWindow):
             QMessageBox.warning(self, "错误", "temp_data_mid/annotations.json 不存在")
             return
 
-        with open(annotations_file) as f:
-            coco_data = json.load(f)
+        with open(annotations_file, encoding='utf-8') as f:
+                coco_data = json.load(f)
 
         video_info = coco_data.get('info', {})
         total_frames = len(coco_data.get('images', []))
@@ -4057,8 +4057,8 @@ class UnifiedPanel(QMainWindow):
             label_path = labels_dir / f"frame_{i:06d}.json"
             output_label_path = output_labels_dir / f"frame_{i:06d}.json"
             if label_path.exists():
-                with open(label_path) as f:
-                    annotations = json.load(f)
+                with open(label_path, encoding='utf-8') as f:
+                        annotations = json.load(f)
 
                 filtered = self.ctrl.filter_annotations(annotations)
                 track_id_filtered = [ann for ann in filtered if ann.get('track_id', 0) > 999998]
@@ -4080,15 +4080,15 @@ class UnifiedPanel(QMainWindow):
                     frame_anns.append(ann_copy)
 
                 with open(output_label_path, 'w') as f:
-                    json.dump(frame_anns, f)
+                    json.dump(frame_anns, f, ensure_ascii=False)
 
         all_annotations = []
         all_seen_ids = set()  # 用于全局去重: (image_id, track_id)
         for i in range(export_frames):
             label_path = labels_dir / f"frame_{i:06d}.json"
             if label_path.exists():
-                with open(label_path) as f:
-                    annotations = json.load(f)
+                with open(label_path, encoding='utf-8') as f:
+                        annotations = json.load(f)
                 filtered = self.ctrl.filter_annotations(annotations)
                 for ann in filtered:
                     tid = ann.get('track_id', 0)
@@ -4335,8 +4335,8 @@ class UnifiedPanel(QMainWindow):
             label_path = labels_dir / f"frame_{i:06d}.json"
             annotations = []
             if label_path.exists():
-                with open(label_path) as f:
-                    annotations = json.load(f)
+                with open(label_path, encoding='utf-8') as f:
+                        annotations = json.load(f)
 
                 result_frame = frame.copy()
                 overlay = frame.copy()
