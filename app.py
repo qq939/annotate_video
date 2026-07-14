@@ -4863,9 +4863,14 @@ names: {class_names}
         try:
             import albumentations as A
             transform = A.Compose([
-                A.HorizontalFlip(p=0.5),
-                A.RandomBrightnessContrast(p=0.3),
-                A.HueSaturationValue(p=0.3),
+                A.HorizontalFlip(p=0.3),
+                A.VerticalFlip(p=0.2),
+                A.Rotate(limit=10, p=0.3),
+                A.ShiftScaleRotate(shift_limit=0.05, scale_limit=0.1, rotate_limit=5, p=0.3),
+                A.ElasticTransform(alpha=1, sigma=50, p=0.2),
+                A.GridDistortion(p=0.2),
+                A.RandomBrightnessContrast(brightness_limit=0.1, contrast_limit=0.1, p=0.3),
+                A.HueSaturationValue(hue_shift_limit=10, sat_shift_limit=20, val_shift_limit=10, p=0.3),
             ], bbox_params=A.BboxParams(format='pascal_voc', label_fields=['class_labels']))
             has_albumentations = True
         except ImportError:
