@@ -2281,11 +2281,6 @@ class UnifiedPanel(QMainWindow):
         self.train_id_input.setFixedWidth(100)
         self.train_id_input.setFixedHeight(22)
         train_params_layout.addWidget(self.train_id_input)
-        train_params_layout.addWidget(QLabel("名称:"))
-        self.train_name_input = QLineEdit(self.default_model_name)
-        self.train_name_input.setFixedWidth(80)
-        self.train_name_input.setFixedHeight(22)
-        train_params_layout.addWidget(self.train_name_input)
         train_params_layout.addWidget(QLabel("描述:"))
         self.train_desc_input = QLineEdit(self.default_model_desc)
         self.train_desc_input.setFixedWidth(100)
@@ -5177,7 +5172,6 @@ names: {class_names}
                 with open(prev_model_json) as f:
                     prev_info = json.load(f)
                 self.train_id_input.setText(prev_info.get('id', ''))
-                self.train_name_input.setText(prev_info.get('displayname', ''))
                 self.train_desc_input.setText(prev_info.get('description', ''))
                 print(f"[YOLO] 从上次的model.json读取: id={prev_info.get('id')}")
             except:
@@ -5268,11 +5262,10 @@ names: {class_names}
             
             # 创建model.json
             train_id = self.train_id_input.text() or self.default_model_id
-            train_name = self.train_name_input.text() or self.default_model_name
             train_desc = self.train_desc_input.text() or self.default_model_desc
             model_json = {
                 "id": train_id,
-                "displayname": train_name,
+                "displayname": train_id,  # displayname同id
                 "description": train_desc,
                 "model_path": f"{train_id}_train/best.onnx",
                 "classes": class_names,
