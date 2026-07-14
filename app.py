@@ -4756,7 +4756,13 @@ names: {class_names}
         
         # 如果继续训练，查找最新的train文件夹（按数字排序）
         if resume:
+            # 先查找train-*格式
             train_dirs = sorted(yolo_runs_dir.glob("train-*"), key=lambda p: int(p.name.replace("train-", "") or "0"))
+            # 如果没有train-*，查找train格式
+            if not train_dirs:
+                train_single = yolo_runs_dir / "train"
+                if train_single.exists():
+                    train_dirs = [train_single]
             if train_dirs:
                 train_dir = train_dirs[-1]
                 print(f"[YOLO] 继续训练，使用: {train_dir.name}")
@@ -4767,6 +4773,10 @@ names: {class_names}
             # 清理旧的train文件夹
             for td in yolo_runs_dir.glob("train-*"):
                 shutil.rmtree(td)
+            # 也清理train文件夹
+            train_single = yolo_runs_dir / "train"
+            if train_single.exists():
+                shutil.rmtree(train_single)
             train_dir = yolo_runs_dir / "train-1"
         
         # 如果继续训练，从已有model.json读取ID、名称、描述
