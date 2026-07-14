@@ -4701,8 +4701,23 @@ names: {class_names}
         
         random.shuffle(img_files)
         
-        # 输出最终增广后的图片数量
+        # 输出最终增广后的图片数量和分类别统计
         print(f"[YOLO] 增广后总图片数: {len(img_files)}")
+        # 分类别统计
+        final_counts = {c: 0 for c in class_names}
+        for img_file in img_files:
+            json_file = img_file.with_suffix('.json')
+            if json_file.exists():
+                try:
+                    with open(json_file, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    labels = set(shape.get('label') for shape in data.get('shapes', []))
+                    for label in labels:
+                        if label in final_counts:
+                            final_counts[label] += 1
+                except:
+                    pass
+        print(f"[YOLO] 分类别帧数: {final_counts}")
         
         # 划分训练集和验证集 (8:2)
         split_idx = int(len(img_files) * 0.8)
