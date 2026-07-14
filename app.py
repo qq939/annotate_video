@@ -1191,8 +1191,8 @@ class TrimDialog(QDialog):
         
         for idx, (s, e) in enumerate(keep_ranges):
             clip_name = f"{base_name}_clip{idx + 1}_{timestamp}.mp4"
-            out_path = Path("1dst") / clip_name
-            out_path.parent.mkdir(exist_ok=True)
+            # 保存到原视频同一个文件夹
+            out_path = Path(temp_video_path).parent / clip_name
             
             cap_in = cv2.VideoCapture(temp_video_path)
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
