@@ -4726,7 +4726,7 @@ class UnifiedPanel(QMainWindow):
         import zipfile
         labelme_dir = Path("label_x_label_me")
         if labelme_dir.exists():
-            zip_filename = f"{video_name}_labelme_{timestamp}.zip"
+            zip_filename = f"{train_id}_dataset.zip"
             zip_path = Path("1dst") / zip_filename
             print(f"[ZIP] 正在压缩label_x_label_me...")
             with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
