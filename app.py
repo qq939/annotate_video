@@ -4902,7 +4902,12 @@ names: {class_names}
             if has_albumentations and bboxes:
                 transformed = transform(image=img, bboxes=bboxes, class_labels=labels)
                 cv2.imwrite(str(new_img_path), transformed['image'])
-                new_data = {'shapes': [], 'imageWidth': w, 'imageHeight': h}
+                new_data = {
+                    'shapes': [],
+                    'imagePath': new_img_path.name,
+                    'imageWidth': w,
+                    'imageHeight': h
+                }
                 for bbox, label in zip(transformed['bboxes'], transformed['class_labels']):
                     x_min, y_min, x_max, y_max = bbox
                     new_data['shapes'].append({
@@ -4915,7 +4920,12 @@ names: {class_names}
                 # 简单翻转
                 flipped = cv2.flip(img, 1)
                 cv2.imwrite(str(new_img_path), flipped)
-                new_data = {'shapes': [], 'imageWidth': w, 'imageHeight': h}
+                new_data = {
+                    'shapes': [],
+                    'imagePath': new_img_path.name,
+                    'imageWidth': w,
+                    'imageHeight': h
+                }
                 for bbox, label in zip(bboxes, labels):
                     x_min, y_min, x_max, y_max = bbox
                     new_x_min = w - x_max
