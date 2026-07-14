@@ -4873,7 +4873,7 @@ names: {class_names}
             has_albumentations = False
         
         def augment_with_bbox(img_path, json_path, aug_idx, target_dir):
-            """使用albumentations增广，返回新的json数据"""
+            """使用albumentations增广，返回新的json数据（使用标准labelme格式）"""
             import cv2
             img = cv2.imread(str(img_path))
             if img is None:
@@ -4885,6 +4885,7 @@ names: {class_names}
             h, w = img.shape[:2]
             bboxes = []
             labels = []
+            original_shapes = []
             
             for shape in data.get('shapes', []):
                 points = shape.get('points', [])
@@ -4895,6 +4896,7 @@ names: {class_names}
                     x_max, y_max = max(x_coords), max(y_coords)
                     bboxes.append([x_min, y_min, x_max, y_max])
                     labels.append(shape.get('label', ''))
+                    original_shapes.append(shape)
             
             new_name = f"{Path(img_path).stem}_aug{aug_idx}{Path(img_path).suffix}"
             new_img_path = target_dir / new_name
@@ -4902,40 +4904,68 @@ names: {class_names}
             if has_albumentations and bboxes:
                 transformed = transform(image=img, bboxes=bboxes, class_labels=labels)
                 cv2.imwrite(str(new_img_path), transformed['image'])
-                new_data = {
-                    'shapes': [],
-                    'imagePath': new_img_path.name,
-                    'imageWidth': w,
-                    'imageHeight': h
-                }
-                for bbox, label in zip(transformed['bboxes'], transformed['class_labels']):
+                
+                new_shapes = []
+                for bbox, label, orig_shape in zip(transformed['bboxes'], transformed['class_labels'], original_shapes):
                     x_min, y_min, x_max, y_max = bbox
-                    new_data['shapes'].append({
-                        'label': label,
-                        'shape_type': 'rectangle',
-                        'points': [[x_min, y_min], [x_max, y_min], [x_max, y_max], [x_min, y_max]],
-                        'bbox': [x_min, y_min, x_max - x_min, y_max - y_min]
+                    new_shapes.append({
+                        "label": label,
+                        "score": orig_shape.get('score'),
+                        "points": [[x_min, y_min], [x_max, y_min], [x_max, y_max], [x_min, y_max]],
+                        "group_id": orig_shape.get('group_id'),
+                        "description": orig_shape.get('description', ''),
+                        "difficult": orig_shape.get('difficult', False),
+                        "shape_type": "rectangle",
+                        "flags": orig_shape.get('flags', {}),
+                        "attributes": orig_shape.get('attributes', {}),
+                        "kie_linking": orig_shape.get('kie_linking', [])
                     })
+                
+                new_data = {
+                    "version": "4.0.0-beta.5",
+                    "flags": {},
+                    "checked": False,
+                    "shapes": new_shapes,
+                    "imagePath": new_name,
+                    "imageData": None,
+                    "imageHeight": h,
+                    "imageWidth": w,
+                    "description": ""
+                }
             else:
                 # 简单翻转
                 flipped = cv2.flip(img, 1)
                 cv2.imwrite(str(new_img_path), flipped)
-                new_data = {
-                    'shapes': [],
-                    'imagePath': new_img_path.name,
-                    'imageWidth': w,
-                    'imageHeight': h
-                }
-                for bbox, label in zip(bboxes, labels):
+                
+                new_shapes = []
+                for bbox, label, orig_shape in zip(bboxes, labels, original_shapes):
                     x_min, y_min, x_max, y_max = bbox
                     new_x_min = w - x_max
                     new_x_max = w - x_min
-                    new_data['shapes'].append({
-                        'label': label,
-                        'shape_type': 'rectangle',
-                        'points': [[new_x_min, y_min], [new_x_max, y_min], [new_x_max, y_max], [new_x_min, y_max]],
-                        'bbox': [new_x_min, y_min, x_max - x_min, y_max - y_min]
+                    new_shapes.append({
+                        "label": label,
+                        "score": orig_shape.get('score'),
+                        "points": [[new_x_min, y_min], [new_x_max, y_min], [new_x_max, y_max], [new_x_min, y_max]],
+                        "group_id": orig_shape.get('group_id'),
+                        "description": orig_shape.get('description', ''),
+                        "difficult": orig_shape.get('difficult', False),
+                        "shape_type": "rectangle",
+                        "flags": orig_shape.get('flags', {}),
+                        "attributes": orig_shape.get('attributes', {}),
+                        "kie_linking": orig_shape.get('kie_linking', [])
                     })
+                
+                new_data = {
+                    "version": "4.0.0-beta.5",
+                    "flags": {},
+                    "checked": False,
+                    "shapes": new_shapes,
+                    "imagePath": new_name,
+                    "imageData": None,
+                    "imageHeight": h,
+                    "imageWidth": w,
+                    "description": ""
+                }
             
             return new_data, new_img_path
         

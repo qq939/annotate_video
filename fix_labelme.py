@@ -21,20 +21,58 @@ def fix_labelme_shapes():
             
             modified = False
             
+            # 补充顶层缺失字段
+            if 'version' not in data:
+                data['version'] = "4.0.0-beta.5"
+                modified = True
+            if 'flags' not in data:
+                data['flags'] = {}
+                modified = True
+            if 'checked' not in data:
+                data['checked'] = False
+                modified = True
+            if 'imageData' not in data:
+                data['imageData'] = None
+                modified = True
+            if 'description' not in data:
+                data['description'] = ""
+                modified = True
+            
             # 添加 imagePath（如果缺失）
             if 'imagePath' not in data:
                 data['imagePath'] = json_file.stem + '.jpg'
                 modified = True
             
-            # 添加 shape_type 到每个 shape
+            # 补充每个 shape 的缺失字段
+            new_shapes = []
             for shape in data.get('shapes', []):
                 if 'shape_type' not in shape:
                     shape['shape_type'] = 'rectangle'
                     modified = True
+                # 补充其他可选字段
+                if 'score' not in shape:
+                    shape['score'] = None
+                if 'group_id' not in shape:
+                    shape['group_id'] = None
+                if 'description' not in shape:
+                    shape['description'] = ""
+                if 'difficult' not in shape:
+                    shape['difficult'] = False
+                if 'flags' not in shape:
+                    shape['flags'] = {}
+                if 'attributes' not in shape:
+                    shape['attributes'] = {}
+                if 'kie_linking' not in shape:
+                    shape['kie_linking'] = []
+                new_shapes.append(shape)
+            
+            if new_shapes != data.get('shapes', []):
+                data['shapes'] = new_shapes
+                modified = True
             
             if modified:
                 with open(json_file, 'w', encoding='utf-8') as f:
-                    json.dump(data, f, ensure_ascii=False, indent=2)
+                    json.dump(data, f, indent=2, ensure_ascii=False)
                 fixed += 1
                 print(f"已修复: {json_file.name}")
         
