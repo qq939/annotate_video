@@ -4905,9 +4905,10 @@ names: {class_names}
         random.shuffle(img_files)
         
         # 保存增广后的数据集到项目根目录（与label_x_label_me格式一致）
-        import time
-        timestamp = time.strftime("%Y%m%d")
-        aug_label_dir = Path(f"label_{timestamp}")
+        aug_label_dir = Path("label_00000000")
+        if aug_label_dir.exists():
+            # 如果已存在，删除重建
+            shutil.rmtree(aug_label_dir)
         aug_label_dir.mkdir(exist_ok=True)
         
         # 使用frame_000000.jpg格式
