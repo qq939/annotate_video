@@ -1077,12 +1077,11 @@ class TrimDialog(QDialog):
             print("[Trim] 无法读取视频帧")
             return
         
-        # 保存临时视频用于预览（放在1dst目录）
-        import os
-        os.makedirs("1dst", exist_ok=True)
-        temp_path = os.path.join("1dst", "merged_temp.mp4")
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
+        # 保存临时视频用于预览
+        import tempfile
+        temp_video = tempfile.NamedTemporaryFile(suffix='.mp4', delete=False)
+        temp_video.close()
+        temp_path = temp_video.name
         
         height, width = all_frames[0].shape[:2]
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
@@ -4656,31 +4655,19 @@ class UnifiedPanel(QMainWindow):
             return
 
         # 上传视频和labelme压缩包
+        # OBS文件名添加时间戳，使用原视频名称
         import time
         timestamp = time.strftime("%Y%m%d_%H%M%S")
-        
-        # 检查是否有合并的临时视频
-        temp_merged = Path("1dst/merged_temp.mp4")
-        if temp_merged.exists():
-            # 使用ID命名上传合并后的视频
-            train_id = self.train_id_input.text() or self.default_model_id
-            obs_filename = f"{train_id}.mp4"
-            obs_url = f"http://obs.dimond.top/{obs_filename}"
-            upload_path = temp_merged
-            print(f"[OBS] 上传合并后的视频: {obs_filename}")
-        else:
-            # 使用原视频名称
-            video_name = self.last_video_name or output_name.rsplit('.', 1)[0]
-            ext = output_name.split('.')[-1] if '.' in output_name else 'mp4'
-            obs_filename = f"{video_name}_{timestamp}.{ext}"
-            obs_url = f"http://obs.dimond.top/{obs_filename}"
-            upload_path = output_path
-            print(f"[OBS] 上传文件名: {obs_filename}")
+        video_name = self.last_video_name or output_name.rsplit('.', 1)[0]
+        ext = output_name.split('.')[-1] if '.' in output_name else 'mp4'
+        obs_filename = f"{video_name}_{timestamp}.{ext}"
+        obs_url = f"http://obs.dimond.top/{obs_filename}"
 
         print("正在上传到OBS...")
+        print(f"[OBS] 上传文件名: {obs_filename}")
         try:
             result = subprocess.run(
-                ['curl', '--upload-file', str(upload_path), obs_url],
+                ['curl', '--upload-file', str(output_path), obs_url],
                 capture_output=True, text=True
             )
             if result.returncode == 0:
@@ -4689,6 +4676,59 @@ class UnifiedPanel(QMainWindow):
                 print(f"上传失败: {result.stderr}")
         except Exception as e:
             print(f"上传失败: {e}")
+        
+        # 上传原始未标注视频（命名为ID.mp4）
+        train_id = self.train_id_input.text() or self.default_model_id
+        raw_video_filename = f"{train_id}.mp4"
+        raw_video_url = f"http://obs.dimond.top/{raw_video_filename}"
+        
+        # 尝试从coco_data获取原始视频列表，合并上传
+        raw_frames = []
+        raw_fps = None
+        raw_width = None
+        raw_height = None
+        videos = coco_data.get('info', {}).get('videos', [])
+        if videos:
+            for vp in videos:
+                cap = cv2.VideoCapture(vp)
+                if not cap.isOpened():
+                    continue
+                if raw_fps is None:
+                    raw_fps = cap.get(cv2.CAP_PROP_FPS)
+                    raw_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    raw_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                while True:
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
+                    raw_frames.append(frame.copy())
+                cap.release()
+        
+        if raw_frames and raw_fps:
+            import tempfile
+            temp_raw = tempfile.NamedTemporaryFile(suffix='.mp4', delete=False)
+            temp_raw.close()
+            temp_raw_path = temp_raw.name
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            out_raw = cv2.VideoWriter(temp_raw_path, fourcc, raw_fps, (raw_width, raw_height))
+            for frame in raw_frames:
+                out_raw.write(frame)
+            out_raw.release()
+            
+            print(f"[OBS] 上传原始视频: {raw_video_filename}")
+            try:
+                result = subprocess.run(
+                    ['curl', '--upload-file', temp_raw_path, raw_video_url],
+                    capture_output=True, text=True
+                )
+                if result.returncode == 0:
+                    print(f"上传成功! 原始视频: {raw_video_url}")
+                else:
+                    print(f"上传失败: {result.stderr}")
+            except Exception as e:
+                print(f"上传失败: {e}")
+        else:
+            print(f"[OBS] 无法获取原始视频，跳过上传")
 
         # 压缩并上传label_x_label_me
         import zipfile
