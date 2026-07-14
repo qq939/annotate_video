@@ -1203,27 +1203,9 @@ class TrimDialog(QDialog):
             cap_out.release()
             output_files.append(str(out_path))
         
-        # 上传到OBS
-        try:
-            import subprocess
-            for f in output_files:
-                fname = Path(f).name
-                result = subprocess.run([
-                    'curl', '-T', f,
-                    f'http://obs.dimond.top/{fname}'
-                ], capture_output=True, text=True, timeout=60)
-                if result.returncode == 0:
-                    print(f"上传成功: {fname}")
-                else:
-                    print(f"上传失败: {result.stderr}")
-        except Exception as e:
-            print(f"上传出错: {e}")
-        
-        msg = f"原视频: {self.total}帧\n删除: {len(delete_set)}帧\n保留: {len(keep_ranges)}个片段\n\n上传文件:\n"
+        msg = f"原视频: {self.total}帧\n删除: {len(delete_set)}帧\n保留: {len(keep_ranges)}个片段\n\n保存文件:\n"
         for f in output_files:
-            fname = Path(f).name
-            msg += f"  {fname}\n"
-            msg += f"  http://obs.dimond.top/{fname}\n"
+            msg += f"  {f}\n"
         QMessageBox.information(self, "完成", msg)
     
     def closeEvent(self, event):
