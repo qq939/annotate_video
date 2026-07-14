@@ -4785,31 +4785,52 @@ names: {class_names}
         # 训练模型
         print("[YOLO] 开始训练...")
         from ultralytics import YOLO
-        model = YOLO("yolo11m.pt")
         
         if resume:
-            # 继续训练：加载已有模型继续训练
+            # 继续训练：加载已有模型
             print("[YOLO] 继续训练模式...")
             epochs = int(self.train_epochs_input.text()) if self.train_epochs_input.text() else 30
-            model.train(
-                data=yaml_path.as_posix(),
-                model=str(train_dir / "weights" / "last.pt"),
-                epochs=epochs,
-                imgsz=640,
-                batch=8,
-                device=0,
-                workers=0,
-                project=yolo_project.as_posix(),
-                name="train",
-                resume=True
-            )
-            # 继续训练后best.pt在train_dir里
+            last_pt = train_dir / "weights" / "last.pt"
+            best_onnx = train_dir / "weights" / "best.onnx"
+            
+            if last_pt.exists():
+                # 有last.pt，用它继续训练
+                model = YOLO(str(last_pt))
+                model.train(
+                    data=yaml_path.as_posix(),
+                    epochs=epochs,
+                    imgsz=640,
+                    batch=8,
+                    device=0,
+                    workers=0,
+                    project=yolo_project.as_posix(),
+                    name=train_dir.name,
+                    resume=True
+                )
+            elif best_onnx.exists():
+                # 只有onnx，从onnx加载继续训练
+                print("[YOLO] 只有best.onnx，从ONNX加载...")
+                model = YOLO(str(best_onnx))
+                model.train(
+                    data=yaml_path.as_posix(),
+                    epochs=epochs,
+                    imgsz=640,
+                    batch=8,
+                    device=0,
+                    workers=0,
+                    project=yolo_project.as_posix(),
+                    name=train_dir.name
+                )
+            else:
+                print("[YOLO] 未找到last.pt或best.onnx，无法继续训练")
+                return
         else:
             # 全新训练，生成新的train-N文件夹
             existing = list(yolo_runs_dir.glob("train-*"))
             next_num = max([int(p.name.replace("train-", "")) for p in existing if p.name.replace("train-", "").isdigit()], default=0) + 1
             train_dir = yolo_runs_dir / f"train-{next_num}"
             epochs = int(self.train_epochs_input.text()) if self.train_epochs_input.text() else 30
+            model = YOLO("yolo11m.pt")
             model.train(
                 data=yaml_path.as_posix(),
                 epochs=epochs,
