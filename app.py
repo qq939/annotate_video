@@ -902,6 +902,12 @@ class TrimDialog(QDialog):
             b.setStyleSheet("font-size: 14px;")
             b.clicked.connect(fn)
             controls.addWidget(b)
+        # 添加视频按钮（在预览内部）
+        add_btn = QPushButton("+添加视频")
+        add_btn.setFixedHeight(34)
+        add_btn.setStyleSheet("font-size: 14px; background-color: #4CAF50; color: white;")
+        add_btn.clicked.connect(self.add_video_to_trim)
+        controls.addWidget(add_btn)
         controls.addStretch()
         layout.addLayout(controls)
         
@@ -1026,6 +1032,30 @@ class TrimDialog(QDialog):
             self.show_frame(idx + 1)
         else:
             self.toggle_play()
+    
+    def add_video_to_trim(self):
+        """添加视频到当前视频后面"""
+        file_paths, _ = QFileDialog.getOpenFileNames(self, "选择视频(支持多选)", "", "视频文件 (*.mp4 *.avi *.mov *.mkv)")
+        if not file_paths:
+            return
+        
+        # 添加新视频
+        for vp in file_paths:
+            cap = cv2.VideoCapture(vp)
+            if cap.isOpened():
+                frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                self.video_caps.append(cap)
+                self.video_frame_counts.append(frame_count)
+                self.video_paths.append(vp)
+                self.video_frame_starts.append(self.video_frame_starts[-1] + frame_count)
+            else:
+                cap.release()
+        
+        self.total = self.video_frame_starts[-1]
+        self.slider.setMaximum(self.total - 1)
+        # 跳到最后一帧
+        self.show_frame(self.total - 1)
+        print(f"[Trim] 添加了 {len(file_paths)} 个视频，当前总帧数: {self.total}")
     
     def backward(self):
         idx = self.slider.value()
@@ -1268,10 +1298,6 @@ class UnifiedPanel(QMainWindow):
         select_btn.setFixedWidth(50)
         select_btn.clicked.connect(self.open_trim_dialog)
         select_layout.addWidget(select_btn)
-        add_btn = QPushButton("+添加")
-        add_btn.setFixedWidth(50)
-        add_btn.clicked.connect(self.add_trim_video)
-        select_layout.addWidget(add_btn)
         content_layout.addLayout(select_layout)
         
         return group
