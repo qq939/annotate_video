@@ -5139,29 +5139,26 @@ names: {class_names}
         yolo_runs_dir = Path("runs/detect/yolo_runs")
         resume = self.train_resume_check.isChecked()
         
-        # 如果继续训练，查找最新的train文件夹（按last.pt修改时间）
+        # 如果继续训练，查找编号最大的train文件夹
         if resume:
             # 查找所有train*文件夹
-            train_patterns = ["train*"]
-            train_dirs = []
-            for pattern in train_patterns:
-                train_dirs.extend(yolo_runs_dir.glob(pattern))
-            # 过滤掉weights子目录
+            train_dirs = list(yolo_runs_dir.glob("train*"))
             train_dirs = [d for d in train_dirs if d.is_dir()]
             # 过滤出有weights目录的
             train_dirs = [d for d in train_dirs if (d / "weights").exists()]
             if train_dirs:
-                # 按last.pt修改时间排序，取最新的
-                def get_last_pt_mtime(p):
-                    last_pt = p / "weights" / "last.pt"
-                    if last_pt.exists():
-                        return last_pt.stat().st_mtime
-                    return 0
-                train_dirs.sort(key=get_last_pt_mtime, reverse=True)
+                # 按编号排序，train-1-2 > train-1 > train
+                def get_train_num(p):
+                    name = p.name
+                    if name == "train":
+                        return 0
+                    # 取train-后面的数字，取最后一个作为主编号
+                    suffix = name.replace("train", "")
+                    nums = [int(x) for x in suffix.split("-") if x.isdigit()]
+                    return nums[-1] if nums else 0
+                train_dirs.sort(key=get_train_num, reverse=True)
                 train_dir = train_dirs[0]
-                last_pt_path = train_dir / "weights" / "last.pt"
-                mtime = last_pt_path.stat().st_mtime if last_pt_path.exists() else 0
-                print(f"[YOLO] 继续训练，使用: {train_dir.name} (last.pt修改时间={mtime})")
+                print(f"[YOLO] 继续训练，使用: {train_dir.name} (编号最大)")
             else:
                 print("[YOLO] 未找到可继续训练的模型，请取消勾选继续训练")
                 return
