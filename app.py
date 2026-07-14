@@ -5166,17 +5166,11 @@ names: {class_names}
                 print("[YOLO] 未找到可继续训练的模型，请取消勾选继续训练")
                 return
         else:
-            # 清理旧的train文件夹
+            # 清理旧的train文件夹，统一用train
             for td in yolo_runs_dir.glob("train*"):
                 if td.is_dir():
                     shutil.rmtree(td)
-            train_single = yolo_runs_dir / "train"
-            if train_single.exists():
-                shutil.rmtree(train_single)
-            # 计算下一个train-N编号
-            existing = list(yolo_runs_dir.glob("train-*"))
-            next_num = max([int(p.name.replace("train-", "")) for p in existing if p.name.replace("train-", "").isdigit()], default=0) + 1
-            train_dir = yolo_runs_dir / f"train-{next_num}"
+            train_dir = yolo_runs_dir / "train"
             print(f"[YOLO] 新训练文件夹: {train_dir.name}")
         
         # 如果继续训练，从已有model.json读取ID、名称、描述
