@@ -4846,6 +4846,73 @@ names: {class_names}
         print(f"[YOLO] 类别帧数统计: {class_counts}")
         print(f"[YOLO] 数据增广目标: 最大帧数={max_count}")
         
+        # 使用albumentations做专业数据增广
+        try:
+            import albumentations as A
+            from albumentations.pytorch import ToTensorV2
+            transform = A.Compose([
+                A.HorizontalFlip(p=1.0),  # 水平翻转
+            ], bbox_params=A.BboxParams(format='pascal_voc', label_fields=['class_labels']))
+            has_albumentations = True
+        except ImportError:
+            print("[YOLO] 警告: 未安装albumentations，使用简单翻转")
+            has_albumentations = False
+        
+        def augment_with_bbox(img_path, json_path, aug_idx, target_dir):
+            """使用albumentations增广，返回新的json数据"""
+            import cv2
+            img = cv2.imread(str(img_path))
+            if img is None:
+                return None
+            
+            with open(json_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            h, w = img.shape[:2]
+            bboxes = []
+            labels = []
+            
+            for shape in data.get('shapes', []):
+                points = shape.get('points', [])
+                if len(points) >= 4:
+                    x_coords = [p[0] for p in points]
+                    y_coords = [p[1] for p in points]
+                    x_min, y_min = min(x_coords), min(y_coords)
+                    x_max, y_max = max(x_coords), max(y_coords)
+                    bboxes.append([x_min, y_min, x_max, y_max])
+                    labels.append(shape.get('label', ''))
+            
+            new_name = f"{Path(img_path).stem}_aug{aug_idx}{Path(img_path).suffix}"
+            new_img_path = target_dir / new_name
+            
+            if has_albumentations and bboxes:
+                transformed = transform(image=img, bboxes=bboxes, class_labels=labels)
+                cv2.imwrite(str(new_img_path), transformed['image'])
+                new_data = {'shapes': [], 'imageWidth': w, 'imageHeight': h}
+                for bbox, label in zip(transformed['bboxes'], transformed['class_labels']):
+                    x_min, y_min, x_max, y_max = bbox
+                    new_data['shapes'].append({
+                        'label': label,
+                        'points': [[x_min, y_min], [x_max, y_min], [x_max, y_max], [x_min, y_max]],
+                        'bbox': [x_min, y_min, x_max - x_min, y_max - y_min]
+                    })
+            else:
+                # 简单翻转
+                flipped = cv2.flip(img, 1)
+                cv2.imwrite(str(new_img_path), flipped)
+                new_data = {'shapes': [], 'imageWidth': w, 'imageHeight': h}
+                for bbox, label in zip(bboxes, labels):
+                    x_min, y_min, x_max, y_max = bbox
+                    new_x_min = w - x_max
+                    new_x_max = w - x_min
+                    new_data['shapes'].append({
+                        'label': label,
+                        'points': [[new_x_min, y_min], [new_x_max, y_min], [new_x_max, y_max], [new_x_min, y_max]],
+                        'bbox': [new_x_min, y_min, x_max - x_min, y_max - y_min]
+                    })
+            
+            return new_data, new_img_path
+        
         # 对帧数最少的类别增广到最多
         if sorted_classes:
             min_class = sorted_classes[0][0]
@@ -4857,23 +4924,15 @@ names: {class_names}
                     print(f"[YOLO] 增广 {min_class}: {class_counts[min_class]} -> {target}")
                     for i in range(copies_needed):
                         src = source_imgs[i % len(source_imgs)]
-                        # 水平翻转增广
-                        new_name = f"{src.stem}_aug{i}{src.suffix}"
-                        new_img = labelme_dir / new_name
-                        import cv2
-                        img = cv2.imread(str(src))
-                        if img is not None:
-                            flipped = cv2.flip(img, 1)  # 水平翻转
-                            cv2.imwrite(str(new_img), flipped)
-                            img_files.append(new_img)
-                            # 复制json
-                            json_file = src.with_suffix('.json')
-                            if json_file.exists():
-                                with open(json_file, 'r', encoding='utf-8') as f:
-                                    data = json.load(f)
-                                new_json = new_img.with_suffix('.json')
-                                with open(new_json, 'w', encoding='utf-8') as f:
-                                    json.dump(data, f)
+                        json_file = src.with_suffix('.json')
+                        if json_file.exists():
+                            result = augment_with_bbox(src, json_file, i, labelme_dir)
+                            if result:
+                                new_data, new_img_path = result
+                                img_files.append(new_img_path)
+                                new_json_path = new_img_path.with_suffix('.json')
+                                with open(new_json_path, 'w', encoding='utf-8') as f:
+                                    json.dump(new_data, f)
         
         # 对第二少的类别增广到最多
         if len(sorted_classes) > 1:
@@ -4886,42 +4945,17 @@ names: {class_names}
                     print(f"[YOLO] 增广 {second_min_class}: {class_counts[second_min_class]} -> {target}")
                     for i in range(copies_needed):
                         src = source_imgs[i % len(source_imgs)]
-                        new_name = f"{src.stem}_aug{i}{src.suffix}"
-                        new_img = labelme_dir / new_name
-                        import cv2
-                        img = cv2.imread(str(src))
-                        if img is not None:
-                            flipped = cv2.flip(img, 1)  # 水平翻转
-                            cv2.imwrite(str(new_img), flipped)
-                            img_files.append(new_img)
-                            json_file = src.with_suffix('.json')
-                            if json_file.exists():
-                                with open(json_file, 'r', encoding='utf-8') as f:
-                                    data = json.load(f)
-                                new_json = new_img.with_suffix('.json')
-                                with open(new_json, 'w', encoding='utf-8') as f:
-                                    json.dump(data, f)
+                        json_file = src.with_suffix('.json')
+                        if json_file.exists():
+                            result = augment_with_bbox(src, json_file, i, labelme_dir)
+                            if result:
+                                new_data, new_img_path = result
+                                img_files.append(new_img_path)
+                                new_json_path = new_img_path.with_suffix('.json')
+                                with open(new_json_path, 'w', encoding='utf-8') as f:
+                                    json.dump(new_data, f)
         
         random.shuffle(img_files)
-        
-        # 保存增广后的数据集到项目根目录（与label_x_label_me格式一致）
-        aug_label_dir = Path("label_00000000")
-        if aug_label_dir.exists():
-            # 如果已存在，删除重建
-            shutil.rmtree(aug_label_dir)
-        aug_label_dir.mkdir(exist_ok=True)
-        
-        # 使用frame_000000.jpg格式
-        for idx, img_file in enumerate(img_files):
-            # 复制图片
-            new_img_name = f"frame_{idx:06d}.jpg"
-            shutil.copy(img_file, aug_label_dir / new_img_name)
-            # 复制labelme格式的json
-            json_file = img_file.with_suffix('.json')
-            if json_file.exists():
-                new_json_name = f"frame_{idx:06d}.json"
-                shutil.copy(json_file, aug_label_dir / new_json_name)
-        print(f"[YOLO] 增广数据集已保存到: {aug_label_dir} ({len(img_files)}张)")
         
         # 输出最终增广后的图片数量和分类别统计
         print(f"[YOLO] 增广后总图片数: {len(img_files)}")
