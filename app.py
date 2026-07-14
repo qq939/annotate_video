@@ -10,7 +10,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QSlider, QLabel, QLineEdit, QFileDialog, QGroupBox, QTextEdit, QMessageBox, QListWidget, QSizePolicy, QDialog, QInputDialog, QCheckBox, QToolButton)
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QSlider, QLabel, QLineEdit, QFileDialog, QGroupBox, QTextEdit, QMessageBox, QListWidget, QSizePolicy, QDialog, QInputDialog, QCheckBox, QToolButton, QMenu)
 from PyQt5.QtCore import Qt, QTimer, QPoint, QRect, pyqtSignal
 from PyQt5.QtGui import QPainter, QPen, QColor
 from PyQt5.Qt import QDragEnterEvent, QDropEvent
@@ -3373,13 +3373,19 @@ class UnifiedPanel(QMainWindow):
                 return
             video_path = video_path_selected
 
+        # 选择视频时删除temp_data和temp_data_mid
+        import shutil
+        temp_data = Path("temp_data")
+        temp_data_mid = Path("temp_data_mid")
+        if temp_data.exists():
+            shutil.rmtree(temp_data)
+        if temp_data_mid.exists():
+            shutil.rmtree(temp_data_mid)
+
         temp_dir = self.temp_data_path = Path(self.path_input.text() or "temp_data")
         frames_dir = temp_dir / "frames"
         labels_dir = temp_dir / "labels"
 
-        if frames_dir.exists():
-            import shutil
-            shutil.rmtree(frames_dir)
         frames_dir.mkdir(parents=True, exist_ok=True)
         labels_dir.mkdir(parents=True, exist_ok=True)
 
