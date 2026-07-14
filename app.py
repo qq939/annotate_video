@@ -4913,6 +4913,8 @@ names: {class_names}
                 A.VerticalFlip(p=0.2),
                 A.Rotate(limit=10, p=0.3),
                 A.ShiftScaleRotate(shift_limit=0.05, scale_limit=0.1, rotate_limit=5, p=0.3),
+                A.ElasticTransform(alpha=30, sigma=5, p=0.1),
+                A.GridDistortion(num_steps=5, distort_limit=0.05, p=0.1),
                 A.RandomBrightnessContrast(brightness_limit=0.1, contrast_limit=0.1, p=0.3),
                 A.HueSaturationValue(hue_shift_limit=10, sat_shift_limit=20, val_shift_limit=10, p=0.3),
             ], bbox_params=A.BboxParams(format='pascal_voc', label_fields=['class_labels']))
