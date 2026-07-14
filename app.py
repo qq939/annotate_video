@@ -4907,6 +4907,7 @@ names: {class_names}
                     x_min, y_min, x_max, y_max = bbox
                     new_data['shapes'].append({
                         'label': label,
+                        'shape_type': 'rectangle',
                         'points': [[x_min, y_min], [x_max, y_min], [x_max, y_max], [x_min, y_max]],
                         'bbox': [x_min, y_min, x_max - x_min, y_max - y_min]
                     })
@@ -4921,6 +4922,7 @@ names: {class_names}
                     new_x_max = w - x_min
                     new_data['shapes'].append({
                         'label': label,
+                        'shape_type': 'rectangle',
                         'points': [[new_x_min, y_min], [new_x_max, y_min], [new_x_max, y_max], [new_x_min, y_max]],
                         'bbox': [new_x_min, y_min, x_max - x_min, y_max - y_min]
                     })
