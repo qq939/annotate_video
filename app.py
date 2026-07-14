@@ -5061,7 +5061,6 @@ names: {class_names}
             next_num = max([int(p.name.replace("train-", "")) for p in existing if p.name.replace("train-", "").isdigit()], default=0) + 1
             train_dir = yolo_runs_dir / f"train-{next_num}"
             print(f"[YOLO] 新训练文件夹: {train_dir.name}")
-            epochs = int(self.train_epochs_input.text()) if self.train_epochs_input.text() else 30
             model = YOLO("yolo11m.pt")
             model.train(
                 data=yaml_path.as_posix(),
