@@ -981,13 +981,27 @@ class TrimDialog(QDialog):
         QTimer.singleShot(200, self._save_temp_video)
     
     def _save_temp_video(self):
-        """保存所有视频帧到temp/temp.mp4"""
+        """保存所有视频帧到temp/temp.mp4（流式写入，不占用大量内存）"""
         if hasattr(self, 'temp_video_path') and Path(self.temp_video_path).exists():
             return  # 已存在则跳过
         
-        all_frames = []
-        all_fps = self.fps
+        temp_dir = Path("temp")
+        temp_dir.mkdir(exist_ok=True)
+        temp_path = str(temp_dir / "temp.mp4")
         
+        # 获取视频信息
+        first_cap = self.video_caps[0] if self.video_caps else None
+        if first_cap is None:
+            return
+        
+        w = int(first_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        h = int(first_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(temp_path, fourcc, self.fps, (w, h))
+        
+        # 流式读取并写入
+        frame_count = 0
         for cap in self.video_caps:
             if cap is None:
                 continue
@@ -996,24 +1010,15 @@ class TrimDialog(QDialog):
                 ret, frame = cap.read()
                 if not ret:
                     break
-                all_frames.append(frame.copy())
+                out.write(frame)
+                frame_count += 1
+                if frame_count % 100 == 0:
+                    print(f"[Trim] 已保存 {frame_count} 帧...")
         
-        if not all_frames:
-            return
-        
-        temp_dir = Path("temp")
-        temp_dir.mkdir(exist_ok=True)
-        temp_path = str(temp_dir / "temp.mp4")
-        
-        height, width = all_frames[0].shape[:2]
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(temp_path, fourcc, all_fps, (width, height))
-        for frame in all_frames:
-            out.write(frame)
         out.release()
         
         self.temp_video_path = temp_path
-        print(f"[Trim] 临时视频已保存: {temp_path}, 总帧数: {len(all_frames)}")
+        print(f"[Trim] 临时视频已保存: {temp_path}, 总帧数: {frame_count}")
     
     def show_frame(self, idx):
         # 根据帧号找到对应的视频
@@ -1160,14 +1165,15 @@ class TrimDialog(QDialog):
             self.show_frame(idx + 1)
     
     def on_label_click(self, event):
-        idx = self.slider.value()
+        idx = self.slider.value()  # 0-indexed
+        display_idx = idx + 1  # 转为 1-indexed 显示
         if self.select_start is None:
             self.select_start = idx
-            self.del_btn.setText(f"选择\n帧{idx}")
+            self.del_btn.setText(f"选择\n帧{display_idx}")
         else:
             start, end = min(self.select_start, idx), max(self.select_start, idx)
             self.ranges.append((start, end))
-            self.delete_list.addItem(f"帧 {start} → {end} ({end - start + 1}帧)")
+            self.delete_list.addItem(f"帧 {start + 1} → {end + 1} ({end - start + 1}帧)")
             self.select_start = None
             self.del_btn.setText("删除\n选中")
     
@@ -3917,11 +3923,11 @@ class UnifiedPanel(QMainWindow):
                      abs(bbox[2] - bbox[0]), abs(bbox[3] - bbox[1])]
         bbox_key = f"{int(coco_bbox[0])},{int(coco_bbox[1])},{int(coco_bbox[2])},{int(coco_bbox[3])}"
         
-        # 记录回退信息
+        # 记录回退信息（用户输入是1-indexed，frame文件是0-indexed）
         undo_changes = []
         added = 0
-        print(f"[固定框] 实际标注帧范围: {start_frame} 到 {end_frame}")
-        for i in range(start_frame, end_frame + 1):
+        print(f"[固定框] 实际标注帧范围: {start_frame} 到 {end_frame} (转为0-indexed: {start_frame-1} 到 {end_frame-1})")
+        for i in range(start_frame - 1, end_frame):
             frame_file = labels_dir / f"frame_{i:06d}.json"
             print(f"[固定框] 正在标注帧 {i}")
             old_trace_id = None
