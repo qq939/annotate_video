@@ -5137,26 +5137,28 @@ names: {class_names}
         yolo_runs_dir = Path("runs/detect/yolo_runs")
         resume = self.train_resume_check.isChecked()
         
-        # 如果继续训练，查找最新的train文件夹（按数字排序）
+        # 如果继续训练，查找最新的train文件夹（按修改时间）
         if resume:
-            # 先查找train-*格式
-            train_dirs = sorted(yolo_runs_dir.glob("train-*"), key=lambda p: int(p.name.replace("train-", "") or "0"))
-            # 如果没有train-*，查找train格式
-            if not train_dirs:
-                train_single = yolo_runs_dir / "train"
-                if train_single.exists():
-                    train_dirs = [train_single]
+            # 查找所有train*文件夹
+            train_patterns = ["train*"]
+            train_dirs = []
+            for pattern in train_patterns:
+                train_dirs.extend(yolo_runs_dir.glob(pattern))
+            # 过滤掉weights子目录
+            train_dirs = [d for d in train_dirs if d.is_dir()]
             if train_dirs:
-                train_dir = train_dirs[-1]
-                print(f"[YOLO] 继续训练，使用: {train_dir.name}")
+                # 按修改时间排序，取最新的
+                train_dirs.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+                train_dir = train_dirs[0]
+                print(f"[YOLO] 继续训练，使用: {train_dir.name} (最新)")
             else:
                 print("[YOLO] 未找到可继续训练的模型，请取消勾选继续训练")
                 return
         else:
             # 清理旧的train文件夹
-            for td in yolo_runs_dir.glob("train-*"):
-                shutil.rmtree(td)
-            # 也清理train文件夹
+            for td in yolo_runs_dir.glob("train*"):
+                if td.is_dir():
+                    shutil.rmtree(td)
             train_single = yolo_runs_dir / "train"
             if train_single.exists():
                 shutil.rmtree(train_single)
@@ -5189,10 +5191,25 @@ names: {class_names}
             # 从已有权重加载作为预训练权重，生成新的train-N文件夹
             print("[YOLO] 从已有权重加载...")
             print(f"[YOLO] epochs={epochs}")
+            best_pt = train_dir / "weights" / "best.pt"
             last_pt = train_dir / "weights" / "last.pt"
             best_onnx = train_dir / "weights" / "best.onnx"
             
-            if last_pt.exists():
+            if best_pt.exists():
+                # 有best.pt，加载作为预训练权重
+                model = YOLO(str(best_pt))
+                model.train(
+                    data=yaml_path.as_posix(),
+                    epochs=epochs,
+                    imgsz=640,
+                    batch=8,
+                    device=0,
+                    workers=0,
+                    project=yolo_project.as_posix(),
+                    name=train_dir.name,
+                    resume=False
+                )
+            elif last_pt.exists():
                 # 有last.pt，加载作为预训练权重
                 model = YOLO(str(last_pt))
                 model.train(
@@ -5221,7 +5238,7 @@ names: {class_names}
                     name=train_dir.name
                 )
             else:
-                print("[YOLO] 未找到last.pt或best.onnx")
+                print("[YOLO] 未找到best.pt、last.pt或best.onnx")
                 return
         else:
             # 全新训练
