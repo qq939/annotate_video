@@ -187,8 +187,53 @@ class VideoViewer(QMainWindow):
             self.undo_last_bbox()
         elif key == Qt.Key_Escape:
             self.close()
-        else:
-            super().keyPressEvent(event)
+    
+    def add_video_frames(self):
+        """添加视频帧到当前temp_data"""
+        file_paths, _ = QFileDialog.getOpenFileNames(self, "选择视频(支持多选)", "", "视频文件 (*.mp4 *.avi *.mov *.mkv)")
+        if not file_paths:
+            return
+        
+        print(f"[VideoViewer] 添加 {len(file_paths)} 个视频的帧...")
+        
+        # 获取当前最大帧号
+        existing_frames = list(self.frames_dir.glob("frame_*.jpg"))
+        start_idx = len(existing_frames)
+        
+        # 从每个视频读取帧
+        for vp in file_paths:
+            cap = cv2.VideoCapture(vp)
+            if not cap.isOpened():
+                continue
+            
+            idx = start_idx
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                frame_path = self.frames_dir / f"frame_{idx:06d}.jpg"
+                cv2.imwrite(str(frame_path), frame)
+                # 创建空的label文件
+                label_path = self.labels_dir / f"frame_{idx:06d}.json"
+                with open(label_path, 'w') as f:
+                    json.dump([], f)
+                idx += 1
+            cap.release()
+            start_idx = idx
+        
+        # 更新总数
+        self.total_frames = len(list(self.frames_dir.glob("frame_*.jpg")))
+        
+        # 更新coco_data
+        self.coco_data['images'] = [
+            {'id': i, 'file_name': f"frame_{i:06d}.jpg", 'width': self.video_width, 'height': self.video_height, 'frame_count': i}
+            for i in range(self.total_frames)
+        ]
+        with open(self.temp_data_path / 'annotations.json', 'w', encoding='utf-8') as f:
+            json.dump(self.coco_data, f, ensure_ascii=False)
+        
+        self.update_display()
+        print(f"[VideoViewer] 添加完成，当前总帧数: {self.total_frames}")
 
     def set_controller(self, controller):
         self.controller = controller
