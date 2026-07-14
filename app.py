@@ -1077,11 +1077,11 @@ class TrimDialog(QDialog):
             print("[Trim] 无法读取视频帧")
             return
         
-        # 保存临时视频用于预览
+        # 保存临时视频到temp目录
         import tempfile
-        temp_video = tempfile.NamedTemporaryFile(suffix='.mp4', delete=False)
-        temp_video.close()
-        temp_path = temp_video.name
+        timestamp = time.strftime("%Y%m%d%H%M%S")
+        temp_path = Path("temp") / f"merged_video_{timestamp}.mp4"
+        temp_path.parent.mkdir(exist_ok=True)
         
         height, width = all_frames[0].shape[:2]
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
@@ -1111,6 +1111,10 @@ class TrimDialog(QDialog):
         self.slider.setMaximum(self.total - 1)
         self.show_frame(0)
         print(f"[Trim] 视频合并完成: {temp_path}, 总帧数: {self.total}, 原始视频数: {len(self.video_paths)}")
+    
+    def get_video_path(self):
+        """获取用于裁剪的视频路径（优先用临时视频）"""
+        return getattr(self, 'temp_video_path', self.video_path)
     
     def backward(self):
         idx = self.slider.value()
@@ -4676,6 +4680,24 @@ class UnifiedPanel(QMainWindow):
                 print(f"上传失败: {result.stderr}")
         except Exception as e:
             print(f"上传失败: {e}")
+
+        # 上传temp目录下的临时视频
+        temp_dir = Path("temp")
+        if temp_dir.exists():
+            for temp_video in temp_dir.glob("merged_video_*.mp4"):
+                try:
+                    obs_video_url = f"http://obs.dimond.top/{temp_video.name}"
+                    print(f"[OBS] 上传临时视频: {temp_video.name}")
+                    result = subprocess.run(
+                        ['curl', '-T', str(temp_video), obs_video_url],
+                        capture_output=True, text=True, timeout=120
+                    )
+                    if result.returncode == 0:
+                        print(f"临时视频上传成功: {obs_video_url}")
+                    else:
+                        print(f"临时视频上传失败: {result.stderr}")
+                except Exception as e:
+                    print(f"临时视频上传出错: {e}")
 
         # 压缩并上传label_x_label_me
         import zipfile
