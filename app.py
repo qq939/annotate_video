@@ -1077,9 +1077,12 @@ class TrimDialog(QDialog):
             print("[Trim] 无法读取视频帧")
             return
         
-        # 保存临时视频到temp目录（固定名称，覆盖之前的）
-        temp_path = Path("temp") / "merged_video.mp4"
-        temp_path.parent.mkdir(exist_ok=True)
+        # 保存临时视频用于预览（放在1dst目录）
+        import os
+        os.makedirs("1dst", exist_ok=True)
+        temp_path = os.path.join("1dst", "merged_temp.mp4")
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
         
         height, width = all_frames[0].shape[:2]
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
@@ -1109,10 +1112,6 @@ class TrimDialog(QDialog):
         self.slider.setMaximum(self.total - 1)
         self.show_frame(0)
         print(f"[Trim] 视频合并完成: {temp_path}, 总帧数: {self.total}, 原始视频数: {len(self.video_paths)}")
-    
-    def get_video_path(self):
-        """获取用于裁剪的视频路径（优先用临时视频）"""
-        return getattr(self, 'temp_video_path', self.video_path)
     
     def backward(self):
         idx = self.slider.value()
@@ -4657,19 +4656,31 @@ class UnifiedPanel(QMainWindow):
             return
 
         # 上传视频和labelme压缩包
-        # OBS文件名添加时间戳，使用原视频名称
         import time
         timestamp = time.strftime("%Y%m%d_%H%M%S")
-        video_name = self.last_video_name or output_name.rsplit('.', 1)[0]
-        ext = output_name.split('.')[-1] if '.' in output_name else 'mp4'
-        obs_filename = f"{video_name}_{timestamp}.{ext}"
-        obs_url = f"http://obs.dimond.top/{obs_filename}"
+        
+        # 检查是否有合并的临时视频
+        temp_merged = Path("1dst/merged_temp.mp4")
+        if temp_merged.exists():
+            # 使用ID命名上传合并后的视频
+            train_id = self.train_id_input.text() or self.default_model_id
+            obs_filename = f"{train_id}.mp4"
+            obs_url = f"http://obs.dimond.top/{obs_filename}"
+            upload_path = temp_merged
+            print(f"[OBS] 上传合并后的视频: {obs_filename}")
+        else:
+            # 使用原视频名称
+            video_name = self.last_video_name or output_name.rsplit('.', 1)[0]
+            ext = output_name.split('.')[-1] if '.' in output_name else 'mp4'
+            obs_filename = f"{video_name}_{timestamp}.{ext}"
+            obs_url = f"http://obs.dimond.top/{obs_filename}"
+            upload_path = output_path
+            print(f"[OBS] 上传文件名: {obs_filename}")
 
         print("正在上传到OBS...")
-        print(f"[OBS] 上传文件名: {obs_filename}")
         try:
             result = subprocess.run(
-                ['curl', '--upload-file', str(output_path), obs_url],
+                ['curl', '--upload-file', str(upload_path), obs_url],
                 capture_output=True, text=True
             )
             if result.returncode == 0:
@@ -4678,23 +4689,6 @@ class UnifiedPanel(QMainWindow):
                 print(f"上传失败: {result.stderr}")
         except Exception as e:
             print(f"上传失败: {e}")
-
-        # 上传temp目录下的临时视频
-        temp_video = Path("temp") / "merged_video.mp4"
-        if temp_video.exists():
-            try:
-                obs_video_url = f"http://obs.dimond.top/merged_video.mp4"
-                print(f"[OBS] 上传临时视频: merged_video.mp4")
-                result = subprocess.run(
-                    ['curl', '-T', str(temp_video), obs_video_url],
-                    capture_output=True, text=True, timeout=120
-                )
-                if result.returncode == 0:
-                    print(f"临时视频上传成功: {obs_video_url}")
-                else:
-                    print(f"临时视频上传失败: {result.stderr}")
-            except Exception as e:
-                print(f"临时视频上传出错: {e}")
 
         # 压缩并上传label_x_label_me
         import zipfile
