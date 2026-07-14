@@ -6,17 +6,53 @@ import shutil
 import subprocess
 from pathlib import Path
 
-# 类别名称
-CLASS_NAMES = ['压紧', '检测接头', '产品', '产品1']
 
 def export_model():
-    # 模型路径
-    pt_path = Path("runs/detect/yolo_runs/train-2/weights/best.pt")
-    if not pt_path.exists():
-        print(f"[错误] 模型文件不存在: {pt_path}")
+    # 查找最新训练文件夹（train*）
+    yolo_runs_dir = Path("runs/detect/yolo_runs")
+    train_dirs = list(yolo_runs_dir.glob("train*"))
+    train_dirs = [d for d in train_dirs if d.is_dir() and (d / "weights").exists()]
+    
+    if not train_dirs:
+        print("[错误] 没有找到训练文件夹")
         return
     
-    print(f"[导出] 加载模型: {pt_path}")
+    # 按编号排序，取最大的
+    def get_train_num(p):
+        name = p.name
+        if name == "train":
+            return 0
+        suffix = name.replace("train", "")
+        nums = [int(x) for x in suffix.split("-") if x.isdigit()]
+        return nums[-1] if nums else 0
+    
+    train_dirs.sort(key=get_train_num, reverse=True)
+    train_dir = train_dirs[0]
+    
+    # 优先使用best.pt
+    pt_path = train_dir / "weights" / "best.pt"
+    if not pt_path.exists():
+        pt_path = train_dir / "weights" / "last.pt"
+    if not pt_path.exists():
+        print(f"[错误] 模型文件不存在: {train_dir / 'weights'}")
+        return
+    
+    print(f"[导出] 使用模型: {pt_path}")
+    
+    # 加载同目录的model.json
+    model_json_path = train_dir / "weights" / "model.json"
+    if model_json_path.exists():
+        with open(model_json_path, encoding='utf-8') as f:
+            model_info = json.load(f)
+        print(f"[导出] 读取model.json: {model_json_path}")
+        model_id = model_info.get('id', 'model_001')
+        model_name = model_info.get('displayname', '物体检测')
+        model_desc = model_info.get('description', '物体检测模型')
+    else:
+        print(f"[警告] model.json不存在，使用默认信息")
+        model_id = "model_001"
+        model_name = "物体检测"
+        model_desc = "物体检测模型"
     
     from ultralytics import YOLO
     model = YOLO(str(pt_path))
@@ -32,25 +68,8 @@ def export_model():
     
     print(f"[导出] ONNX文件: {onnx_path}")
     
-    # 创建model.json
-    model_json = {
-        "id": "model_001",
-        "displayname": "物体检测",
-        "description": "物体检测模型",
-        "model_path": "best.onnx",
-        "classes": CLASS_NAMES,
-        "nc": len(CLASS_NAMES),
-        "input_size": [640, 640]
-    }
-    
-    # 保存model.json到weights文件夹
-    model_json_path = pt_path.parent / "model.json"
-    with open(model_json_path, 'w', encoding='utf-8') as f:
-        json.dump(model_json, f, ensure_ascii=False, indent=2)
-    print(f"[导出] model.json: {model_json_path}")
-    
     # 整体拷贝到1dst
-    upload_dir = Path("1dst/model_001_train")
+    upload_dir = Path(f"1dst/{model_id}_train")
     if upload_dir.exists():
         shutil.rmtree(upload_dir)
     shutil.copytree(pt_path.parent, upload_dir)
@@ -58,7 +77,7 @@ def export_model():
     
     # 压缩上传
     import zipfile
-    zip_filename = "model_001_train.zip"
+    zip_filename = f"{model_id}_train.zip"
     zip_path = Path("1dst") / zip_filename
     with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
         for f in upload_dir.rglob("*"):
@@ -74,6 +93,7 @@ def export_model():
         print(f"[成功] 上传完成: {zip_url}")
     else:
         print(f"[失败] 上传失败: {result.stderr}")
+
 
 if __name__ == "__main__":
     export_model()
