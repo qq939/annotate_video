@@ -4644,7 +4644,9 @@ class UnifiedPanel(QMainWindow):
             if self.train_model_check.isChecked():
                 print(f"[YOLO] 开始训练模型...")
                 try:
-                    self._train_yolo_model(Path("temp_data_post"))
+                    # 继续训练时重新从temp_data_post导出并增广
+                    self._export_to_labelme(Path("temp_data_post"))
+                    self._train_yolo_model(Path("label_x_label_me"))
                 except Exception as e:
                     print(f"[YOLO] 训练失败: {e}")
                     import traceback
