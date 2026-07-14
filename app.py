@@ -1897,7 +1897,7 @@ class UnifiedPanel(QMainWindow):
                     print(f"[DEBUG {frame_count}/{total_frames}] 无masks属性或masks为None")
 
                 print(f"[DEBUG {frame_count}/{total_frames}] 帧annotations数量={len(frame_annotations)}, track_ids={debug_track_ids}")
-                with open(labels_dir / f"frame_{frame_count:06d}.json", 'w') as f:
+                with open(labels_dir / f"frame_{frame_count:06d}.json", 'w', encoding='utf-8') as f:
                     json.dump(frame_annotations, f)
 
                 annotated_frame = r.plot()
@@ -1920,7 +1920,7 @@ class UnifiedPanel(QMainWindow):
                     except:
                         pass
 
-            with open(temp_data_path / 'annotations.json', 'w') as f:
+            with open(temp_data_path / 'annotations.json', 'w', encoding='utf-8') as f:
                 json.dump(coco_data, f)
 
             out.release()
@@ -3790,7 +3790,7 @@ class UnifiedPanel(QMainWindow):
                 ann_id += 1
 
             # 保存帧标注
-            with open(labels_dir / f"frame_{frame_idx:06d}.json", 'w') as f:
+            with open(labels_dir / f"frame_{frame_idx:06d}.json", 'w', encoding='utf-8') as f:
                 json.dump(frame_anns, f)
 
         # 保存annotations.json
@@ -3800,7 +3800,7 @@ class UnifiedPanel(QMainWindow):
             'annotations': all_annotations,
             'categories': [{'id': 0, 'name': 'Detect'}]
         }
-        with open(temp_data / "annotations.json", 'w') as f:
+        with open(temp_data / "annotations.json", 'w', encoding='utf-8') as f:
             json.dump(coco_data, f)
 
         print(f"[labelme import] 完成: {len(all_images)} 帧, {len(all_annotations)} 标注")
@@ -3820,7 +3820,7 @@ class UnifiedPanel(QMainWindow):
             return
 
         try:
-            with open(ann_file) as f:
+            with open(ann_file, encoding='utf-8') as f:
                 coco_data = json.load(f)
         except json.JSONDecodeError:
             QMessageBox.critical(self, "错误", f"annotations.json 文件损坏!")
@@ -4111,7 +4111,7 @@ class UnifiedPanel(QMainWindow):
             'categories': categories_list
         }
 
-        with open(output_path / "annotations.json", 'w') as f:
+        with open(output_path / "annotations.json", 'w', encoding='utf-8') as f:
             json.dump(coco_output, f)
 
         print(f"导出完成: {output_path}")
