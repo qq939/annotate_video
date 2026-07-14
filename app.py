@@ -5004,7 +5004,11 @@ names: {class_names}
             train_single = yolo_runs_dir / "train"
             if train_single.exists():
                 shutil.rmtree(train_single)
-            train_dir = yolo_runs_dir / "train-1"
+            # 计算下一个train-N编号
+            existing = list(yolo_runs_dir.glob("train-*"))
+            next_num = max([int(p.name.replace("train-", "")) for p in existing if p.name.replace("train-", "").isdigit()], default=0) + 1
+            train_dir = yolo_runs_dir / f"train-{next_num}"
+            print(f"[YOLO] 新训练文件夹: {train_dir.name}")
         
         # 如果继续训练，从已有model.json读取ID、名称、描述
         prev_model_json = train_dir / "model.json"
@@ -5055,12 +5059,7 @@ names: {class_names}
                 print("[YOLO] 未找到last.pt，无法继续训练")
                 return
         else:
-            # 全新训练，生成新的train-N文件夹
-            existing = list(yolo_runs_dir.glob("train-*"))
-            print(f"[YOLO] 现有训练文件夹: {[p.name for p in existing]}")
-            next_num = max([int(p.name.replace("train-", "")) for p in existing if p.name.replace("train-", "").isdigit()], default=0) + 1
-            train_dir = yolo_runs_dir / f"train-{next_num}"
-            print(f"[YOLO] 新训练文件夹: {train_dir.name}")
+            # 全新训练
             model = YOLO("yolo11m.pt")
             model.train(
                 data=yaml_path.as_posix(),
@@ -5070,7 +5069,7 @@ names: {class_names}
                 device=0,
                 workers=0,
                 project=yolo_project.as_posix(),
-                name=f"train-{next_num}",
+                name=train_dir.name,
                 patience=10,
                 cache="ram"
             )
