@@ -833,11 +833,13 @@ class TrimDialog(QDialog):
     """视频裁剪对话框"""
     def __init__(self, video_path, parent=None):
         super().__init__(parent)
-        self.video_path = video_path
+        # 支持多视频路径（用 | 分隔）
+        self.video_paths = video_path.split('|') if '|' in video_path else [video_path]
+        self.video_path = self.video_paths[0]  # 第一个视频作为主视频
         self.parent_panel = parent  # 保存父窗口引用用于获取视频名称
         
-        # 先获取视频尺寸
-        cap = cv2.VideoCapture(video_path)
+        # 先获取视频尺寸（使用第一个视频）
+        cap = cv2.VideoCapture(self.video_path)
         vw = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         vh = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         cap.release()
@@ -945,18 +947,47 @@ class TrimDialog(QDialog):
         self.show_frame(self.slider.value())
     
     def load_video(self):
-        self.cap = cv2.VideoCapture(self.video_path)
-        self.total = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        self.fps = self.cap.get(cv2.CAP_PROP_FPS)
+        # 支持多视频：读取所有视频的帧
+        self.video_caps = []
+        self.video_frame_counts = []
+        self.video_frame_starts = [0]  # 每个视频的起始帧号
+        
+        for vp in self.video_paths:
+            cap = cv2.VideoCapture(vp)
+            if cap.isOpened():
+                frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                self.video_caps.append(cap)
+                self.video_frame_counts.append(frame_count)
+                self.video_frame_starts.append(self.video_frame_starts[-1] + frame_count)
+            else:
+                self.video_caps.append(None)
+                self.video_frame_counts.append(0)
+                self.video_frame_starts.append(self.video_frame_starts[-1])
+        
+        self.total = self.video_frame_starts[-1]  # 总帧数
+        self.fps = cv2.VideoCapture(self.video_paths[0]).get(cv2.CAP_PROP_FPS) if self.video_caps[0] else 30
         self.slider.setMaximum(self.total - 1)
         self.show_frame(0)
         # 初始显示一帧以确定label尺寸
         QTimer.singleShot(100, lambda: self.show_frame(0))
     
     def show_frame(self, idx):
-        self.cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
-        ret, frame = self.cap.read()
-        if ret:
+        # 根据帧号找到对应的视频
+        video_idx = 0
+        frame_in_video = idx
+        for i, start in enumerate(self.video_frame_starts[:-1]):
+            if start <= idx < self.video_frame_starts[i + 1]:
+                video_idx = i
+                frame_in_video = idx - start
+                break
+        
+        frame = None
+        if video_idx < len(self.video_caps) and self.video_caps[video_idx]:
+            cap = self.video_caps[video_idx]
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_in_video)
+            ret, frame = cap.read()
+        
+        if frame is not None:
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             h, w = frame.shape[:2]
             # 适应窗口大小并应用缩放
@@ -971,7 +1002,7 @@ class TrimDialog(QDialog):
             frame_small = cv2.resize(frame, (new_w, new_h))
             qimg = QImage(frame_small.data, new_w, new_h, new_w * 3, QImage.Format_RGB888)
             self.label.setPixmap(QPixmap.fromImage(qimg))
-        self.frame_label.setText(f"{idx}/{self.total}")
+        self.frame_label.setText(f"{idx}/{self.total} (视频{video_idx + 1}/{len(self.video_paths)})")
         self.slider.setValue(idx)
         # 更新高亮
         self.slider.setDeleteRanges(self.ranges)
@@ -1237,6 +1268,10 @@ class UnifiedPanel(QMainWindow):
         select_btn.setFixedWidth(50)
         select_btn.clicked.connect(self.open_trim_dialog)
         select_layout.addWidget(select_btn)
+        add_btn = QPushButton("+添加")
+        add_btn.setFixedWidth(50)
+        add_btn.clicked.connect(self.add_trim_video)
+        select_layout.addWidget(add_btn)
         content_layout.addLayout(select_layout)
         
         return group
@@ -1252,6 +1287,20 @@ class UnifiedPanel(QMainWindow):
         # 创建并显示对话框
         dialog = TrimDialog(file_path, self)
         dialog.exec_()
+    
+    def add_trim_video(self):
+        """添加视频到裁剪对话框（支持多选）"""
+        file_paths, _ = QFileDialog.getOpenFileNames(self, "选择视频(支持多选)", "", "视频文件 (*.mp4 *.avi *.mov *.mkv)")
+        if not file_paths:
+            return
+        
+        current = self.trim_video_input.text().strip()
+        if current:
+            # 追加到现有路径后面
+            new_paths = current + "|" + "|".join(file_paths)
+        else:
+            new_paths = "|".join(file_paths)
+        self.trim_video_input.setText(new_paths)
     
     def open_trim_mid_dialog(self):
         """打开temp_data_mid帧删除对话框"""
