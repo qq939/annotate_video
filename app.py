@@ -2252,6 +2252,11 @@ class UnifiedPanel(QMainWindow):
         self.train_epochs_input.setFixedWidth(40)
         self.train_epochs_input.setFixedHeight(22)
         train_params_layout.addWidget(self.train_epochs_input)
+        train_params_layout.addWidget(QLabel("增广:"))
+        self.train_aug_input = QLineEdit("1.1")
+        self.train_aug_input.setFixedWidth(40)
+        self.train_aug_input.setFixedHeight(22)
+        train_params_layout.addWidget(self.train_aug_input)
         self.train_resume_check = QCheckBox("继续训练")
         self.train_resume_check.setChecked(False)
         self.train_resume_check.setStyleSheet("QCheckBox { font-size: 11px; }")
@@ -4840,20 +4845,27 @@ names: {class_names}
                 except:
                     pass
         
-        # 数据增广：最少和第二少都增广到 max_count * 1.1
+        # 数据增广：最少和第二少都增广到 max_count * 增广倍数
+        aug_ratio_input = self.train_aug_input.text() if hasattr(self, 'train_aug_input') else "1.1"
+        try:
+            aug_ratio = float(aug_ratio_input)
+        except:
+            aug_ratio = 1.1
+        
         sorted_classes = sorted(class_counts.items(), key=lambda x: x[1])
         max_count = sorted_classes[-1][1] if sorted_classes else 0
-        target_count = int(max_count * 1.1)  # 增广到1.1倍
+        target_count = int(max_count * aug_ratio)
         
         print(f"[YOLO] 类别帧数统计: {class_counts}")
-        print(f"[YOLO] 数据增广目标: {target_count} (最多={max_count})")
+        print(f"[YOLO] 增广倍数: {aug_ratio}, 数据增广目标: {target_count} (最多={max_count})")
         
         # 使用albumentations做专业数据增广
         try:
             import albumentations as A
-            from albumentations.pytorch import ToTensorV2
             transform = A.Compose([
-                A.HorizontalFlip(p=1.0),  # 水平翻转
+                A.HorizontalFlip(p=0.5),
+                A.RandomBrightnessContrast(p=0.3),
+                A.HueSaturationValue(p=0.3),
             ], bbox_params=A.BboxParams(format='pascal_voc', label_fields=['class_labels']))
             has_albumentations = True
         except ImportError:
