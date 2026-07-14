@@ -1034,28 +1034,23 @@ class TrimDialog(QDialog):
             self.toggle_play()
     
     def add_video_to_trim(self):
-        """添加视频到当前视频后面（合并成临时视频）"""
+        """添加视频的帧到temp_data_mid后面"""
         file_paths, _ = QFileDialog.getOpenFileNames(self, "选择视频(支持多选)", "", "视频文件 (*.mp4 *.avi *.mov *.mkv)")
         if not file_paths:
             return
         
-        # 先读取现有视频的所有帧
-        print(f"[Trim] 正在读取现有视频...")
-        all_frames = []
-        all_fps = self.fps
+        # 获取现有帧数起始位置
+        temp_data_mid = Path("temp_data_mid")
+        frames_dir = temp_data_mid / "frames"
+        labels_dir = temp_data_mid / "labels"
         
-        for i, cap in enumerate(self.video_caps):
-            if cap is None:
-                continue
-            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                all_frames.append(frame.copy())
+        # 找出现有最大帧号
+        existing_frames = sorted(frames_dir.glob("frame_*.jpg"))
+        start_idx = len(existing_frames)
+        print(f"[Trim] 当前temp_data_mid有 {start_idx} 帧，将从第 {start_idx} 帧开始追加")
         
-        # 读取新视频的所有帧
-        print(f"[Trim] 正在合并 {len(file_paths)} 个新视频...")
+        # 读取并切帧
+        new_frame_count = 0
         for vp in file_paths:
             cap = cv2.VideoCapture(vp)
             if not cap.isOpened():
@@ -1065,11 +1060,46 @@ class TrimDialog(QDialog):
                 ret, frame = cap.read()
                 if not ret:
                     break
-                all_frames.append(frame.copy())
+                frame_name = f"frame_{start_idx + new_frame_count:06d}.jpg"
+                cv2.imwrite(str(frames_dir / frame_name), frame)
+                # 创建空label
+                with open(labels_dir / f"frame_{start_idx + new_frame_count:06d}.json", 'w') as f:
+                    json.dump([], f)
+                new_frame_count += 1
             cap.release()
         
+        # 更新annotations.json
+        annotations_file = temp_data_mid / "annotations.json"
+        if annotations_file.exists():
+            with open(annotations_file, 'r', encoding='utf-8') as f:
+                coco = json.load(f)
+            
+            # 更新images
+            width = coco['images'][0]['width'] if coco['images'] else 640
+            height = coco['images'][0]['height'] if coco['images'] else 480
+            for i in range(new_frame_count):
+                coco['images'].append({
+                    'id': start_idx + i,
+                    'file_name': f"frame_{start_idx + i:06d}.jpg",
+                    'width': width,
+                    'height': height,
+                    'frame_count': start_idx + i
+                })
+            
+            with open(annotations_file, 'w', encoding='utf-8') as f:
+                json.dump(coco, f, ensure_ascii=False)
+        
+        print(f"[Trim] 已添加 {new_frame_count} 帧到temp_data_mid，总计 {start_idx + new_frame_count} 帧")
+        
+        # 替换预览为合并后的临时视频
+        all_frames = []
+        for frame_file in sorted(frames_dir.glob("frame_*.jpg")):
+            frame = cv2.imread(str(frame_file))
+            if frame is not None:
+                all_frames.append(frame)
+        
         if not all_frames:
-            print("[Trim] 无法读取视频帧")
+            print("[Trim] 无法读取帧")
             return
         
         # 保存临时视频
@@ -1080,12 +1110,12 @@ class TrimDialog(QDialog):
         
         height, width = all_frames[0].shape[:2]
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(temp_path, fourcc, all_fps, (width, height))
+        out = cv2.VideoWriter(temp_path, fourcc, 30, (width, height))
         for frame in all_frames:
             out.write(frame)
         out.release()
         
-        # 替换为单个合并后的视频
+        # 替换预览视频
         for cap in self.video_caps:
             if cap:
                 cap.release()
@@ -1105,7 +1135,7 @@ class TrimDialog(QDialog):
         self.total = self.video_frame_starts[-1]
         self.slider.setMaximum(self.total - 1)
         self.show_frame(0)
-        print(f"[Trim] 视频合并完成: {temp_path}, 总帧数: {self.total}")
+        print(f"[Trim] 预览更新完成: {temp_path}, 总帧数: {self.total}")
     
     def backward(self):
         idx = self.slider.value()
