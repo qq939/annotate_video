@@ -4904,6 +4904,24 @@ names: {class_names}
         
         random.shuffle(img_files)
         
+        # 保存增广后的数据集到项目根目录（与label_x_label_me格式一致）
+        import time
+        timestamp = time.strftime("%Y%m%d")
+        aug_label_dir = Path(f"label_{timestamp}")
+        aug_label_dir.mkdir(exist_ok=True)
+        
+        # 使用frame_000000.jpg格式
+        for idx, img_file in enumerate(img_files):
+            # 复制图片
+            new_img_name = f"frame_{idx:06d}.jpg"
+            shutil.copy(img_file, aug_label_dir / new_img_name)
+            # 复制labelme格式的json
+            json_file = img_file.with_suffix('.json')
+            if json_file.exists():
+                new_json_name = f"frame_{idx:06d}.json"
+                shutil.copy(json_file, aug_label_dir / new_json_name)
+        print(f"[YOLO] 增广数据集已保存到: {aug_label_dir} ({len(img_files)}张)")
+        
         # 输出最终增广后的图片数量和分类别统计
         print(f"[YOLO] 增广后总图片数: {len(img_files)}")
         # 分类别统计
