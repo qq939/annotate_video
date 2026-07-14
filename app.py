@@ -1176,18 +1176,25 @@ class TrimDialog(QDialog):
         
         output_files = []
         timestamp = time.strftime("%Y%m%d%H%M%S")
-        # 优先使用父窗口的视频名称，否则使用当前视频文件名
+        
+        # 使用临时视频路径生成clip
+        temp_video_path = str(Path("temp") / "temp.mp4")
+        if not Path(temp_video_path).exists():
+            QMessageBox.warning(self, "错误", "临时视频不存在")
+            return
+        
         base_name = ""
         if self.parent_panel and hasattr(self.parent_panel, 'last_video_name'):
             base_name = self.parent_panel.last_video_name
         if not base_name:
-            base_name = Path(self.video_path).stem
+            base_name = "clip"
         
         for idx, (s, e) in enumerate(keep_ranges):
             clip_name = f"{base_name}_clip{idx + 1}_{timestamp}.mp4"
-            out_path = Path(self.video_path).parent / clip_name
+            out_path = Path("1dst") / clip_name
+            out_path.parent.mkdir(exist_ok=True)
             
-            cap_in = cv2.VideoCapture(self.video_path)
+            cap_in = cv2.VideoCapture(temp_video_path)
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
             w = int(cap_in.get(cv2.CAP_PROP_FRAME_WIDTH))
             h = int(cap_in.get(cv2.CAP_PROP_FRAME_HEIGHT))
