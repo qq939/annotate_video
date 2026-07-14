@@ -1078,10 +1078,9 @@ class TrimDialog(QDialog):
             return
         
         # 保存临时视频用于预览
-        import tempfile
-        temp_video = tempfile.NamedTemporaryFile(suffix='.mp4', delete=False)
-        temp_video.close()
-        temp_path = temp_video.name
+        temp_dir = Path("temp")
+        temp_dir.mkdir(exist_ok=True)
+        temp_path = str(temp_dir / "temp.mp4")
         
         height, width = all_frames[0].shape[:2]
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
