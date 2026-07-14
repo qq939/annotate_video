@@ -4701,6 +4701,9 @@ names: {class_names}
         
         random.shuffle(img_files)
         
+        # 输出最终增广后的图片数量
+        print(f"[YOLO] 增广后总图片数: {len(img_files)}")
+        
         # 划分训练集和验证集 (8:2)
         split_idx = int(len(img_files) * 0.8)
         train_files = img_files[:split_idx]
