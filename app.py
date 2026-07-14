@@ -3867,6 +3867,8 @@ class UnifiedPanel(QMainWindow):
         if end_frame == -1 or end_frame >= total_frames:
             end_frame = total_frames - 1
         
+        print(f"[固定框] 用户输入: {start_frame} - {end_frame}, 总帧数: {total_frames}")
+        
         # 转换为coco格式: [x, y, w, h]
         coco_bbox = [min(bbox[0], bbox[2]), min(bbox[1], bbox[3]), 
                      abs(bbox[2] - bbox[0]), abs(bbox[3] - bbox[1])]
@@ -3875,8 +3877,10 @@ class UnifiedPanel(QMainWindow):
         # 记录回退信息
         undo_changes = []
         added = 0
+        print(f"[固定框] 实际标注帧范围: {start_frame} 到 {end_frame}")
         for i in range(start_frame, end_frame + 1):
             frame_file = labels_dir / f"frame_{i:06d}.json"
+            print(f"[固定框] 正在标注帧 {i}")
             old_trace_id = None
             if frame_file.exists():
                 with open(frame_file) as fp:
@@ -5016,13 +5020,15 @@ names: {class_names}
                 pass
         
         # 训练模型
-        print("[YOLO] 开始训练...")
+        epochs_input = self.train_epochs_input.text() if hasattr(self, 'train_epochs_input') else "30"
+        epochs = int(epochs_input) if epochs_input else 30
+        print(f"[YOLO] 开始训练... epochs={epochs}")
         from ultralytics import YOLO
         
         if resume:
             # 继续训练：加载已有模型
             print("[YOLO] 继续训练模式...")
-            epochs = int(self.train_epochs_input.text()) if self.train_epochs_input.text() else 30
+            print(f"[YOLO] 继续训练 epochs={epochs}")
             last_pt = train_dir / "weights" / "last.pt"
             best_onnx = train_dir / "weights" / "best.onnx"
             
