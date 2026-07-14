@@ -3356,22 +3356,26 @@ class UnifiedPanel(QMainWindow):
         self.viewer.update_display()
 
     def select_data_dir(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "选择视频文件", ".",
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "选择视频文件(支持多选)", ".",
             "视频文件 (*.mp4 *.avi *.mov *.mkv *.MP4 *.AVI *.MOV *.MKV);;所有文件 (*)"
         )
-        if path:
-            self._extract_video_to_temp_data(Path(path))
+        if paths:
+            self._extract_video_to_temp_data([Path(p) for p in paths])
 
-    def _extract_video_to_temp_data(self, video_path=None):
-        if video_path is None:
-            video_path_selected, _ = QFileDialog.getOpenFileName(
-                self, "选择视频文件", "",
+    def _extract_video_to_temp_data(self, video_paths=None):
+        if video_paths is None:
+            paths, _ = QFileDialog.getOpenFileNames(
+                self, "选择视频文件(支持多选)", "",
                 "视频文件 (*.mp4 *.avi *.mov *.mkv *.MP4 *.AVI *.MOV *.MKV);;所有文件 (*)"
             )
-            if not video_path_selected:
+            if not paths:
                 return
-            video_path = video_path_selected
+            video_paths = [Path(p) for p in paths]
+        
+        # 如果是单个路径，转为列表
+        if isinstance(video_paths, Path):
+            video_paths = [video_paths]
 
         # 选择视频时删除temp_data和temp_data_mid
         import shutil
@@ -3399,48 +3403,72 @@ class UnifiedPanel(QMainWindow):
             skip_frames = int(self.skip_frames_input.text()) if self.skip_frames_input.text() else 1
             resize_ratio = float(self.resize_ratio_input.text()) if self.resize_ratio_input.text() else 1.0
             
-            # 生成临时视频
-            print(f"[DEBUG] 生成临时视频: 起始={start_time}秒, 取{max_frames}帧, 每隔{skip_frames}帧取1, 缩放={resize_ratio}")
-            temp_result = self.create_temp_video(video_path, start_time, max_frames, skip_frames, resize_ratio)
-            if temp_result is None:
-                QMessageBox.warning(self, "错误", "无法打开视频文件")
+            # 处理多个视频：合并成一个大视频
+            all_frames = []
+            all_fps = None
+            
+            for i, video_path in enumerate(video_paths):
+                print(f"[DEBUG] 处理视频 {i+1}/{len(video_paths)}: {video_path}")
+                cap = cv2.VideoCapture(str(video_path))
+                if not cap.isOpened():
+                    print(f"[ERROR] 无法打开视频: {video_path}")
+                    continue
+                
+                fps = cap.get(cv2.CAP_PROP_FPS)
+                if all_fps is None:
+                    all_fps = fps
+                
+                frame_idx = 0
+                while True:
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
+                    if resize_ratio != 1.0:
+                        frame = cv2.resize(frame, (int(frame.shape[1] * resize_ratio), int(frame.shape[0] * resize_ratio)))
+                    all_frames.append(frame.copy())
+                    frame_idx += 1
+                    if frame_idx >= max_frames:
+                        break
+                cap.release()
+                
+                # 如果设置了跳过帧，每隔skip_frames取1帧
+                if skip_frames > 1:
+                    all_frames = all_frames[::skip_frames]
+                
+                # 更新max_frames控制每个视频的帧数
+                if max_frames < 10000:
+                    max_frames = 10000  # 下一个视频不受限制
+            
+            if not all_frames:
+                QMessageBox.warning(self, "错误", "无法读取任何视频帧")
                 return
             
-            temp_video_path, fps, frame_count = temp_result
-            print(f"[DEBUG] 临时视频生成完成: {temp_video_path}, {fps}fps, {frame_count}帧")
+            print(f"[DEBUG] 合并后总帧数: {len(all_frames)}, FPS: {all_fps}")
             
-            # 使用临时视频切帧
-            cap = cv2.VideoCapture(temp_video_path)
-            if not cap.isOpened():
-                QMessageBox.warning(self, "错误", f"无法打开临时视频: {temp_video_path}")
-                return   
-
-            fourcc_int = int(cap.get(cv2.CAP_PROP_FOURCC))
-            fourcc_str = ''.join([chr(fourcc_int & 0xFF), chr((fourcc_int >> 8) & 0xFF), chr((fourcc_int >> 16) & 0xFF), chr((fourcc_int >> 24) & 0xFF)])
-            fps = cap.get(cv2.CAP_PROP_FPS)
-            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-            count = 0
-            while count < frame_count:
-                ret, frame = cap.read()
-                if not ret:
-                    break
+            # 保存帧到文件
+            frame_count = len(all_frames)
+            for count, frame in enumerate(all_frames):
                 cv2.imwrite(str(frames_dir / f"frame_{count:06d}.jpg"), frame)
-                count += 1
                 if count % 100 == 0:
-                    self.statusBar().showMessage(f"正在切帧... {count} 帧")
+                    self.statusBar().showMessage(f"正在保存帧... {count} / {frame_count}")
                     QApplication.processEvents()
-            cap.release()
+
+            # 获取第一帧的尺寸
+            height, width = all_frames[0].shape[:2]
+            
+            # 获取第一个视频的FPS
+            first_cap = cv2.VideoCapture(str(video_paths[0]))
+            fps = first_cap.get(cv2.CAP_PROP_FPS)
+            first_cap.release()
 
             coco_data = {
                 'info': {
                     'description': 'Video Annotation Dataset',
-                    'video_path': str(video_path),
+                    'video_path': str(video_paths[0]),
                     'fps': fps,
                     'width': width,
                     'height': height,
-                    'fourcc': fourcc_str,
+                    'videos': [str(vp) for vp in video_paths],
                     'FIND': []
                 },
                 'images': [
@@ -3451,11 +3479,11 @@ class UnifiedPanel(QMainWindow):
                 'categories': []
             }
 
-            with open(temp_dir / 'annotations.json', 'w') as f:
-                json.dump(coco_data, f)
+            with open(temp_dir / 'annotations.json', 'w', encoding='utf-8') as f:
+                json.dump(coco_data, f, ensure_ascii=False)
 
             for i in range(frame_count):
-                with open(labels_dir / f"frame_{i:06d}.json", 'w') as f:
+                with open(labels_dir / f"frame_{i:06d}.json", 'w', encoding='utf-8') as f:
                     json.dump([], f)
 
             self.total_frames = frame_count
