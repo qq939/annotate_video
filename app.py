@@ -4839,12 +4839,13 @@ names: {class_names}
                 except:
                     pass
         
-        # 数据增广：最少和第二少都增广到最多
+        # 数据增广：最少和第二少都增广到 max_count * 1.1
         sorted_classes = sorted(class_counts.items(), key=lambda x: x[1])
         max_count = sorted_classes[-1][1] if sorted_classes else 0
+        target_count = int(max_count * 1.1)  # 增广到1.1倍
         
         print(f"[YOLO] 类别帧数统计: {class_counts}")
-        print(f"[YOLO] 数据增广目标: 最大帧数={max_count}")
+        print(f"[YOLO] 数据增广目标: {target_count} (最多={max_count})")
         
         # 使用albumentations做专业数据增广
         try:
@@ -4913,15 +4914,14 @@ names: {class_names}
             
             return new_data, new_img_path
         
-        # 对帧数最少的类别增广到最多
+        # 对帧数最少的类别增广到 target_count
         if sorted_classes:
             min_class = sorted_classes[0][0]
-            if class_counts[min_class] < max_count:
-                target = max_count
-                copies_needed = target - class_counts[min_class]
+            if class_counts[min_class] < target_count:
+                copies_needed = target_count - class_counts[min_class]
                 source_imgs = img_with_class[min_class]
                 if source_imgs:
-                    print(f"[YOLO] 增广 {min_class}: {class_counts[min_class]} -> {target}")
+                    print(f"[YOLO] 增广 {min_class}: {class_counts[min_class]} -> {target_count}")
                     for i in range(copies_needed):
                         src = source_imgs[i % len(source_imgs)]
                         json_file = src.with_suffix('.json')
@@ -4937,12 +4937,11 @@ names: {class_names}
         # 对第二少的类别增广到最多
         if len(sorted_classes) > 1:
             second_min_class = sorted_classes[1][0]
-            if class_counts[second_min_class] < max_count:
-                target = max_count
-                copies_needed = target - class_counts[second_min_class]
+            if class_counts[second_min_class] < target_count:
+                copies_needed = target_count - class_counts[second_min_class]
                 source_imgs = img_with_class[second_min_class]
                 if source_imgs:
-                    print(f"[YOLO] 增广 {second_min_class}: {class_counts[second_min_class]} -> {target}")
+                    print(f"[YOLO] 增广 {second_min_class}: {class_counts[second_min_class]} -> {target_count}")
                     for i in range(copies_needed):
                         src = source_imgs[i % len(source_imgs)]
                         json_file = src.with_suffix('.json')
