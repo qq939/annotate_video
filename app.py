@@ -5030,14 +5030,14 @@ names: {class_names}
         from ultralytics import YOLO
         
         if resume:
-            # 继续训练：从已有权重加载（不用resume=True，因为last.pt缺少epoch/optimizer状态）
-            print("[YOLO] 继续训练模式：从已有权重加载...")
+            # 从已有权重加载作为预训练权重，生成新的train-N文件夹
+            print("[YOLO] 从已有权重加载...")
             print(f"[YOLO] epochs={epochs}")
             last_pt = train_dir / "weights" / "last.pt"
             best_onnx = train_dir / "weights" / "best.onnx"
             
             if last_pt.exists():
-                # 有last.pt，用resume=True继续训练（继续原训练文件夹）
+                # 有last.pt，加载作为预训练权重
                 model = YOLO(str(last_pt))
                 model.train(
                     data=yaml_path.as_posix(),
@@ -5048,11 +5048,11 @@ names: {class_names}
                     workers=0,
                     project=yolo_project.as_posix(),
                     name=train_dir.name,
-                    resume=True,
-                    save_period=5  # 每5轮保存完整断点
+                    resume=False,
+                    save_period=5
                 )
             elif best_onnx.exists():
-                # 只有onnx，从onnx加载训练
+                # 只有onnx，从onnx加载
                 print("[YOLO] 只有best.onnx，从ONNX加载...")
                 model = YOLO(str(best_onnx))
                 model.train(
@@ -5063,8 +5063,12 @@ names: {class_names}
                     device=0,
                     workers=0,
                     project=yolo_project.as_posix(),
-                    name=train_dir.name
+                    name=train_dir.name,
+                    save_period=5
                 )
+            else:
+                print("[YOLO] 未找到last.pt或best.onnx")
+                return
         else:
             # 全新训练
             model = YOLO("yolo11m.pt")
