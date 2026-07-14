@@ -125,7 +125,7 @@ class VideoViewer(QMainWindow):
         self.controller = controller  # VideoController 实例
         self.panel = panel  # UnifiedPanel 实例
 
-        with open(self.temp_data_path / "annotations.json") as f:
+        with open(self.temp_data_path / "annotations.json", encoding='utf-8') as f:
             self.coco_data = json.load(f)
         self.video_info = self.coco_data['info']
 
