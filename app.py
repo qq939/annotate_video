@@ -4692,7 +4692,7 @@ class UnifiedPanel(QMainWindow):
                     traceback.print_exc()
             return
 
-        # 上传视频和labelme压缩包
+        # 上传标注视频
         # OBS文件名添加时间戳，使用原视频名称
         import time
         timestamp = time.strftime("%Y%m%d_%H%M%S")
@@ -4715,12 +4715,13 @@ class UnifiedPanel(QMainWindow):
         except Exception as e:
             print(f"上传失败: {e}")
         
-        # 上传原始未标注视频（命名为ID.mp4）
+        # 保存原视频到temp文件夹（命名为ID_raw.mp4）
         train_id = self.train_id_input.text() or self.default_model_id
-        raw_video_filename = f"{train_id}.mp4"
-        raw_video_url = f"http://obs.dimond.top/{raw_video_filename}"
+        temp_dataset_dir = Path("temp") / f"{train_id}_dataset"
+        temp_dataset_dir.mkdir(parents=True, exist_ok=True)
+        raw_video_path = temp_dataset_dir / f"{train_id}_raw.mp4"
         
-        # 尝试从coco_data获取原始视频列表，合并上传
+        # 尝试从coco_data获取原始视频列表，合并保存
         raw_frames = []
         raw_fps = None
         raw_width = None
@@ -4743,57 +4744,30 @@ class UnifiedPanel(QMainWindow):
                 cap.release()
         
         if raw_frames and raw_fps:
-            import tempfile
-            temp_raw = tempfile.NamedTemporaryFile(suffix='.mp4', delete=False)
-            temp_raw.close()
-            temp_raw_path = temp_raw.name
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            out_raw = cv2.VideoWriter(temp_raw_path, fourcc, raw_fps, (raw_width, raw_height))
+            out_raw = cv2.VideoWriter(str(raw_video_path), fourcc, raw_fps, (raw_width, raw_height))
             for frame in raw_frames:
                 out_raw.write(frame)
             out_raw.release()
-            
-            print(f"[OBS] 上传原始视频: {raw_video_filename}")
-            try:
-                result = subprocess.run(
-                    ['curl', '--upload-file', temp_raw_path, raw_video_url],
-                    capture_output=True, text=True
-                )
-                if result.returncode == 0:
-                    print(f"上传成功! 原始视频: {raw_video_url}")
-                else:
-                    print(f"上传失败: {result.stderr}")
-            except Exception as e:
-                print(f"上传失败: {e}")
+            print(f"[保存] 原视频已保存到: {raw_video_path}")
         else:
-            print(f"[OBS] 无法获取原始视频，跳过上传")
+            print(f"[保存] 无法获取原视频")
 
-        # 压缩并上传label_x_label_me
+        # 复制标注视频到temp文件夹
+        annotated_video_path = temp_dataset_dir / f"{train_id}_annotated.mp4"
+        shutil.copy2(output_path, annotated_video_path)
+        print(f"[保存] 标注视频已保存到: {annotated_video_path}")
+
+        # 复制label_x_label_me到temp文件夹
         import zipfile
         labelme_dir = Path("label_x_label_me")
         if labelme_dir.exists():
-            zip_filename = f"{train_id}_dataset.zip"
-            zip_path = Path("1dst") / zip_filename
-            print(f"[ZIP] 正在压缩label_x_label_me...")
-            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-                for f in labelme_dir.rglob("*"):
-                    if f.is_file():
-                        zf.write(f, f.relative_to(labelme_dir.parent))
-            print(f"[ZIP] 压缩完成: {zip_path}")
-
-            zip_url = f"http://obs.dimond.top/{zip_filename}"
-            print(f"[OBS] 正在上传labelme压缩包...")
-            try:
-                result = subprocess.run(
-                    ['curl', '--upload-file', str(zip_path), zip_url],
-                    capture_output=True, text=True
-                )
-                if result.returncode == 0:
-                    print(f"上传成功! labelme OBS地址: {zip_url}")
-                else:
-                    print(f"上传失败: {result.stderr}")
-            except Exception as e:
-                print(f"上传失败: {e}")
+            # 保存dataset到temp
+            temp_labelme_dir = temp_dataset_dir / "labelme"
+            if temp_labelme_dir.exists():
+                shutil.rmtree(temp_labelme_dir)
+            shutil.copytree(labelme_dir, temp_labelme_dir)
+            print(f"[保存] labelme数据已保存到: {temp_labelme_dir}")
             
             # 训练YOLO模型
             if self.train_model_check.isChecked():
@@ -4805,9 +4779,17 @@ class UnifiedPanel(QMainWindow):
                     import traceback
                     traceback.print_exc()
             
-            print(f"视频已保存并上传!\n视频: {obs_url}\nlabelme: {zip_url}")
+            # 复制训练好的model到temp文件夹
+            model_output_dir = temp_dataset_dir / "model"
+            if Path("runs/detect/yolo_runs/train/weights/best.onnx").exists():
+                model_output_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(Path("runs/detect/yolo_runs/train/weights/best.onnx"), model_output_dir / "best.onnx")
+                shutil.copy2(Path("runs/detect/yolo_runs/train/weights/model.json"), model_output_dir / "model.json")
+                print(f"[保存] 模型已保存到: {model_output_dir}")
+            
+            print(f"完成!\n标注视频: {obs_url}\n数据保存在: {temp_dataset_dir}")
         else:
-            print(f"视频已保存并上传!\nOBS地址: {obs_url}")
+            print(f"标注视频已上传!\nOBS地址: {obs_url}")
 
     def _train_yolo_model(self, labelme_dir):
         """训练YOLO模型"""
