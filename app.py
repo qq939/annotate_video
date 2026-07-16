@@ -2291,11 +2291,6 @@ class UnifiedPanel(QMainWindow):
         self.train_epochs_input.setFixedWidth(40)
         self.train_epochs_input.setFixedHeight(22)
         train_params_layout.addWidget(self.train_epochs_input)
-        train_params_layout.addWidget(QLabel("增广:"))
-        self.train_aug_input = QLineEdit("1.1")
-        self.train_aug_input.setFixedWidth(40)
-        self.train_aug_input.setFixedHeight(22)
-        train_params_layout.addWidget(self.train_aug_input)
         self.train_resume_check = QCheckBox("继续训练")
         self.train_resume_check.setChecked(False)
         self.train_resume_check.setStyleSheet("QCheckBox { font-size: 11px; }")
@@ -4868,19 +4863,16 @@ names: {class_names}
                 except:
                     pass
         
-        # 数据增广：最少和第二少都增广到 max_count * 增广倍数
-        aug_ratio_input = self.train_aug_input.text() if hasattr(self, 'train_aug_input') else "1.1"
-        try:
-            aug_ratio = float(aug_ratio_input)
-        except:
-            aug_ratio = 1.1
+        # 数据增广：每个类别增广到 >= 原始总帧数 * 0.2
+        original_total = len(img_files)  # 原始总帧数
+        target_count = int(original_total * 0.2)  # 每个类别最少要有原始总帧数的0.2倍
+        print(f"[YOLO] 原始总帧数: {original_total}")
+        print(f"[YOLO] 每个类别目标帧数: {target_count} (原始*0.2)")
         
         sorted_classes = sorted(class_counts.items(), key=lambda x: x[1])
-        max_count = sorted_classes[-1][1] if sorted_classes else 0
-        target_count = int(max_count * aug_ratio)
         
         print(f"[YOLO] 类别帧数统计: {class_counts}")
-        print(f"[YOLO] 增广倍数: {aug_ratio}, 数据增广目标: {target_count} (最多={max_count})")
+        print(f"[YOLO] 数据增广目标: 每个类别 >= {target_count} 帧")
         
         # 使用albumentations做专业数据增广
         try:
@@ -4997,45 +4989,27 @@ names: {class_names}
             
             return new_data, new_img_path
         
-        # 对帧数最少的类别增广到 target_count
-        if sorted_classes:
-            min_class = sorted_classes[0][0]
-            if class_counts[min_class] < target_count:
-                copies_needed = target_count - class_counts[min_class]
-                source_imgs = img_with_class[min_class]
+        # 对每个类别增广到 target_count（原始总帧数*0.2）
+        aug_idx = 0
+        for class_name in class_names:
+            current_count = class_counts[class_name]
+            if current_count < target_count:
+                copies_needed = target_count - current_count
+                source_imgs = img_with_class[class_name]
                 if source_imgs:
-                    print(f"[YOLO] 增广 {min_class}: {class_counts[min_class]} -> {target_count}")
+                    print(f"[YOLO] 增广 {class_name}: {current_count} -> {target_count}")
                     for i in range(copies_needed):
                         src = source_imgs[i % len(source_imgs)]
                         json_file = src.with_suffix('.json')
                         if json_file.exists():
-                            result = augment_with_bbox(src, json_file, i, labelme_dir)
+                            result = augment_with_bbox(src, json_file, aug_idx, labelme_dir)
                             if result:
                                 new_data, new_img_path = result
                                 img_files.append(new_img_path)
                                 new_json_path = new_img_path.with_suffix('.json')
                                 with open(new_json_path, 'w', encoding='utf-8') as f:
                                     json.dump(new_data, f)
-        
-        # 对第二少的类别增广到最多
-        if len(sorted_classes) > 1:
-            second_min_class = sorted_classes[1][0]
-            if class_counts[second_min_class] < target_count:
-                copies_needed = target_count - class_counts[second_min_class]
-                source_imgs = img_with_class[second_min_class]
-                if source_imgs:
-                    print(f"[YOLO] 增广 {second_min_class}: {class_counts[second_min_class]} -> {target_count}")
-                    for i in range(copies_needed):
-                        src = source_imgs[i % len(source_imgs)]
-                        json_file = src.with_suffix('.json')
-                        if json_file.exists():
-                            result = augment_with_bbox(src, json_file, i, labelme_dir)
-                            if result:
-                                new_data, new_img_path = result
-                                img_files.append(new_img_path)
-                                new_json_path = new_img_path.with_suffix('.json')
-                                with open(new_json_path, 'w', encoding='utf-8') as f:
-                                    json.dump(new_data, f)
+                                aug_idx += 1
         
         random.shuffle(img_files)
         
