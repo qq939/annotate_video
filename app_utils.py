@@ -228,7 +228,7 @@ def apply_single_mapping_to_mid(from_id, to_id, temp_mid_dir=None):
     
     count = 0
     for label_file in sorted(labels_dir.glob("frame_*.json")):
-        with open(label_file) as f:
+        with open(label_file, encoding='utf-8') as f:
             frame_anns = json.load(f)
         changed = False
         for ann in frame_anns:
@@ -236,18 +236,18 @@ def apply_single_mapping_to_mid(from_id, to_id, temp_mid_dir=None):
                 ann['track_id'] = to_id
                 changed = True
         if changed:
-            with open(label_file, 'w') as f:
-                json.dump(frame_anns, f)
+            with open(label_file, 'w', encoding='utf-8') as f:
+                json.dump(frame_anns, f, ensure_ascii=False)
             count += 1
     
     if annotations_file.exists():
-        with open(annotations_file) as f:
+        with open(annotations_file, encoding='utf-8') as f:
             coco = json.load(f)
         for ann in coco.get('annotations', []):
             if ann.get('track_id') == from_id:
                 ann['track_id'] = to_id
-        with open(annotations_file, 'w') as f:
-            json.dump(coco, f)
+        with open(annotations_file, 'w', encoding='utf-8') as f:
+            json.dump(coco, f, ensure_ascii=False)
     
     return count
 
@@ -275,7 +275,7 @@ def apply_trace_id_mappings(mappings, temp_mid_dir=None):
     
     converted_count = 0
     for label_file in sorted(labels_dir.glob("frame_*.json")):
-        with open(label_file) as f:
+        with open(label_file, encoding='utf-8') as f:
             frame_anns = json.load(f)
         changed = False
         for ann in frame_anns:
@@ -288,12 +288,12 @@ def apply_trace_id_mappings(mappings, temp_mid_dir=None):
                         ann['trace_id_list'] = trace_list
                     changed = True
         if changed:
-            with open(label_file, 'w') as f:
-                json.dump(frame_anns, f)
+            with open(label_file, 'w', encoding='utf-8') as f:
+                json.dump(frame_anns, f, ensure_ascii=False)
             converted_count += 1
     
     if annotations_file.exists():
-        with open(annotations_file) as f:
+        with open(annotations_file, encoding='utf-8') as f:
             coco = json.load(f)
         changed = False
         for ann in coco.get('annotations', []):
@@ -307,10 +307,10 @@ def apply_trace_id_mappings(mappings, temp_mid_dir=None):
                     changed = True
         if changed:
             with open(annotations_file, 'w') as f:
-                json.dump(coco, f)
+                json.dump(coco, f, ensure_ascii=False)
     
     with open(history_file, 'w') as f:
-        json.dump(history_records, f)
+        json.dump(history_records, f, ensure_ascii=False)
     
     return converted_count, history_records
 
@@ -339,7 +339,7 @@ def revert_trace_id_mappings(temp_mid_dir=None):
     
     converted_count = 0
     for label_file in sorted(labels_dir.glob("frame_*.json")):
-        with open(label_file) as f:
+        with open(label_file, encoding='utf-8') as f:
             frame_anns = json.load(f)
         changed = False
         for ann in frame_anns:
@@ -353,12 +353,12 @@ def revert_trace_id_mappings(temp_mid_dir=None):
                         ann['trace_id'] = old_id
                     changed = True
         if changed:
-            with open(label_file, 'w') as f:
-                json.dump(frame_anns, f)
+            with open(label_file, 'w', encoding='utf-8') as f:
+                json.dump(frame_anns, f, ensure_ascii=False)
             converted_count += 1
     
     if annotations_file.exists():
-        with open(annotations_file) as f:
+        with open(annotations_file, encoding='utf-8') as f:
             coco = json.load(f)
         changed = False
         for ann in coco.get('annotations', []):
@@ -373,7 +373,7 @@ def revert_trace_id_mappings(temp_mid_dir=None):
                     changed = True
         if changed:
             with open(annotations_file, 'w') as f:
-                json.dump(coco, f)
+                json.dump(coco, f, ensure_ascii=False)
     
     history_file.unlink()
     
@@ -531,7 +531,7 @@ def mark_track_ids_deleted(track_ids, temp_data_dir=None):
     count = 0
     
     for label_file in sorted(labels_dir.glob("frame_*.json")):
-        with open(label_file) as f:
+        with open(label_file, encoding='utf-8') as f:
             frame_anns = json.load(f)
         changed = False
         for ann in frame_anns:
@@ -539,12 +539,12 @@ def mark_track_ids_deleted(track_ids, temp_data_dir=None):
                 ann['track_id'] = 9999
                 changed = True
         if changed:
-            with open(label_file, 'w') as f:
-                json.dump(frame_anns, f)
+            with open(label_file, 'w', encoding='utf-8') as f:
+                json.dump(frame_anns, f, ensure_ascii=False)
             count += 1
     
     if annotations_file.exists():
-        with open(annotations_file) as f:
+        with open(annotations_file, encoding='utf-8') as f:
             coco = json.load(f)
         changed = False
         for ann in coco.get('annotations', []):
@@ -553,7 +553,7 @@ def mark_track_ids_deleted(track_ids, temp_data_dir=None):
                 changed = True
         if changed:
             with open(annotations_file, 'w') as f:
-                json.dump(coco, f)
+                json.dump(coco, f, ensure_ascii=False)
     
     return count
 
@@ -578,14 +578,14 @@ def save_frame_annotations(frame_idx, annotations, labels_dir, annotations_file)
     
     existing.extend(annotations)
     with open(lf, 'w') as f:
-        json.dump(existing, f)
+        json.dump(existing, f, ensure_ascii=False)
     
     if annotations_file and Path(annotations_file).exists():
         with open(annotations_file, 'r') as f:
             coco = json.load(f)
         coco['annotations'].extend(annotations)
-        with open(annotations_file, 'w') as f:
-            json.dump(coco, f)
+        with open(annotations_file, 'w', encoding='utf-8') as f:
+            json.dump(coco, f, ensure_ascii=False)
 
 
 def load_frame_annotations(frame_idx, labels_dir):
@@ -593,7 +593,7 @@ def load_frame_annotations(frame_idx, labels_dir):
     labels_dir = Path(labels_dir)
     lf = labels_dir / f"frame_{frame_idx:06d}.json"
     if lf.exists():
-        with open(lf) as f:
+        with open(lf, encoding='utf-8') as f:
             return json.load(f)
     return []
 
@@ -664,7 +664,7 @@ def export_to_temp_data_post(cat_maps=None, del_track_id_list=None, temp_mid_dir
     if not af.exists():
         return False, "annotations.json不存在"
     
-    with open(af) as f:
+    with open(af, encoding='utf-8') as f:
         coco = json.load(f)
     
     out = TEMP_DATA_POST_DIR
@@ -700,7 +700,7 @@ def export_to_temp_data_post(cat_maps=None, del_track_id_list=None, temp_mid_dir
         label_path = ld / f"frame_{i:06d}.json"
         frame_anns = []
         if label_path.exists():
-            with open(label_path) as f:
+            with open(label_path, encoding='utf-8') as f:
                 annotations = json.load(f)
             for ann in annotations:
                 track_id = ann.get('track_id', ann.get('id', 0))
@@ -720,8 +720,8 @@ def export_to_temp_data_post(cat_maps=None, del_track_id_list=None, temp_mid_dir
                 frame_anns.append(ann_copy)
                 all_annotations.append(ann_copy)
 
-        with open(output_labels_dir / f"frame_{i:06d}.json", 'w') as f:
-            json.dump(frame_anns, f)
+        with open(output_labels_dir / f"frame_{i:06d}.json", 'w', encoding='utf-8') as f:
+            json.dump(frame_anns, f, ensure_ascii=False)
         exported_count += len(frame_anns)
 
     coco_output = {
@@ -731,8 +731,8 @@ def export_to_temp_data_post(cat_maps=None, del_track_id_list=None, temp_mid_dir
         'categories': [{'id': cid, 'name': cname} for cid, cname in sorted(cat_id_set, key=lambda x: x[0])]
     }
 
-    with open(out / "annotations.json", 'w') as f:
-        json.dump(coco_output, f)
+    with open(out / "annotations.json", 'w', encoding='utf-8') as f:
+        json.dump(coco_output, f, ensure_ascii=False)
 
     return True, f"导出完成，{exported_count}条标注"
 
@@ -967,12 +967,12 @@ def process_clip_for_bidirectional(start_frame, end_frame, forward, prompt_bboxe
         label_file = src_labels_dir / f"frame_{orig_frame_idx:06d}.json"
         existing_anns = []
         if label_file.exists():
-            with open(label_file) as f:
+            with open(label_file, encoding='utf-8') as f:
                 existing_anns = json.load(f)
             log(f"[DEBUG {direction}] [帧{total_results}] 已存在标注{len(existing_anns)}条，追加新标注")
         merged_anns = existing_anns + frame_anns
-        with open(label_file, 'w') as f:
-            json.dump(merged_anns, f)
+        with open(label_file, 'w', encoding='utf-8') as f:
+            json.dump(merged_anns, f, ensure_ascii=False)
         log(f"[DEBUG {direction}] [帧{total_results}] 保存label文件: frame_{orig_frame_idx:06d}.json, 保留{len(existing_anns)}+新增{len(frame_anns)}=合计{len(merged_anns)}")
         
         frame_idx += 1
@@ -1082,7 +1082,7 @@ def run_bidirectional_inject(prompt_idx, total_frames, bboxes, forward_enabled=T
     all_new_anns = backward_anns + forward_anns
     log(f"\n[DEBUG 汇总] 向后标注={len(backward_anns)}, 向前标注={len(forward_anns)}, 合计={len(all_new_anns)}")
     if mid_annotations_file.exists():
-        with open(mid_annotations_file) as f:
+        with open(mid_annotations_file, encoding='utf-8') as f:
             coco = json.load(f)
         log(f"[DEBUG 汇总] 现有coco: 已有annotations={len(coco.get('annotations', []))}")
     else:
@@ -1101,8 +1101,8 @@ def run_bidirectional_inject(prompt_idx, total_frames, bboxes, forward_enabled=T
         new_anns_count += 1
     log(f"[DEBUG 汇总] 追加 {new_anns_count} 条标注")
 
-    with open(mid_annotations_file, 'w') as f:
-        json.dump(coco, f)
+    with open(mid_annotations_file, 'w', encoding='utf-8') as f:
+        json.dump(coco, f, ensure_ascii=False)
     log("[DEBUG 汇总] ✓ annotations.json 已写入")
     log(f"=== 双向标注完成 === 新增标注: {len(all_new_anns)}, 总标注: {len(coco.get('annotations', []))}")
 
@@ -1426,8 +1426,8 @@ def run_video_annotate(src_video, bboxes, find_list, overrides, use_semantic, io
         else:
             log(f"[DEBUG {frame_count}/{total}] 无masks属性或masks为None")
 
-        with open(labels_dir / f"frame_{frame_count:06d}.json", 'w') as f_out:
-            json.dump(frame_anns, f_out)
+        with open(labels_dir / f"frame_{frame_count:06d}.json", 'w', encoding='utf-8') as f_out:
+            json.dump(frame_anns, f_out, ensure_ascii=False)
 
         log(f"[DEBUG {frame_count}/{total}] 帧annotations数量={len(frame_anns)}, track_ids={debug_track_ids}")
         frame_count += 1
@@ -1435,8 +1435,8 @@ def run_video_annotate(src_video, bboxes, find_list, overrides, use_semantic, io
         if yield_func:
             yield_func(frame_count, total, f'帧 {frame_count}/{total}: contours={debug_contours_count}, annotations={len(frame_anns)}')
 
-    with open(temp_data_dir / 'annotations.json', 'w') as f_out:
-        json.dump(coco_data, f_out)
+    with open(temp_data_dir / 'annotations.json', 'w', encoding='utf-8') as f_out:
+        json.dump(coco_data, f_out, ensure_ascii=False)
 
 
 # ==================== Merge拷贝到final_data ====================
@@ -1466,7 +1466,7 @@ def merge_copy_to_final_data(source_dir, final_dir="final_data", log_func=None):
     if not source_ann_file.exists():
         return False, f"源目录没有annotations.json: {source_dir}"
     
-    with open(source_ann_file) as f:
+    with open(source_ann_file, encoding='utf-8') as f:
         source_coco = json.load(f)
     
     source_annotations = source_coco.get('annotations', [])
