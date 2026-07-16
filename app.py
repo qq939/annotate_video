@@ -1898,7 +1898,7 @@ class UnifiedPanel(QMainWindow):
 
                 print(f"[DEBUG {frame_count}/{total_frames}] 帧annotations数量={len(frame_annotations)}, track_ids={debug_track_ids}")
                 with open(labels_dir / f"frame_{frame_count:06d}.json", 'w', encoding='utf-8') as f:
-                    json.dump(frame_annotations, f)
+                    json.dump(frame_annotations, f, ensure_ascii=False)
 
                 annotated_frame = r.plot()
                 annotated_frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_RGB2BGR)
@@ -3115,7 +3115,7 @@ class UnifiedPanel(QMainWindow):
             text = self.trace_id_list.item(i).text()
             mappings.append(text)
         with open(mappings_file, 'w', encoding='utf-8') as f:
-            json.dump(mapping, f)
+            json.dump(mapping, f, ensure_ascii=False)
         print(f"已保存 trace_id_mappings 到 {mappings_file}")
         self._update_category_list()
 
@@ -3242,7 +3242,7 @@ class UnifiedPanel(QMainWindow):
                     changed = True
             if changed:
                 with open(label_file, 'w', encoding='utf-8') as f:
-                    json.dump(existing_anns, f)
+                    json.dump(existing_anns, f, ensure_ascii=False)
                 count += 1
         if annotations_file.exists():
             with open(annotations_file) as f:
@@ -3296,7 +3296,7 @@ class UnifiedPanel(QMainWindow):
                         changed = True
             if changed:
                 with open(label_file, 'w', encoding='utf-8') as f:
-                    json.dump(existing_anns, f)
+                    json.dump(existing_anns, f, ensure_ascii=False)
                 converted_count += 1
 
         if annotations_file.exists():
@@ -3317,7 +3317,7 @@ class UnifiedPanel(QMainWindow):
                     json.dump(coco, f, ensure_ascii=False)
 
         with open(history_file, 'w') as f:
-            json.dump(history_records, f)
+            json.dump(history_records, f, ensure_ascii=False)
 
         print(f"应用 trace_id 映射: {len(mappings)} 条规则, 影响 {converted_count} 帧")
 
@@ -3352,7 +3352,7 @@ class UnifiedPanel(QMainWindow):
                 new_anns = [a for a in anns if a.get('track_id', 0) != tid]
                 if len(new_anns) != len(anns):
                     with open(f, 'w') as fp:
-                        json.dump(new_anns, fp)
+                        json.dump(new_anns, fp, ensure_ascii=False)
                     deleted += len(anns) - len(new_anns)
             except:
                 pass
@@ -3411,7 +3411,7 @@ class UnifiedPanel(QMainWindow):
                     changed = True
             if changed:
                 with open(label_file, 'w', encoding='utf-8') as f:
-                    json.dump(existing_anns, f)
+                    json.dump(existing_anns, f, ensure_ascii=False)
                 converted_count += 1
 
         if annotations_file.exists():
@@ -3641,7 +3641,7 @@ class UnifiedPanel(QMainWindow):
 
             for i in range(frame_count):
                 with open(labels_dir / f"frame_{i:06d}.json", 'w', encoding='utf-8') as f:
-                    json.dump([], f)
+                    json.dump([], f, ensure_ascii=False)
 
             self.total_frames = frame_count
             self.path_input.setText(str(temp_dir))
@@ -3967,8 +3967,8 @@ class UnifiedPanel(QMainWindow):
                 })
                 added += 1
             
-            with open(frame_file, 'w') as fp:
-                json.dump(anns, fp)
+            with open(frame_file, 'w', encoding='utf-8') as fp:
+                json.dump(anns, fp, ensure_ascii=False)
         
         # 记录到回退栈
         if undo_changes:
@@ -4069,7 +4069,7 @@ class UnifiedPanel(QMainWindow):
                     ann_copy['category'] = cat_name
                     frame_anns.append(ann_copy)
 
-                with open(output_label_path, 'w') as f:
+                with open(output_label_path, 'w', encoding='utf-8') as f:
                     json.dump(frame_anns, f, ensure_ascii=False)
 
         all_annotations = []
@@ -4102,7 +4102,7 @@ class UnifiedPanel(QMainWindow):
         }
 
         with open(output_path / "annotations.json", 'w', encoding='utf-8') as f:
-            json.dump(coco_output, f)
+            json.dump(coco_output, f, ensure_ascii=False)
 
         print(f"导出完成: {output_path}")
 
@@ -5008,7 +5008,7 @@ names: {class_names}
                                 img_files.append(new_img_path)
                                 new_json_path = new_img_path.with_suffix('.json')
                                 with open(new_json_path, 'w', encoding='utf-8') as f:
-                                    json.dump(new_data, f)
+                                    json.dump(new_data, f, ensure_ascii=False)
                                 aug_idx += 1
         
         random.shuffle(img_files)
