@@ -2798,7 +2798,7 @@ class UnifiedPanel(QMainWindow):
                             existing_anns = json.load(f)
                         print(f"[DEBUG {direction}] [帧{total_results}] 已存在标注{len(existing_anns)}条，追加新标注")
                     merged_anns = existing_anns + frame_anns
-                    with open(label_file, 'w') as f:
+                    with open(label_file, 'w', encoding='utf-8') as f:
                         json.dump(merged_anns, f, ensure_ascii=False)
                     print(f"[DEBUG {direction}] [帧{total_results}] 保存label文件: frame_{orig_frame_idx:06d}.json, 保留{len(existing_anns)}+新增{len(frame_anns)}=合计{len(merged_anns)}")
                     frame_idx += 1
@@ -2840,7 +2840,7 @@ class UnifiedPanel(QMainWindow):
                     with open(prompt_frame_file, encoding='utf-8') as f:
                         existing = json.load(f)
                 merged = existing + prompt_anns
-                with open(prompt_frame_file, 'w') as f:
+                with open(prompt_frame_file, 'w', encoding='utf-8') as f:
                     json.dump(merged, f, ensure_ascii=False)
                 prompt_frame_anns = prompt_anns
                 print(f"[提示帧] 已保存 {len(prompt_anns)} 个标注到 frame_{prompt_idx:06d}.json")
@@ -2917,7 +2917,7 @@ class UnifiedPanel(QMainWindow):
 
             print(f"[DEBUG 汇总] 追加 {new_anns_count} 条标注, 最终track_id范围: {FIRST_ID}~{max_track_id}")
 
-            with open(src_annotations_file, 'w') as f:
+            with open(src_annotations_file, 'w', encoding='utf-8') as f:
                 json.dump(coco, f, ensure_ascii=False)
             print(f"[DEBUG 汇总] ✓ annotations.json 已写入")
 
@@ -2930,7 +2930,7 @@ class UnifiedPanel(QMainWindow):
                 label_file = labels_dir / f"frame_{frame_idx:06d}.json"
                 frame_anns = []
                 if label_file.exists():
-                    with open(label_file) as f:
+                    with open(label_file, encoding='utf-8') as f:
                         frame_anns = json.load(f)
                 
                 # 检查bbox是否与现有标注重叠
@@ -3057,7 +3057,7 @@ class UnifiedPanel(QMainWindow):
                                 ann['track_id'] = old_tid
                                 restored += 1
                                 break
-                with open(frame_file, 'w') as f:
+                with open(frame_file, 'w', encoding='utf-8') as f:
                     json.dump(anns, f, ensure_ascii=False)
             except:
                 pass
@@ -3232,7 +3232,7 @@ class UnifiedPanel(QMainWindow):
             return
         count = 0
         for label_file in sorted(labels_dir.glob("frame_*.json")):
-            with open(label_file) as f:
+            with open(label_file, encoding='utf-8') as f:
                 frame_anns = json.load(f)
             changed = False
             for ann in frame_anns:
@@ -3245,13 +3245,13 @@ class UnifiedPanel(QMainWindow):
                     json.dump(existing_anns, f, ensure_ascii=False)
                 count += 1
         if annotations_file.exists():
-            with open(annotations_file) as f:
+            with open(annotations_file, encoding='utf-8') as f:
                 coco = json.load(f)
             for ann in coco.get('annotations', []):
                 if ann.get('track_id') == from_id:
                     ann['track_id'] = to_id
                     ann['trace_id_list'] = [to_id]
-            with open(annotations_file, 'w') as f:
+            with open(annotations_file, 'w', encoding='utf-8') as f:
                 json.dump(coco, f, ensure_ascii=False)
         print(f"恢复映射: {from_id} → {to_id}, 影响 {count} 帧")
 
@@ -3282,7 +3282,7 @@ class UnifiedPanel(QMainWindow):
 
         converted_count = 0
         for label_file in sorted(labels_dir.glob("frame_*.json")):
-            with open(label_file) as f:
+            with open(label_file, encoding='utf-8') as f:
                 frame_anns = json.load(f)
             changed = False
             for ann in frame_anns:
@@ -3300,7 +3300,7 @@ class UnifiedPanel(QMainWindow):
                 converted_count += 1
 
         if annotations_file.exists():
-            with open(annotations_file) as f:
+            with open(annotations_file, encoding='utf-8') as f:
                 coco = json.load(f)
             changed = False
             for ann in coco.get('annotations', []):
@@ -3313,10 +3313,10 @@ class UnifiedPanel(QMainWindow):
                             ann['trace_id_list'] = trace_list
                         changed = True
             if changed:
-                with open(annotations_file, 'w') as f:
+                with open(annotations_file, 'w', encoding='utf-8') as f:
                     json.dump(coco, f, ensure_ascii=False)
 
-        with open(history_file, 'w') as f:
+        with open(history_file, 'w', encoding='utf-8') as f:
             json.dump(history_records, f, ensure_ascii=False)
 
         print(f"应用 trace_id 映射: {len(mappings)} 条规则, 影响 {converted_count} 帧")
@@ -3347,11 +3347,11 @@ class UnifiedPanel(QMainWindow):
         deleted = 0
         for f in sorted(labels_dir.glob("*.json")):
             try:
-                with open(f) as fp:
+                with open(f, encoding='utf-8') as fp:
                     anns = json.load(fp)
                 new_anns = [a for a in anns if a.get('track_id', 0) != tid]
                 if len(new_anns) != len(anns):
-                    with open(f, 'w') as fp:
+                    with open(f, 'w', encoding='utf-8') as fp:
                         json.dump(new_anns, fp, ensure_ascii=False)
                     deleted += len(anns) - len(new_anns)
             except:
@@ -3396,7 +3396,7 @@ class UnifiedPanel(QMainWindow):
 
         converted_count = 0
         for label_file in sorted(labels_dir.glob("frame_*.json")):
-            with open(label_file) as f:
+            with open(label_file, encoding='utf-8') as f:
                 frame_anns = json.load(f)
             changed = False
             for ann in frame_anns:
@@ -3415,7 +3415,7 @@ class UnifiedPanel(QMainWindow):
                 converted_count += 1
 
         if annotations_file.exists():
-            with open(annotations_file) as f:
+            with open(annotations_file, encoding='utf-8') as f:
                 coco = json.load(f)
             changed = False
             for ann in coco.get('annotations', []):
@@ -3429,7 +3429,7 @@ class UnifiedPanel(QMainWindow):
                     ann['trace_id_list'] = [history_records[-1]['old_id']]
                     changed = True
             if changed:
-                with open(annotations_file, 'w') as f:
+                with open(annotations_file, 'w', encoding='utf-8') as f:
                     json.dump(coco, f, ensure_ascii=False)
 
         history_file.unlink()
@@ -4166,7 +4166,7 @@ class UnifiedPanel(QMainWindow):
             # 生成labelme JSON
             shapes = []
             if label_file.exists():
-                with open(label_file) as f:
+                with open(label_file, encoding='utf-8') as f:
                     annotations = json.load(f)
 
                 # IoU去重：根据traceId和IoU过滤
@@ -4279,7 +4279,7 @@ class UnifiedPanel(QMainWindow):
             QMessageBox.warning(self, "错误", f"找不到 {annotations_path}")
             return
 
-        with open(annotations_path) as f:
+        with open(annotations_path, encoding='utf-8') as f:
             coco_data = json.load(f)
 
         video_info = coco_data.get('info', {})
@@ -5072,7 +5072,7 @@ names: {class_names}
             shutil.copy(img_file, output_dir / "images" / "train" / img_file.name)
             if json_file.exists():
                 yolo_lines = convert_to_yolo(json_file, class_names)
-                with open(output_dir / "labels" / "train" / f"{img_file.stem}.txt", 'w') as f:
+                with open(output_dir / "labels" / "train" / f"{img_file.stem}.txt", 'w', encoding='utf-8') as f:
                     f.write('\n'.join(yolo_lines))
         
         # 处理验证集
@@ -5081,7 +5081,7 @@ names: {class_names}
             shutil.copy(img_file, output_dir / "images" / "val" / img_file.name)
             if json_file.exists():
                 yolo_lines = convert_to_yolo(json_file, class_names)
-                with open(output_dir / "labels" / "val" / f"{img_file.stem}.txt", 'w') as f:
+                with open(output_dir / "labels" / "val" / f"{img_file.stem}.txt", 'w', encoding='utf-8') as f:
                     f.write('\n'.join(yolo_lines))
         
         print(f"[YOLO] 训练集: {len(train_files)}, 验证集: {len(val_files)}")
@@ -5125,7 +5125,7 @@ names: {class_names}
         prev_model_json = train_dir / "model.json"
         if resume and prev_model_json.exists():
             try:
-                with open(prev_model_json) as f:
+                with open(prev_model_json, encoding='utf-8') as f:
                     prev_info = json.load(f)
                 self.train_id_input.setText(prev_info.get('id', ''))
                 self.train_desc_input.setText(prev_info.get('description', ''))
