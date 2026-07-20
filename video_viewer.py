@@ -449,14 +449,17 @@ class VideoViewer(QMainWindow):
         
         new_count = 0
         for img_info in images:
+            # 优先使用 file_name，否则根据 frame_idx 构建
             img_file = img_info.get('file_name', '')
             if not img_file:
-                continue
+                # 使用 frame_idx 构建文件名
+                frame_idx = img_info.get('frame_idx', img_info.get('id', 0))
+                img_file = f"frame_{frame_idx:06d}.jpg"
             
             src_img = dir_path / img_file
             if not src_img.exists():
-                # 尝试在images子目录下查找
-                src_img = dir_path / "images" / img_file
+                # 尝试在frames子目录下查找
+                src_img = dir_path / "frames" / img_file
             
             if not src_img.exists():
                 print(f"[VideoViewer] 跳过不存在的图片: {img_file}")
@@ -467,10 +470,10 @@ class VideoViewer(QMainWindow):
             shutil.copy2(src_img, dst_img)
             
             # 复制label文件（如果有）
-            label_file = img_file.replace('.jpg', '.json').replace('.png', '.json')
-            src_label = dir_path / label_file
+            # 根据源文件名构建label路径
+            src_label = dir_path / src_img.name.replace('.jpg', '.json').replace('.png', '.json')
             if not src_label.exists():
-                src_label = dir_path / "labels" / label_file
+                src_label = dir_path / "labels" / src_img.name.replace('.jpg', '.json').replace('.png', '.json')
             
             dst_label = self.labels_dir / f"frame_{start_idx:06d}.json"
             if src_label.exists():
