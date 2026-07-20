@@ -5409,7 +5409,23 @@ names: {class_names}
             )
         
         # 导出ONNX
-        best_model = train_dir / "weights" / "best.pt"
+        # 查找最新的train目录（从训练日志中解析）
+        latest_train_dir = None
+        # 从训练日志中解析
+        yolo_runs_dir = Path("runs/detect/yolo_runs")
+        train_dirs = list(yolo_runs_dir.glob("train*"))
+        if train_dirs:
+            def get_train_num(p):
+                name = p.name
+                if name == "train":
+                    return 0
+                suffix = name.replace("train", "")
+                nums = [int(x) for x in suffix.split("-") if x.isdigit()]
+                return nums[-1] if nums else 0
+            train_dirs.sort(key=get_train_num, reverse=True)
+            latest_train_dir = train_dirs[0]
+        
+        best_model = latest_train_dir / "weights" / "best.pt" if latest_train_dir else train_dir / "weights" / "best.pt"
         print(f"[YOLO] 检查模型路径: {best_model.resolve()}")
         print(f"[YOLO] 路径存在: {best_model.exists()}")
         if best_model.exists():
@@ -5430,7 +5446,7 @@ names: {class_names}
             }
             
             # 保存model.json到weights文件夹
-            weights_dir = best_model.parent
+            weights_dir = latest_train_dir / "weights" if latest_train_dir else best_model.parent
             weights_json = weights_dir / "model.json"
             with open(weights_json, 'w', encoding='utf-8') as f:
                 json.dump(model_json, f, ensure_ascii=False, indent=2)
@@ -5444,7 +5460,9 @@ names: {class_names}
             
             # 压缩上传整个文件夹
             import zipfile
-            zip_filename = f"{train_id}_train.zip"
+            import time
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            zip_filename = f"{train_id}_{timestamp}.zip"
             zip_path = Path("1dst") / zip_filename
             with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
                 for f in upload_dir.rglob("*"):
