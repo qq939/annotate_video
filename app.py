@@ -2569,7 +2569,8 @@ class UnifiedPanel(QMainWindow):
         QApplication.processEvents()
         
         try:
-            from app_utils import merge_masks_in_frame, get_device, SAM_MODEL_PATH, patch_sam3_video_semantic
+            from app_utils import get_device, patch_sam3_video_semantic
+            from annotate_video import merge_masks_in_frame, SAM_MODEL_PATH
             from ultralytics.models.sam import SAM3VideoSemanticPredictor
             
             # 纯语义模式：items有内容但没有手动bbox
