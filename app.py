@@ -4918,12 +4918,34 @@ class UnifiedPanel(QMainWindow):
                     traceback.print_exc()
             
             # 复制训练好的model到temp文件夹
+            # 查找最新的train目录
+            yolo_runs_dir = Path("runs/detect/yolo_runs")
+            train_dirs = list(yolo_runs_dir.glob("train*"))
+            train_dirs = [d for d in train_dirs if d.is_dir() and (d / "weights").exists()]
+            if train_dirs:
+                # 按编号排序，取最大的
+                def get_train_num(p):
+                    name = p.name
+                    if name == "train":
+                        return 0
+                    suffix = name.replace("train", "")
+                    nums = [int(x) for x in suffix.split("-") if x.isdigit()]
+                    return nums[-1] if nums else 0
+                train_dirs.sort(key=get_train_num, reverse=True)
+                train_dir = train_dirs[0]
+            else:
+                train_dir = yolo_runs_dir / "train"
+            
             model_output_dir = temp_dataset_dir / "model"
-            if Path("runs/detect/yolo_runs/train/weights/best.onnx").exists():
+            if train_dir.exists():
                 model_output_dir.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(Path("runs/detect/yolo_runs/train/weights/best.onnx"), model_output_dir / "best.onnx")
-                shutil.copy2(Path("runs/detect/yolo_runs/train/weights/model.json"), model_output_dir / "model.json")
-                print(f"[保存] 模型已保存到: {model_output_dir}")
+                best_onnx = train_dir / "weights" / "best.onnx"
+                model_json = train_dir / "weights" / "model.json"
+                if best_onnx.exists():
+                    shutil.copy2(best_onnx, model_output_dir / "best.onnx")
+                if model_json.exists():
+                    shutil.copy2(model_json, model_output_dir / "model.json")
+                print(f"[保存] 模型已保存到: {model_output_dir} (from {train_dir.name})")
             
             # 上传temp_data_post到OBS
             if self.upload_obs_check.isChecked():
