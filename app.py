@@ -2794,73 +2794,87 @@ class UnifiedPanel(QMainWindow):
         self.prompt_btn.setText("正在处理...")
         QApplication.processEvents()
         
-        # 纯语义模式：先用文本分割得到bboxes，再前向+后向追踪
-        if has_items and not has_bboxes:
-            try:
-                from app_utils import get_sam_overrides, run_prompt_frame
-                from annotate_video import SAM_MODEL_PATH
-                
-                # 参考 run_prompt_frame 函数的逻辑
-                overrides, _ = get_sam_overrides()
-                overrides['model'] = SAM_MODEL_PATH
-                
-                prompt_frame_path = mid_frames_dir / f"frame_{prompt_idx:06d}.jpg"
-                
-                # 使用 run_prompt_frame 函数，它内部会处理语义分割
-                find_list = [items_text]
-                annotations, first_id = run_prompt_frame(str(prompt_frame_path), bboxes=None, find_list=find_list, overrides=overrides)
-                
-                if not annotations:
-                    QMessageBox.warning(self, "提示", "未检测到分割结果")
-                    self.reset_prompt_btn()
-                    return
-                
-                # 保存提示帧标注
-                label_file = src_labels_dir / f"frame_{prompt_idx:06d}.json"
-                existing = []
-                if label_file.exists():
-                    with open(label_file, encoding='utf-8') as f:
-                        existing = json.load(f)
-                merged = existing + annotations
-                with open(label_file, 'w', encoding='utf-8') as f:
-                    json.dump(merged, f, ensure_ascii=False)
-                
-                # 从 annotations 中提取 bboxes 用于后续追踪
-                prompt_bboxes = []
-                for ann in annotations:
-                    bbox = ann.get('bbox', [])
-                    if len(bbox) >= 4:
-                        x, y, w, h = bbox
-                        prompt_bboxes.append([x, y, x + w, y + h])
-                
-                # 设置提示帧的bboxes供后续process_clip使用
-                self.viewer.prompt_bboxes = list(prompt_bboxes)
-                
-                # 用语义+追踪模式继续（items_text有值，prompt_bboxes有值）
-                is_semantic = True
-                has_bboxes = True  # 已有bboxes
-                
-                print(f"[提示帧] 语义+追踪: 文本={items_text}, bboxes={len(prompt_bboxes)}")
-                
-            except Exception as e:
-                import traceback
-                traceback.print_exc()
-                QMessageBox.critical(self, "错误", f"语义分割失败:\n{e}")
-                self.reset_prompt_btn()
-                return
-
         try:
             from annotate_video import merge_masks_in_frame, TrackManager, get_device, SAM_MODEL_PATH, put_chinese_text
             
-            # 根据模式选择预测器
-            is_semantic = has_items and has_bboxes
-            if is_semantic:
-                # 语义+追踪模式
+            # 纯语义模式：items有内容但没有手动bbox
+            # 需要先在第一帧用语义生成bboxes
+            if has_items and not has_bboxes:
+                # 先生成bboxes：用前向视频在第一帧做语义分割
                 from ultralytics.models.sam import SAM3VideoSemanticPredictor
                 _patch_sam3_video_semantic()
-                print(f"[提示帧] 模式: 语义+追踪, 物品: {items_text}")
+                device, device_type = get_device()
+                overrides = dict(
+                    conf=0.25, task="segment", mode="predict",
+                    model=SAM_MODEL_PATH, device=device_type,
+                    half=device_type == 'cuda', save=False, verbose=False
+                )
+                predictor = SAM3VideoSemanticPredictor(overrides=overrides)
+                
+                # 生成前向视频（第一帧+后面所有帧）
+                temp_frames = Path("temp_inject/forward")
+                temp_frames.mkdir(parents=True, exist_ok=True)
+                
+                # 复制帧
+                forward_frames = []
+                for i in range(prompt_idx, total):
+                    src = mid_frames_dir / f"frame_{i:06d}.jpg"
+                    dst = temp_frames / f"frame_{i - prompt_idx:06d}.jpg"
+                    if src.exists():
+                        shutil.copy2(src, dst)
+                        forward_frames.append(i)
+                
+                # 生成clip
+                clip_path = str(temp_frames / "clip.mp4")
+                sample = cv2.imread(str(temp_frames / "frame_000000.jpg"))
+                height, width = sample.shape[:2]
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                out = cv2.VideoWriter(clip_path, fourcc, 30, (width, height))
+                for i in range(len(forward_frames)):
+                    frame = cv2.imread(str(temp_frames / f"frame_{i:06d}.jpg"))
+                    out.write(frame)
+                out.release()
+                
+                # 用语义分割
+                print(f"[纯语义] 在第一帧做语义分割...")
+                results = list(predictor(source=clip_path, stream=True, text=items_text))
+                
+                # 从第一帧提取bboxes
+                prompt_bboxes = []
+                if results and results[0].masks is not None:
+                    masks_np = results[0].masks.data.cpu().numpy()
+                    for mask in masks_np:
+                        mask_binary = (mask > 0.5).astype(np.uint8)
+                        contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                        for cnt in contours:
+                            if len(cnt) >= 3:
+                                poly = cnt.squeeze().flatten().tolist()
+                                xs, ys = poly[0::2], poly[1::2]
+                                x1, x2 = min(xs), max(xs)
+                                y1, y2 = min(ys), max(ys)
+                                if x2 > x1 and y2 > y1:
+                                    prompt_bboxes.append([x1, y1, x2, y2])
+                
+                if not prompt_bboxes:
+                    QMessageBox.warning(self, "提示", "未检测到语义分割结果")
+                    self.reset_prompt_btn()
+                    return
+                
+                print(f"[纯语义] 检测到 {len(prompt_bboxes)} 个目标")
+                
+                # 设置bboxes供后续追踪使用
+                self.viewer.prompt_bboxes = list(prompt_bboxes)
+                has_bboxes = True
+            
+            # 根据模式选择预测器
+            # 1. 纯语义/语义+追踪：has_items=True, has_bboxes=True → 语义文本 + bboxes
+            # 2. 纯追踪：has_items=False, has_bboxes=True → 只用bboxes
+            is_semantic = has_items  # 语义模式：只要有items_text
+            if is_semantic:
+                from ultralytics.models.sam import SAM3VideoSemanticPredictor
+                _patch_sam3_video_semantic()
+                print(f"[提示帧] 模式: {'语义+追踪' if has_bboxes else '纯语义'}, 物品: {items_text}")
             else:
-                # 纯追踪模式
                 from ultralytics.models.sam import SAM3VideoPredictor
                 print(f"[提示帧] 模式: 纯追踪")
 
