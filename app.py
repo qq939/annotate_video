@@ -2834,7 +2834,7 @@ class UnifiedPanel(QMainWindow):
                         prompt_bboxes.append([x, y, x + w, y + h])
                 
                 # 设置提示帧的bboxes供后续process_clip使用
-                self.viewer.set_prompt_bboxes([[pb[0], pb[1], pb[2], pb[3]] for pb in prompt_bboxes])
+                self.viewer.prompt_bboxes = list(prompt_bboxes)
                 
                 # 用语义+追踪模式继续（items_text有值，prompt_bboxes有值）
                 is_semantic = True
