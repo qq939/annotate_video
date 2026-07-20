@@ -184,6 +184,11 @@ class VideoViewer(QMainWindow):
         add_btn.clicked.connect(self.add_video_frames)
         mode_layout.addWidget(add_btn)
         
+        # 导入数据集按钮
+        import_btn = QPushButton("+导入数据集")
+        import_btn.clicked.connect(self.import_coco_dataset)
+        mode_layout.addWidget(import_btn)
+        
         # 帧删除按钮
         self.delete_mode_btn = QPushButton("帧删除")
         self.delete_mode_btn.clicked.connect(self.toggle_delete_mode)
@@ -404,6 +409,98 @@ class VideoViewer(QMainWindow):
         
         self.update_display()
         print(f"[VideoViewer] 添加完成，当前总帧数: {self.total_frames}")
+
+    def import_coco_dataset(self):
+        """导入COCO格式数据集，追加到现有帧后面"""
+        from PyQt5.QtWidgets import QFileDialog, QMessageBox
+        import json
+        import shutil
+        
+        # 选择coco数据集目录
+        dir_path = QFileDialog.getExistingDirectory(self, "选择COCO数据集目录", "")
+        if not dir_path:
+            return
+        
+        dir_path = Path(dir_path)
+        annotations_file = dir_path / "annotations.json"
+        
+        if not annotations_file.exists():
+            QMessageBox.warning(self, "错误", "目录下没有 annotations.json 文件")
+            return
+        
+        # 读取coco数据
+        try:
+            with open(annotations_file, 'r', encoding='utf-8') as f:
+                coco_data = json.load(f)
+        except Exception as e:
+            QMessageBox.warning(self, "错误", f"读取 annotations.json 失败: {e}")
+            return
+        
+        images = coco_data.get('images', [])
+        if not images:
+            QMessageBox.warning(self, "错误", "数据集中没有图片")
+            return
+        
+        print(f"[VideoViewer] 准备导入 {len(images)} 张图片...")
+        
+        # 获取当前最大帧号
+        existing_frames = sorted(list(self.frames_dir.glob("frame_*.jpg")))
+        start_idx = len(existing_frames)
+        
+        new_count = 0
+        for img_info in images:
+            img_file = img_info.get('file_name', '')
+            if not img_file:
+                continue
+            
+            src_img = dir_path / img_file
+            if not src_img.exists():
+                # 尝试在images子目录下查找
+                src_img = dir_path / "images" / img_file
+            
+            if not src_img.exists():
+                print(f"[VideoViewer] 跳过不存在的图片: {img_file}")
+                continue
+            
+            # 复制图片
+            dst_img = self.frames_dir / f"frame_{start_idx:06d}.jpg"
+            shutil.copy2(src_img, dst_img)
+            
+            # 复制label文件（如果有）
+            label_file = img_file.replace('.jpg', '.json').replace('.png', '.json')
+            src_label = dir_path / label_file
+            if not src_label.exists():
+                src_label = dir_path / "labels" / label_file
+            
+            dst_label = self.labels_dir / f"frame_{start_idx:06d}.json"
+            if src_label.exists():
+                shutil.copy2(src_label, dst_label)
+            else:
+                # 创建空label
+                with open(dst_label, 'w', encoding='utf-8') as f:
+                    json.dump([], f, ensure_ascii=False)
+            
+            start_idx += 1
+            new_count += 1
+        
+        if new_count == 0:
+            QMessageBox.warning(self, "警告", "没有成功导入任何图片")
+            return
+        
+        # 更新总数
+        self.total_frames = len(list(self.frames_dir.glob("frame_*.jpg")))
+        
+        # 更新coco_data
+        self.coco_data['images'] = [
+            {'id': i, 'file_name': f"frame_{i:06d}.jpg", 'width': self.video_width, 'height': self.video_height, 'frame_count': i}
+            for i in range(self.total_frames)
+        ]
+        with open(self.temp_data_path / 'annotations.json', 'w', encoding='utf-8') as f:
+            json.dump(self.coco_data, f, ensure_ascii=False)
+        
+        self.update_display()
+        print(f"[VideoViewer] 导入完成: {new_count} 张图片，当前总帧数: {self.total_frames}")
+        QMessageBox.information(self, "完成", f"成功导入 {new_count} 张图片\n当前总帧数: {self.total_frames}")
 
     def set_controller(self, controller):
         self.controller = controller
