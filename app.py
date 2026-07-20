@@ -3242,7 +3242,7 @@ class UnifiedPanel(QMainWindow):
                     changed = True
             if changed:
                 with open(label_file, 'w', encoding='utf-8') as f:
-                    json.dump(existing_anns, f, ensure_ascii=False)
+                    json.dump(frame_anns, f, ensure_ascii=False)
                 count += 1
         if annotations_file.exists():
             with open(annotations_file, encoding='utf-8') as f:
@@ -3296,7 +3296,7 @@ class UnifiedPanel(QMainWindow):
                         changed = True
             if changed:
                 with open(label_file, 'w', encoding='utf-8') as f:
-                    json.dump(existing_anns, f, ensure_ascii=False)
+                    json.dump(frame_anns, f, ensure_ascii=False)
                 converted_count += 1
 
         if annotations_file.exists():
@@ -3411,7 +3411,7 @@ class UnifiedPanel(QMainWindow):
                     changed = True
             if changed:
                 with open(label_file, 'w', encoding='utf-8') as f:
-                    json.dump(existing_anns, f, ensure_ascii=False)
+                    json.dump(frame_anns, f, ensure_ascii=False)
                 converted_count += 1
 
         if annotations_file.exists():
