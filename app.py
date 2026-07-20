@@ -2512,236 +2512,6 @@ class UnifiedPanel(QMainWindow):
             self.fixed_edit_btn.setText("编辑固定框")
             self.viewer.enable_bbox_drawing(False)
     
-    def _do_semantic_with_tracking(self, items_text):
-        """纯语义模式：语义分割后前向/后向追踪合并"""
-        prompt_idx = self.prompt_frame_idx
-        total = self.total_frames
-        temp_mid = Path(TEMP_DATA_MID_DIR)
-        mid_frames_dir = temp_mid / "frames"
-        mid_labels_dir = temp_mid / "labels"
-        
-        print(f"[纯语义+追踪] 开始处理...")
-        
-        try:
-            from annotate_video import merge_masks_in_frame, TrackManager, get_device, SAM_MODEL_PATH
-            from ultralytics.models.sam import SAM3VideoSemanticPredictor
-            
-            _patch_sam3_video_semantic()
-            
-            device, device_type = get_device()
-            half = device_type == 'cuda'
-            overrides = dict(
-                conf=0.25, task="segment", mode="predict",
-                model=SAM_MODEL_PATH, device=device,
-                half=half, save=False, verbose=False
-            )
-            if device_type == 'cuda':
-                overrides['batch'] = 1
-                overrides['stream_buffer'] = False
-            elif device_type == 'mps':
-                overrides['half'] = True
-                overrides['amp'] = True
-                overrides['stream_buffer'] = True
-            
-            predictor = SAM3VideoSemanticPredictor(overrides=overrides)
-            
-            # 收集 occupied_bands 和 FIRST_ID
-            src_annotations_file = temp_mid / "annotations.json"
-            occupied_bands = set()
-            if src_annotations_file.exists():
-                with open(src_annotations_file, encoding='utf-8') as f:
-                    coco = json.load(f)
-                for ann in coco.get('annotations', []):
-                    tid = ann.get('track_id', 0)
-                    occupied_bands.add((tid // 1000) * 1000)
-            FIRST_ID = 1000
-            for band in range(1000, 1000000, 1000):
-                if band not in occupied_bands:
-                    FIRST_ID = band
-                    break
-            else:
-                QMessageBox.warning(self, "错误", "所有 track_id 档位都已被占用")
-                self.reset_prompt_btn()
-                return
-            
-            print(f"[纯语义+追踪] FIRST_ID={FIRST_ID}")
-            
-            # 纯语义模式：用文本提示在提示帧生成bboxes
-            prompt_frame_path = mid_frames_dir / f"frame_{prompt_idx:06d}.jpg"
-            results = predictor(source=str(prompt_frame_path), text=items_text)
-            
-            # 从结果提取bboxes
-            prompt_bboxes = []
-            for r in results:
-                masks = r.masks
-                if masks is not None:
-                    masks_np = masks.data.cpu().numpy() if hasattr(masks, 'data') else np.array(masks)
-                    for mask in masks_np:
-                        mask_binary = (mask > 0.5).astype(np.uint8)
-                        contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                        for cnt in contours:
-                            if len(cnt) >= 3:
-                                xs = cnt.squeeze()[0::2].tolist()
-                                ys = cnt.squeeze()[1::2].tolist()
-                                x1, x2 = min(xs), max(xs)
-                                y1, y2 = min(ys), max(ys)
-                                # 转换为xyxy格式
-                                prompt_bboxes.append([x1, y1, x2, y2])
-            
-            if not prompt_bboxes:
-                QMessageBox.warning(self, "提示", "未检测到分割结果")
-                self.reset_prompt_btn()
-                return
-            
-            print(f"[纯语义+追踪] 检测到 {len(prompt_bboxes)} 个目标，使用bboxes进行追踪")
-            
-            # 使用语义+追踪模式处理（复用现有逻辑）
-            is_semantic = True
-            
-            # 执行前向追踪
-            if self.forward_cb.isChecked():
-                forward_start = prompt_idx + 1
-                print(f"[前向] 帧 {forward_start} → {total-1}")
-                self._process_semantic_clip(forward_start, total, True, prompt_bboxes, items_text, FIRST_ID)
-            
-            # 执行后向追踪
-            if self.backward_cb.isChecked():
-                print(f"[后向] 帧 0 → {prompt_idx-1}")
-                self._process_semantic_clip(0, prompt_idx, False, prompt_bboxes, items_text, FIRST_ID)
-            
-            self.reset_prompt_btn()
-            self.viewer.update_display()
-            QMessageBox.information(self, "完成", "语义+追踪完成")
-            
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            QMessageBox.critical(self, "错误", f"语义+追踪失败:\n{e}")
-            self.reset_prompt_btn()
-    
-    def _process_semantic_clip(self, start_frame, end_frame, forward, prompt_bboxes, items_text, FIRST_ID):
-        """处理语义分割的clip，使用bboxes追踪"""
-        from annotate_video import merge_masks_in_frame, TrackManager, get_device, SAM_MODEL_PATH
-        
-        direction = "向前" if forward else "向后"
-        temp_mid = Path(TEMP_DATA_MID_DIR)
-        mid_frames_dir = temp_mid / "frames"
-        
-        if start_frame >= end_frame:
-            return
-        
-        temp_frames = Path("temp_inject") / ("forward" if forward else "backward")
-        temp_frames.mkdir(parents=True, exist_ok=True)
-        
-        # 复制帧
-        frame_count = end_frame - start_frame
-        if forward:
-            for i in range(start_frame, end_frame):
-                src = mid_frames_dir / f"frame_{i:06d}.jpg"
-                dst = temp_frames / f"frame_{i - start_frame:06d}.jpg"
-                if src.exists():
-                    shutil.copy2(src, dst)
-        else:
-            for rev_idx, i in enumerate(range(end_frame - 1, start_frame - 1, -1)):
-                src = mid_frames_dir / f"frame_{i:06d}.jpg"
-                dst = temp_frames / f"frame_{rev_idx:06d}.jpg"
-                if src.exists():
-                    shutil.copy2(src, dst)
-        
-        # 生成clip
-        clip_path = str(temp_frames / "clip.mp4")
-        sample = cv2.imread(str(temp_frames / "frame_000000.jpg"))
-        height, width = sample.shape[:2]
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(clip_path, fourcc, 30, (width, height))
-        for i in range(frame_count):
-            frame = cv2.imread(str(temp_frames / f"frame_{i:06d}.jpg"))
-            out.write(frame)
-        out.release()
-        
-        # 加载模型
-        from ultralytics.models.sam import SAM3VideoSemanticPredictor
-        _patch_sam3_video_semantic()
-        device, device_type = get_device()
-        overrides = dict(
-            conf=0.25, task="segment", mode="predict",
-            model=SAM_MODEL_PATH, device=device,
-            half=device_type == 'cuda', save=False, verbose=False
-        )
-        predictor = SAM3VideoSemanticPredictor(overrides=overrides)
-        
-        # 使用bboxes追踪
-        print(f"[{direction}] 使用bboxes追踪: {len(prompt_bboxes)} 个目标")
-        results = predictor(source=clip_path, stream=True, bboxes=prompt_bboxes, labels=[1]*len(prompt_bboxes), text=items_text)
-        
-        # 处理结果
-        manager = TrackManager(iou_threshold=float(self.iou_input.text() or "0.02"))
-        manager.next_track_id = FIRST_ID
-        merge_iou_val = float(self.merge_iou_input.text() or "0.5")
-        
-        frame_anns_list = []
-        for r in results:
-            masks = r.masks
-            if masks is None:
-                frame_anns_list.append([])
-                continue
-            
-            masks_np = masks.data.cpu().numpy() if hasattr(masks, 'data') else np.array(masks)
-            cur_masks, cur_bboxes = [], []
-            for mask in masks_np:
-                mask_binary = (mask > 0.5).astype(np.uint8)
-                contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                for cnt in contours:
-                    if len(cnt) >= 3:
-                        poly = cnt.squeeze().flatten().tolist()
-                        xs, ys = poly[0::2], poly[1::2]
-                        x1, x2 = min(xs), max(xs)
-                        y1, y2 = min(ys), max(ys)
-                        bb = [float(x1), float(y1), float(x2 - x1), float(y2 - y1)]
-                        area = cv2.contourArea(cnt)
-                        if area > 0:
-                            cur_masks.append(mask_binary)
-                            cur_bboxes.append(bb)
-            
-            if cur_masks:
-                cur_masks, cur_bboxes = merge_masks_in_frame(cur_masks, cur_bboxes, merge_iou_val)
-                track_ids = manager.update(cur_masks, cur_bboxes, 0)
-                frame_anns = []
-                for idx, (m, bb) in enumerate(zip(cur_masks, cur_bboxes)):
-                    tid = track_ids[idx] if idx < len(track_ids) else FIRST_ID
-                    if tid is None:
-                        # 被舍弃的检测
-                        continue
-                    ann = {
-                        'track_id': tid,
-                        'bbox': bb,
-                        'category': items_text,
-                        'trace_id_list': [tid]
-                    }
-                    frame_anns.append(ann)
-                frame_anns_list.append(frame_anns)
-            else:
-                frame_anns_list.append([])
-        
-        # 保存结果
-        src_labels_dir = temp_mid / "labels"
-        for i, frame_anns in enumerate(frame_anns_list):
-            if forward:
-                orig_idx = start_frame + i
-            else:
-                orig_idx = end_frame - 1 - i
-            
-            label_file = src_labels_dir / f"frame_{orig_idx:06d}.json"
-            existing = []
-            if label_file.exists():
-                with open(label_file, encoding='utf-8') as f:
-                    existing = json.load(f)
-            merged = existing + frame_anns
-            with open(label_file, 'w', encoding='utf-8') as f:
-                json.dump(merged, f, ensure_ascii=False)
-        
-        print(f"[{direction}] 完成")
-    
     def extract_video_clip_from_frames(self, frames_dir, start_idx, total_frames, output_path, fps=30):
         sample = cv2.imread(str(frames_dir / f"frame_{start_idx:06d}.jpg"))
         if sample is None:
@@ -2795,14 +2565,13 @@ class UnifiedPanel(QMainWindow):
         QApplication.processEvents()
         
         try:
-            from annotate_video import merge_masks_in_frame, TrackManager, get_device, SAM_MODEL_PATH, put_chinese_text
+            from app_utils import merge_masks_in_frame, get_device, SAM_MODEL_PATH, patch_sam3_video_semantic
+            from ultralytics.models.sam import SAM3VideoSemanticPredictor
             
             # 纯语义模式：items有内容但没有手动bbox
-            # 需要先在第一帧用语义生成bboxes
+            # 直接用文本对整个视频做语义分割（不做追踪）
             if has_items and not has_bboxes:
-                # 先生成bboxes：用前向视频在第一帧做语义分割
-                from ultralytics.models.sam import SAM3VideoSemanticPredictor
-                _patch_sam3_video_semantic()
+                patch_sam3_video_semantic()
                 device, device_type = get_device()
                 overrides = dict(
                     conf=0.25, task="segment", mode="predict",
@@ -2811,72 +2580,84 @@ class UnifiedPanel(QMainWindow):
                 )
                 predictor = SAM3VideoSemanticPredictor(overrides=overrides)
                 
-                # 生成前向视频（第一帧+后面所有帧）
-                temp_frames = Path("temp_inject/forward")
-                temp_frames.mkdir(parents=True, exist_ok=True)
+                def do_pure_semantic_clip(start_frame, end_frame, forward):
+                    direction = "向前" if forward else "向后"
+                    if start_frame >= end_frame:
+                        return
+                    temp_frames = Path("temp_inject") / ("forward" if forward else "backward")
+                    temp_frames.mkdir(parents=True, exist_ok=True)
+                    frame_list = list(range(start_frame, end_frame))
+                    if not forward:
+                        frame_list = list(range(end_frame - 1, start_frame - 1, -1))
+                    for idx, i in enumerate(frame_list):
+                        src = mid_frames_dir / f"frame_{i:06d}.jpg"
+                        dst = temp_frames / f"frame_{idx:06d}.jpg"
+                        if src.exists():
+                            shutil.copy2(src, dst)
+                    clip_path = str(temp_frames / "clip.mp4")
+                    sample = cv2.imread(str(temp_frames / "frame_000000.jpg"))
+                    if sample is None:
+                        return
+                    height, width = sample.shape[:2]
+                    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                    out = cv2.VideoWriter(clip_path, fourcc, 30, (width, height))
+                    for idx in range(len(frame_list)):
+                        frame = cv2.imread(str(temp_frames / f"frame_{idx:06d}.jpg"))
+                        if frame is not None:
+                            out.write(frame)
+                    out.release()
+                    print(f"[纯语义{direction}] 使用文本={items_text}")
+                    results = list(predictor(source=clip_path, stream=True, text=items_text))
+                    for idx, r in enumerate(results):
+                        orig_idx = start_frame + idx if forward else end_frame - 1 - idx
+                        label_file = src_labels_dir / f"frame_{orig_idx:06d}.json"
+                        existing = []
+                        if label_file.exists():
+                            with open(label_file, encoding='utf-8') as f:
+                                existing = json.load(f)
+                        frame_anns = []
+                        if r.masks is not None:
+                            masks_np = r.masks.data.cpu().numpy() if hasattr(r.masks, 'data') else r.masks
+                            for mask in masks_np:
+                                mask_binary = (mask > 0.5).astype(np.uint8)
+                                contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                                for cnt in contours:
+                                    if len(cnt) >= 3:
+                                        poly = cnt.squeeze().flatten().tolist()
+                                        area = cv2.contourArea(cnt)
+                                        if area > 0:
+                                            xs = poly[0::2]
+                                            ys = poly[1::2]
+                                            x1, x2 = min(xs), max(xs)
+                                            y1, y2 = min(ys), max(ys)
+                                            frame_anns.append({
+                                                'track_id': 0,
+                                                'bbox': [float(x1), float(y1), float(x2 - x1), float(y2 - y1)],
+                                                'category': items_text,
+                                                'trace_id_list': [0]
+                                            })
+                        merged = existing + frame_anns
+                        with open(label_file, 'w', encoding='utf-8') as f:
+                            json.dump(merged, f, ensure_ascii=False)
+                    print(f"[纯语义{direction}] 完成: {len(results)} 帧")
                 
-                # 复制帧
-                forward_frames = []
-                for i in range(prompt_idx, total):
-                    src = mid_frames_dir / f"frame_{i:06d}.jpg"
-                    dst = temp_frames / f"frame_{i - prompt_idx:06d}.jpg"
-                    if src.exists():
-                        shutil.copy2(src, dst)
-                        forward_frames.append(i)
+                # 前向语义分割
+                if self.forward_cb.isChecked():
+                    print(f"[纯语义前向] 帧 {prompt_idx} → {total-1}")
+                    do_pure_semantic_clip(prompt_idx, total, True)
                 
-                # 生成clip
-                clip_path = str(temp_frames / "clip.mp4")
-                sample = cv2.imread(str(temp_frames / "frame_000000.jpg"))
-                height, width = sample.shape[:2]
-                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                out = cv2.VideoWriter(clip_path, fourcc, 30, (width, height))
-                for i in range(len(forward_frames)):
-                    frame = cv2.imread(str(temp_frames / f"frame_{i:06d}.jpg"))
-                    out.write(frame)
-                out.release()
+                # 后向语义分割
+                if self.backward_cb.isChecked():
+                    print(f"[纯语义后向] 帧 0 → {prompt_idx}")
+                    do_pure_semantic_clip(0, prompt_idx, False)
                 
-                # 用语义分割
-                print(f"[纯语义] 在第一帧做语义分割...")
-                results = list(predictor(source=clip_path, stream=True, text=items_text))
-                
-                # 从第一帧提取bboxes
-                prompt_bboxes = []
-                if results and results[0].masks is not None:
-                    masks_np = results[0].masks.data.cpu().numpy()
-                    for mask in masks_np:
-                        mask_binary = (mask > 0.5).astype(np.uint8)
-                        contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                        for cnt in contours:
-                            if len(cnt) >= 3:
-                                poly = cnt.squeeze().flatten().tolist()
-                                xs, ys = poly[0::2], poly[1::2]
-                                x1, x2 = min(xs), max(xs)
-                                y1, y2 = min(ys), max(ys)
-                                if x2 > x1 and y2 > y1:
-                                    prompt_bboxes.append([x1, y1, x2, y2])
-                
-                if not prompt_bboxes:
-                    QMessageBox.warning(self, "提示", "未检测到语义分割结果")
-                    self.reset_prompt_btn()
-                    return
-                
-                print(f"[纯语义] 检测到 {len(prompt_bboxes)} 个目标")
-                
-                # 设置bboxes供后续追踪使用
-                self.viewer.prompt_bboxes = list(prompt_bboxes)
-                has_bboxes = True
+                self.reset_prompt_btn()
+                self.viewer.update_display()
+                QMessageBox.information(self, "完成", "纯语义分割完成")
+                return
             
-            # 根据模式选择预测器
-            # 1. 纯语义/语义+追踪：has_items=True, has_bboxes=True → 语义文本 + bboxes
-            # 2. 纯追踪：has_items=False, has_bboxes=True → 只用bboxes
-            is_semantic = has_items  # 语义模式：只要有items_text
-            if is_semantic:
-                from ultralytics.models.sam import SAM3VideoSemanticPredictor
-                _patch_sam3_video_semantic()
-                print(f"[提示帧] 模式: {'语义+追踪' if has_bboxes else '纯语义'}, 物品: {items_text}")
-            else:
-                from ultralytics.models.sam import SAM3VideoPredictor
-                print(f"[提示帧] 模式: 纯追踪")
+            # 语义+追踪模式或纯追踪模式...
+            # 继续使用原有的 process_clip 逻辑
 
             device, device_type = get_device()
             half = device_type == 'cuda'
