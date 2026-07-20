@@ -3184,9 +3184,9 @@ class UnifiedPanel(QMainWindow):
                 coco = {'info': {}, 'images': [], 'annotations': [], 'categories': []}
                 print(f"[DEBUG 汇总] annotations.json 不存在，创建新的coco结构")
 
-            max_img_id = max([img['id'] for img in coco.get('images', [])], default=-1)
-            max_ann_id = max([ann['id'] for ann in coco.get('annotations', [])], default=FIRST_ID - 1)
-            max_track_id = max([ann['track_id'] for ann in coco.get('annotations', [])], default=FIRST_ID - 1)
+            max_img_id = max([img.get('id', 0) for img in coco.get('images', [])], default=-1)
+            max_ann_id = max([ann.get('id', 0) for ann in coco.get('annotations', [])], default=FIRST_ID - 1)
+            max_track_id = max([ann.get('track_id', 0) for ann in coco.get('annotations', [])], default=FIRST_ID - 1)
             print(f"[DEBUG 汇总] 现有max_ann_id={max_ann_id}, max_track_id={max_track_id}")
 
             # 检查与现有标注重叠的IoU阈值
