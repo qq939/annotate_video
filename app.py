@@ -2797,43 +2797,30 @@ class UnifiedPanel(QMainWindow):
         # 纯语义模式：先用文本分割得到bboxes，再前向+后向追踪
         if has_items and not has_bboxes:
             try:
-                from ultralytics.models.sam import SAM3VideoSemanticPredictor
-                from app_utils import get_device, SAM_MODEL_PATH, patch_sam3_video_semantic
-                patch_sam3_video_semantic()
+                from app_utils import get_device, SAM_MODEL_PATH, patch_sam3_video_semantic, run_prompt_frame
+                
+                # 参考 run_prompt_frame 函数的逻辑
                 device, device_type = get_device()
                 overrides = dict(
                     conf=0.25, task="segment", mode="predict",
                     model=SAM_MODEL_PATH, device=device,
                     half=device_type == 'cuda', save=False, verbose=False
                 )
-                predictor = SAM3VideoSemanticPredictor(overrides=overrides)
+                if device_type == 'cuda':
+                    overrides['batch'] = 1
+                    overrides['stream_buffer'] = False
+                elif device_type == 'mps':
+                    overrides['half'] = True
+                    overrides['amp'] = True
+                    overrides['stream_buffer'] = True
                 
-                # 在提示帧上做文本分割得到bboxes
                 prompt_frame_path = mid_frames_dir / f"frame_{prompt_idx:06d}.jpg"
-                # 参考现有代码：用 text 参数
-                predictor_args = {
-                    'source': str(prompt_frame_path),
-                }
-                if items_text:
-                    predictor_args['text'] = items_text
-                results = list(predictor(**predictor_args))
                 
-                prompt_bboxes = []
-                for r in results:
-                    if r.masks is not None:
-                        masks_np = r.masks.data.cpu().numpy() if hasattr(r.masks, 'data') else np.array(r.masks)
-                        for mask in masks_np:
-                            mask_binary = (mask > 0.5).astype(np.uint8)
-                            contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                            for cnt in contours:
-                                if len(cnt) >= 3:
-                                    xs = cnt.squeeze()[0::2].tolist()
-                                    ys = cnt.squeeze()[1::2].tolist()
-                                    x1, x2 = min(xs), max(xs)
-                                    y1, y2 = min(ys), max(ys)
-                                    prompt_bboxes.append([x1, y1, x2, y2])
+                # 使用 run_prompt_frame 函数，它内部会处理语义分割
+                find_list = [items_text]
+                annotations, first_id = run_prompt_frame(str(prompt_frame_path), bboxes=None, find_list=find_list, overrides=overrides)
                 
-                if not prompt_bboxes:
+                if not annotations:
                     QMessageBox.warning(self, "提示", "未检测到分割结果")
                     self.reset_prompt_btn()
                     return
@@ -2844,25 +2831,20 @@ class UnifiedPanel(QMainWindow):
                 if label_file.exists():
                     with open(label_file, encoding='utf-8') as f:
                         existing = json.load(f)
-                prompt_anns = []
-                for i, pb in enumerate(prompt_bboxes):
-                    x1, y1, x2, y2 = pb
-                    prompt_anns.append({
-                        'id': i + 1, 'track_id': 0, 'image_id': prompt_idx,
-                        'category_id': 0, 'bbox': [x1, y1, x2 - x1, y2 - y1],
-                        'area': float((x2 - x1) * (y2 - y1)),
-                        'segmentation': [[x1, y1, x2, y1, x2, y2, x1, y2]],
-                        'iscrowd': 0, 'confidence': 1.0,
-                        'category': items_text, 'trace_id_list': [0]
-                    })
-                merged = existing + prompt_anns
+                merged = existing + annotations
                 with open(label_file, 'w', encoding='utf-8') as f:
                     json.dump(merged, f, ensure_ascii=False)
                 
-                # 提示帧本身用语义分割结果，但追踪时用bboxes
+                # 从 annotations 中提取 bboxes 用于后续追踪
+                prompt_bboxes = []
+                for ann in annotations:
+                    bbox = ann.get('bbox', [])
+                    if len(bbox) >= 4:
+                        x, y, w, h = bbox
+                        prompt_bboxes.append([x, y, x + w, y + h])
+                
                 # 设置提示帧的bboxes供后续process_clip使用
                 self.viewer.set_prompt_bboxes([[pb[0], pb[1], pb[2], pb[3]] for pb in prompt_bboxes])
-                prompt_bboxes = [[pb[0], pb[1], pb[2], pb[3]] for pb in prompt_bboxes]
                 
                 # 用语义+追踪模式继续（items_text有值，prompt_bboxes有值）
                 is_semantic = True
