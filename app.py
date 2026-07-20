@@ -2535,11 +2535,26 @@ class UnifiedPanel(QMainWindow):
 
     def do_bidirectional_inject(self):
         prompt_bboxes = self.viewer.get_prompt_bboxes()
-        if not prompt_bboxes:
-            QMessageBox.warning(self, "错误", "请先绘制至少一个 Bbox")
+        items_text = self.items_input.text().strip()
+        
+        # 根据输入决定模式
+        # 1. 语义+追踪：items有内容 且 prompt_bboxes有内容
+        # 2. 纯语义：items有内容 且 prompt_bboxes为空
+        # 3. 纯追踪：items为空 且 prompt_bboxes有内容
+        has_items = bool(items_text)
+        has_bboxes = bool(prompt_bboxes)
+        
+        if not has_items and not has_bboxes:
+            QMessageBox.warning(self, "错误", "请先绘制 Bbox 或填写物品名称")
             self.reset_prompt_btn()
             return
-
+        
+        if has_items and not has_bboxes:
+            # 纯语义模式
+            QMessageBox.warning(self, "提示", "纯语义模式：请在提示帧上绘制 Bbox")
+            self.reset_prompt_btn()
+            return
+        
         prompt_idx = self.prompt_frame_idx
         total = self.total_frames
 
@@ -2557,7 +2572,18 @@ class UnifiedPanel(QMainWindow):
 
         try:
             from annotate_video import merge_masks_in_frame, TrackManager, get_device, SAM_MODEL_PATH, put_chinese_text
-            from ultralytics.models.sam import SAM3VideoPredictor
+            
+            # 根据模式选择预测器
+            is_semantic = has_items and has_bboxes
+            if is_semantic:
+                # 语义+追踪模式
+                from ultralytics.models.sam import SAM3VideoSemanticPredictor
+                _patch_sam3_video_semantic()
+                print(f"[提示帧] 模式: 语义+追踪, 物品: {items_text}")
+            else:
+                # 纯追踪模式
+                from ultralytics.models.sam import SAM3VideoPredictor
+                print(f"[提示帧] 模式: 纯追踪")
 
             device, device_type = get_device()
             half = device_type == 'cuda'
@@ -2574,7 +2600,11 @@ class UnifiedPanel(QMainWindow):
                 overrides['amp'] = True
                 overrides['stream_buffer'] = True
 
-            predictor = SAM3VideoPredictor(overrides=overrides)
+            # 根据模式初始化对应的预测器
+            if is_semantic:
+                predictor = SAM3VideoSemanticPredictor(overrides=overrides)
+            else:
+                predictor = SAM3VideoPredictor(overrides=overrides)
 
             sample_frame = cv2.imread(str(mid_frames_dir / f"frame_{0:06d}.jpg"))
             height, width = sample_frame.shape[:2]
@@ -2661,13 +2691,18 @@ class UnifiedPanel(QMainWindow):
                 cap_check.release()
                 print(f"[DEBUG {direction}] clip文件实际帧数: {actual_clip_frames}, expected: {end_frame - start_frame}")
 
-                print(f"[DEBUG {direction}] 正在加载 SAM3VideoPredictor 处理...")
-                print(f"[DEBUG {direction}] prompt_bboxes={prompt_bboxes}")
-                if prompt_bboxes:
+                print(f"[DEBUG {direction}] 正在加载 predictor 处理...")
+                print(f"[DEBUG {direction}] prompt_bboxes={prompt_bboxes}, is_semantic={is_semantic}")
+                if is_semantic:
+                    # 语义模式：使用文本提示
+                    results = predictor(source=clip_path, stream=True, bboxes=prompt_bboxes, labels=[1]*len(prompt_bboxes), text=items_text)
+                elif prompt_bboxes:
+                    # 纯追踪模式：使用bbox提示
                     results = predictor(source=clip_path, stream=True, bboxes=prompt_bboxes, labels=[1]*len(prompt_bboxes))
                 else:
+                    # 无提示：纯追踪
                     results = predictor(source=clip_path, stream=True)
-                    print(f"[DEBUG {direction}] ⚠️ prompt_bboxes为空，无法进行SAM3VideoPredictor分割！")
+                    print(f"[DEBUG {direction}] ⚠️ 无提示，使用无提示模式")
                 manager = TrackManager(iou_threshold=float(self.iou_input.text() or "0.02"))
                 manager.next_track_id = FIRST_ID
                 ann_id = FIRST_ID
