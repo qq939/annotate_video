@@ -4357,6 +4357,46 @@ class UnifiedPanel(QMainWindow):
         export_frames = total_frames if frame_limit == -1 else frame_limit
         print(f"[导出] 总帧数: {total_frames}, 导出帧数: {export_frames}")
 
+        labels_dir = data_dir / "labels"
+        frames_dir = data_dir / "frames"
+        
+        # 检查帧是否连续，如果不连续则重新编号
+        existing_frames = sorted([int(f.stem.replace('frame_', '')) for f in frames_dir.glob("frame_*.jpg")])
+        if not existing_frames:
+            QMessageBox.warning(self, "错误", "没有帧文件")
+            return
+        
+        print(f"[导出] 检测到帧: {existing_frames[:5]}...{existing_frames[-5:] if len(existing_frames) > 5 else ''} (共{len(existing_frames)}个)")
+        
+        # 检查是否连续
+        is_sequential = all(existing_frames[i] == existing_frames[i-1] + 1 for i in range(1, len(existing_frames)))
+        
+        if not is_sequential:
+            print(f"[导出] 检测到不连续的帧，正在重新编号...")
+            # 重新编号：按顺序重命名
+            new_idx = 0
+            for old_idx in existing_frames:
+                old_frame = frames_dir / f"frame_{old_idx:06d}.jpg"
+                old_label = labels_dir / f"frame_{old_idx:06d}.json"
+                new_frame = frames_dir / f"frame_{new_idx:06d}.jpg"
+                new_label = labels_dir / f"frame_{new_idx:06d}.json"
+                if old_frame.exists():
+                    old_frame.rename(new_frame)
+                if old_label.exists():
+                    old_label.rename(new_label)
+                new_idx += 1
+            
+            print(f"[导出] 重新编号完成: {new_idx} 帧")
+            existing_frames = list(range(new_idx))
+            total_frames = new_idx
+            export_frames = min(export_frames, total_frames)
+            
+            # 更新 annotations.json 中的 images 列表
+            coco_data['images'] = [{'id': i, 'frame_idx': i} for i in range(total_frames)]
+            with open(annotations_file, 'w', encoding='utf-8') as f:
+                json.dump(coco_data, f, ensure_ascii=False)
+            print(f"[导出] annotations.json 已更新")
+
         # 清空temp_data_post
         import shutil
         output_path = Path("temp_data_post")
@@ -4368,14 +4408,15 @@ class UnifiedPanel(QMainWindow):
         output_frames_dir = output_path / "frames"
         output_frames_dir.mkdir(exist_ok=True)
 
-        labels_dir = data_dir / "labels"
-        frames_dir = data_dir / "frames"
         cat_id_set = set()
 
         print("步骤1: 保存到 temp_data_post...")
         for i in range(export_frames):
             frame_path = str(frames_dir / f"frame_{i:06d}.jpg")
             frame = cv2.imread(frame_path)
+            if frame is None:
+                print(f"[导出] 警告: 无法读取帧 {i}")
+                continue
 
             output_frame_path = str(output_frames_dir / f"frame_{i:06d}.jpg")
             cv2.imwrite(output_frame_path, frame)
@@ -4441,22 +4482,7 @@ class UnifiedPanel(QMainWindow):
             json.dump(coco_output, f, ensure_ascii=False)
 
         print(f"导出完成: {output_path}")
-
-        # Merge拷贝到final_data
-        try:
-            from app_utils import merge_copy_to_final_data
-            success, msg = merge_copy_to_final_data(output_path, "final_data")
-            if not success:
-                QMessageBox.warning(self, "Merge拷贝警告", f"Merge拷贝失败: {msg}\n\n导出到temp_data_post已成功完成。")
-            else:
-                print(f"Merge拷贝: {msg}")
-        except Exception as e:
-            import traceback
-            error_msg = f"Merge拷贝出错: {str(e)}\n\n{traceback.format_exc()}"
-            print(f"[ERROR] {error_msg}")
-            QMessageBox.warning(self, "Merge拷贝错误", f"Merge拷贝出错:\n{str(e)}\n\n导出到temp_data_post已成功完成。")
-
-        QMessageBox.information(self, "完成", f"数据已保存到 {output_path}")
+        QMessageBox.information(self, "完成", f"数据已保存到 {output_path}\n\n帧数: {export_frames}")
 
     def _export_to_labelme(self, input_dir):
         """将temp_data_post转换为labelme格式"""
