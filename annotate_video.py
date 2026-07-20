@@ -124,6 +124,7 @@ class TrackManager:
         self.tracked_objects = {}  # track_id -> {mask, bbox, last_seen}
         self.next_track_id = 0
         self.iou_threshold = iou_threshold
+        self.UNTRACKED_THRESHOLD = 999999  # 大于这个值的track_id不会被合并
 
     def update(self, masks, bboxes, frame_idx):
         """更新跟踪，返回每个mask对应的track_id"""
@@ -151,7 +152,13 @@ class TrackManager:
             best_iou = 0
             best_track_id = None
 
+            # 先找所有可合并的track_id（排除大于阈值的）
+            mergeable_candidates = []
             for track_id, obj in self.tracked_objects.items():
+                if track_id > self.UNTRACKED_THRESHOLD:
+                    # track_id > 999999 不参与合并，但检测到的目标如果与这些重叠要舍弃
+                    continue
+                
                 if obj['mask'] is not None:
                     iou = calculate_mask_iou(mask, obj['mask'])
                 elif obj['bbox'] is not None and bbox is not None:
@@ -162,8 +169,35 @@ class TrackManager:
                 if iou > best_iou:
                     best_iou = iou
                     best_track_id = track_id
+                    mergeable_candidates = [(track_id, iou)]
+                elif iou == best_iou and iou >= self.iou_threshold:
+                    mergeable_candidates.append((track_id, iou))
 
-            if best_iou >= self.iou_threshold:
+            # 检查是否与 > 999999 的 track_id 重叠（IoU高），如果重叠则舍弃
+            skip_detection = False
+            for track_id, obj in self.tracked_objects.items():
+                if track_id <= self.UNTRACKED_THRESHOLD:
+                    continue
+                if obj['mask'] is not None:
+                    iou = calculate_mask_iou(mask, obj['mask'])
+                elif obj['bbox'] is not None and bbox is not None:
+                    iou = calculate_bbox_iou(bbox, obj['bbox'])
+                else:
+                    iou = 0
+                if iou >= self.iou_threshold:
+                    # 与 > 999999 的目标重叠，舍弃这个检测
+                    skip_detection = True
+                    break
+            
+            if skip_detection:
+                # 舍弃这个检测，不分配track_id
+                track_ids.append(None)
+                continue
+
+            # 如果有多个可合并的候选，取track_id最大的那个
+            if mergeable_candidates and best_iou >= self.iou_threshold:
+                mergeable_candidates.sort(key=lambda x: x[0], reverse=True)
+                best_track_id = mergeable_candidates[0][0]
                 track_ids.append(best_track_id)
                 self.tracked_objects[best_track_id] = {
                     'mask': mask,
@@ -171,6 +205,7 @@ class TrackManager:
                     'last_seen': frame_idx
                 }
             else:
+                # 没有匹配到任何可合并的track_id，分配新的
                 track_id = self.next_track_id
                 self.next_track_id += 1
                 track_ids.append(track_id)
@@ -180,6 +215,7 @@ class TrackManager:
                     'last_seen': frame_idx
                 }
 
+        # 清理过期的tracked_objects
         for track_id in list(self.tracked_objects.keys()):
             if self.tracked_objects[track_id]['last_seen'] < frame_idx - 30:
                 del self.tracked_objects[track_id]
