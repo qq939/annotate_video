@@ -2797,16 +2797,15 @@ class UnifiedPanel(QMainWindow):
         # 纯语义模式：先用文本分割得到bboxes，再前向+后向追踪
         if has_items and not has_bboxes:
             try:
-                from ultralytics.models.sam import SAM3VideoSemanticPredictor
+                from ultralytics.models.sam import SAMPredictor
                 from annotate_video import get_device, SAM_MODEL_PATH
-                _patch_sam3_video_semantic()
                 device, device_type = get_device()
                 overrides = dict(
                     conf=0.25, task="segment", mode="predict",
                     model=SAM_MODEL_PATH, device=device,
                     half=device_type == 'cuda', save=False, verbose=False
                 )
-                predictor = SAM3VideoSemanticPredictor(overrides=overrides)
+                predictor = SAMPredictor(overrides=overrides)
                 
                 # 在提示帧上做文本分割得到bboxes
                 prompt_frame_path = mid_frames_dir / f"frame_{prompt_idx:06d}.jpg"
