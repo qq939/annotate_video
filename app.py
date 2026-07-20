@@ -2295,6 +2295,10 @@ class UnifiedPanel(QMainWindow):
         self.train_resume_check.setChecked(False)
         self.train_resume_check.setStyleSheet("QCheckBox { font-size: 11px; }")
         train_params_layout.addWidget(self.train_resume_check)
+        self.upload_obs_check = QCheckBox("上传OBS")
+        self.upload_obs_check.setChecked(True)
+        self.upload_obs_check.setStyleSheet("QCheckBox { font-size: 11px; }")
+        train_params_layout.addWidget(self.upload_obs_check)
         train_params_layout.addStretch()
         layout.addLayout(train_params_layout)
 
@@ -4255,6 +4259,39 @@ class UnifiedPanel(QMainWindow):
             json.dump(coco_output, f, ensure_ascii=False)
 
         print(f"导出完成: {output_path}")
+        
+        # 上传到OBS
+        if self.upload_obs_check.isChecked():
+            import time
+            import zipfile
+            try:
+                train_id = self.train_id_input.text() or self.default_model_id or "data"
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                zip_filename = f"{train_id}_{timestamp}.zip"
+                zip_path = Path("temp_data_post.zip")
+                
+                # 创建zip
+                print(f"[OBS] 正在压缩 temp_data_post...")
+                with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                    for file in output_path.rglob("*"):
+                        if file.is_file():
+                            arcname = file.relative_to(output_path)
+                            zf.write(file, arcname)
+                
+                # 上传到OBS
+                obs_url = f"http://obs.dimond.top/{zip_filename}"
+                print(f"[OBS] 正在上传 {zip_filename}...")
+                result = subprocess.run(
+                    ['curl', '--upload-file', str(zip_path), obs_url],
+                    capture_output=True, text=True
+                )
+                if result.returncode == 0:
+                    print(f"[OBS] 上传成功! 地址: {obs_url}")
+                else:
+                    print(f"[OBS] 上传失败: {result.stderr}")
+            except Exception as e:
+                print(f"[OBS] 上传出错: {e}")
+        
         QMessageBox.information(self, "完成", f"数据已保存到 {output_path}\n\n帧数: {export_frames}")
 
     def _export_to_labelme(self, input_dir):
