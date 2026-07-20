@@ -2638,6 +2638,9 @@ class UnifiedPanel(QMainWindow):
                                             frame_anns.append({
                                                 'track_id': 0,
                                                 'bbox': [float(x1), float(y1), float(x2 - x1), float(y2 - y1)],
+                                                'area': float(area),
+                                                'segmentation': [poly],
+                                                'iscrowd': 0,
                                                 'category': items_text,
                                                 'trace_id_list': [0]
                                             })
