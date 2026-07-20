@@ -4263,39 +4263,6 @@ class UnifiedPanel(QMainWindow):
             json.dump(coco_output, f, ensure_ascii=False)
 
         print(f"导出完成: {output_path}")
-        
-        # 上传到OBS
-        if self.upload_obs_check.isChecked():
-            import time
-            import zipfile
-            try:
-                train_id = self.train_id_input.text() or self.default_model_id or "data"
-                timestamp = time.strftime("%Y%m%d_%H%M%S")
-                zip_filename = f"{train_id}_{timestamp}.zip"
-                zip_path = Path("temp_data_post.zip")
-                
-                # 创建zip
-                print(f"[OBS] 正在压缩 temp_data_post...")
-                with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-                    for file in output_path.rglob("*"):
-                        if file.is_file():
-                            arcname = file.relative_to(output_path)
-                            zf.write(file, arcname)
-                
-                # 上传到OBS
-                obs_url = f"http://obs.dimond.top/{zip_filename}"
-                print(f"[OBS] 正在上传 {zip_filename}...")
-                result = subprocess.run(
-                    ['curl', '--upload-file', str(zip_path), obs_url],
-                    capture_output=True, text=True
-                )
-                if result.returncode == 0:
-                    print(f"[OBS] 上传成功! 地址: {obs_url}")
-                else:
-                    print(f"[OBS] 上传失败: {result.stderr}")
-            except Exception as e:
-                print(f"[OBS] 上传出错: {e}")
-        
         QMessageBox.information(self, "完成", f"数据已保存到 {output_path}\n\n帧数: {export_frames}")
 
     def _export_to_labelme(self, input_dir):
@@ -4957,6 +4924,41 @@ class UnifiedPanel(QMainWindow):
                 shutil.copy2(Path("runs/detect/yolo_runs/train/weights/best.onnx"), model_output_dir / "best.onnx")
                 shutil.copy2(Path("runs/detect/yolo_runs/train/weights/model.json"), model_output_dir / "model.json")
                 print(f"[保存] 模型已保存到: {model_output_dir}")
+            
+            # 上传temp_data_post到OBS
+            if self.upload_obs_check.isChecked():
+                import zipfile
+                import time
+                try:
+                    timestamp = time.strftime("%Y%m%d_%H%M%S")
+                    zip_filename = f"{train_id}_{timestamp}.zip"
+                    zip_path = Path(f"{train_id}_{timestamp}.zip")
+                    
+                    # 压缩temp_data_post
+                    print(f"[OBS] 正在压缩 temp_data_post...")
+                    data_post_dir = Path("temp_data_post")
+                    if data_post_dir.exists():
+                        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                            for file in data_post_dir.rglob("*"):
+                                if file.is_file():
+                                    arcname = file.relative_to(data_post_dir)
+                                    zf.write(file, arcname)
+                        
+                        # 上传到OBS
+                        obs_zip_url = f"http://obs.dimond.top/{zip_filename}"
+                        print(f"[OBS] 正在上传 {zip_filename}...")
+                        result = subprocess.run(
+                            ['curl', '--upload-file', str(zip_path), obs_zip_url],
+                            capture_output=True, text=True
+                        )
+                        if result.returncode == 0:
+                            print(f"[OBS] 上传成功! 地址: {obs_zip_url}")
+                        else:
+                            print(f"[OBS] 上传失败: {result.stderr}")
+                    else:
+                        print(f"[OBS] temp_data_post 目录不存在，跳过上传")
+                except Exception as e:
+                    print(f"[OBS] 上传出错: {e}")
             
             print(f"完成!\n标注视频: {obs_url}\n数据保存在: {temp_dataset_dir}")
         else:
