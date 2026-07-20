@@ -2809,10 +2809,13 @@ class UnifiedPanel(QMainWindow):
                 
                 # 在提示帧上做文本分割得到bboxes
                 prompt_frame_path = mid_frames_dir / f"frame_{prompt_idx:06d}.jpg"
-                predictor.set_image(str(prompt_frame_path))
-                # 使用 add_prompt 方法设置文本提示
-                predictor.add_prompt(0, text=items_text)
-                results = predictor.prompt_inference()
+                # 参考现有代码：用 text 参数
+                predictor_args = {
+                    'source': str(prompt_frame_path),
+                }
+                if items_text:
+                    predictor_args['text'] = items_text
+                results = list(predictor(**predictor_args))
                 
                 prompt_bboxes = []
                 for r in results:
