@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 import json
 
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QRadioButton, QPushButton, QFileDialog, QInputDialog)
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QRadioButton, QPushButton, QFileDialog, QInputDialog, QListWidget, QMessageBox)
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QImage, QPixmap, QPainter, QPen, QColor
 from PyQt5.QtCore import pyqtSignal
@@ -141,6 +141,12 @@ class VideoViewer(QMainWindow):
 
         self.prompt_bboxes = []
         self.drawing_mode = False
+        
+        # 帧删除相关
+        self.del_frames = set()
+        self.select_start = None
+        self.ranges = []  # 待删除范围 [(start, end), ...]
+        self.is_delete_mode = False
 
         self.init_ui()
 
@@ -167,7 +173,48 @@ class VideoViewer(QMainWindow):
         add_btn = QPushButton("+添加视频")
         add_btn.clicked.connect(self.add_video_frames)
         mode_layout.addWidget(add_btn)
+        
+        # 帧删除按钮
+        self.delete_mode_btn = QPushButton("帧删除")
+        self.delete_mode_btn.clicked.connect(self.toggle_delete_mode)
+        mode_layout.addWidget(self.delete_mode_btn)
+        
         layout.addLayout(mode_layout)
+        
+        # 帧删除区域（默认隐藏）
+        self.delete_layout = QVBoxLayout()
+        self.delete_layout.setContentsMargins(0, 5, 0, 0)
+        self.delete_layout.setSpacing(5)
+        
+        # 帧删除控制按钮
+        delete_ctrl = QHBoxLayout()
+        for txt, fn in [("◀◀", self.backward), ("▶", self.toggle_play), ("▶▶", self.forward), ("清空", self.clear_delete)]:
+            b = QPushButton(txt)
+            b.setFixedHeight(28)
+            b.setStyleSheet("font-size: 12px;")
+            b.clicked.connect(fn)
+            delete_ctrl.addWidget(b)
+        self.delete_btn = QPushButton("删除\n选中")
+        self.delete_btn.setFixedWidth(70)
+        self.delete_btn.setStyleSheet("font-size: 12px; background-color: #e74c3c; color: white;")
+        self.delete_btn.clicked.connect(self.do_delete_frames)
+        delete_ctrl.addWidget(self.delete_btn)
+        delete_ctrl.addStretch()
+        self.delete_layout.addLayout(delete_ctrl)
+        
+        # 待删除列表
+        list_layout = QHBoxLayout()
+        list_layout.addWidget(QLabel("待删除片段:"))
+        self.delete_list = QListWidget()
+        self.delete_list.setFixedHeight(80)
+        self.delete_list.setStyleSheet("font-size: 12px;")
+        self.delete_list.itemDoubleClicked.connect(self.delete_item)
+        list_layout.addWidget(self.delete_list)
+        self.delete_layout.addLayout(list_layout)
+        
+        # 帧删除区域默认隐藏
+        self._set_delete_layout_visible(False)
+        layout.addLayout(self.delete_layout)
 
         self.image_label = VideoLabel()
         self.image_label.set_zoom(self.zoom_factor)
@@ -188,6 +235,108 @@ class VideoViewer(QMainWindow):
         elif key == Qt.Key_Escape:
             self.close()
     
+    def _set_delete_layout_visible(self, visible):
+        """设置帧删除区域的显示/隐藏"""
+        for i in range(self.delete_layout.count()):
+            widget = self.delete_layout.itemAt(i)
+            if widget.widget():
+                widget.widget().setVisible(visible)
+    
+    def toggle_delete_mode(self):
+        """切换帧删除模式"""
+        self.is_delete_mode = not self.is_delete_mode
+        if self.is_delete_mode:
+            self._set_delete_layout_visible(True)
+            self.delete_mode_btn.setStyleSheet("background-color: #e74c3c; color: white;")
+            self.delete_mode_btn.setText("退出删除")
+            self.delete_btn.setText("删除\n选中")
+        else:
+            self._set_delete_layout_visible(False)
+            self.delete_mode_btn.setStyleSheet("")
+            self.delete_mode_btn.setText("帧删除")
+            self.select_start = None
+    
+    def clear_delete(self):
+        """清空待删除列表"""
+        self.ranges = []
+        self.del_frames = set()
+        self.delete_list.clear()
+        self.select_start = None
+        self.delete_btn.setText("删除\n选中")
+    
+    def delete_item(self, item):
+        """删除列表中的项"""
+        row = self.delete_list.row(item)
+        if row >= 0 and row < len(self.ranges):
+            start, end = self.ranges[row]
+            for i in range(start, end + 1):
+                self.del_frames.discard(i)
+            del self.ranges[row]
+            self.delete_list.takeItem(row)
+    
+    def do_delete_frames(self):
+        """执行删除操作"""
+        if not self.ranges:
+            QMessageBox.information(self, "提示", "请先选择要删除的帧范围")
+            return
+        
+        # 收集所有待删除的帧
+        delete_set = set()
+        for s, e in self.ranges:
+            delete_set.update(range(s, e + 1))
+        
+        if not delete_set:
+            QMessageBox.information(self, "提示", "没有要删除的帧")
+            return
+        
+        # 确认删除
+        reply = QMessageBox.question(self, "确认", f"确定删除 {len(delete_set)} 帧吗？", QMessageBox.Yes | QMessageBox.No)
+        if reply != QMessageBox.Yes:
+            return
+        
+        # 删除帧文件和标注文件
+        deleted_count = 0
+        for frame_idx in sorted(delete_set, reverse=True):
+            frame_path = self.frames_dir / f"frame_{frame_idx:06d}.jpg"
+            label_path = self.labels_dir / f"frame_{frame_idx:06d}.json"
+            if frame_path.exists():
+                frame_path.unlink()
+                deleted_count += 1
+            if label_path.exists():
+                label_path.unlink()
+        
+        # 重新编号：把后面的帧前移
+        all_frames = sorted(self.frames_dir.glob("frame_*.jpg"))
+        for new_idx, frame_path in enumerate(all_frames):
+            if frame_path.stem != f"frame_{new_idx:06d}":
+                new_path = self.frames_dir / f"frame_{new_idx:06d}.jpg"
+                frame_path.rename(new_path)
+                # 同时重命名label文件
+                old_label = self.labels_dir / frame_path.stem.replace("frame_", "") + ".json"
+                new_label = self.labels_dir / f"frame_{new_idx:06d}.json"
+                if old_label.exists():
+                    old_label.rename(new_label)
+        
+        # 更新总数和coco_data
+        self.total_frames = len(list(self.frames_dir.glob("frame_*.jpg")))
+        self.coco_data['images'] = [
+            {'id': i, 'file_name': f"frame_{i:06d}.jpg", 'width': self.video_width, 'height': self.video_height, 'frame_count': i}
+            for i in range(self.total_frames)
+        ]
+        with open(self.temp_data_path / 'annotations.json', 'w', encoding='utf-8') as f:
+            json.dump(self.coco_data, f, ensure_ascii=False)
+        
+        # 清空删除列表
+        self.clear_delete()
+        
+        # 如果当前帧超出范围，调整到最后一帧
+        if self.current_frame_idx >= self.total_frames:
+            self.current_frame_idx = max(0, self.total_frames - 1)
+        
+        self.update_display()
+        print(f"[帧删除] 已删除 {deleted_count} 帧，当前总帧数: {self.total_frames}")
+        QMessageBox.information(self, "完成", f"已删除 {deleted_count} 帧\n当前总帧数: {self.total_frames}")
+
     def add_video_frames(self):
         """添加视频帧到当前temp_data"""
         file_paths, _ = QFileDialog.getOpenFileNames(self, "选择视频(支持多选)", "", "视频文件 (*.mp4 *.avi *.mov *.mkv)")
@@ -253,6 +402,22 @@ class VideoViewer(QMainWindow):
         if offset_x <= display_x < offset_x + scaled_w and offset_y <= display_y < offset_y + scaled_h:
             video_x = int((display_x - offset_x) / self.zoom_factor)
             video_y = int((display_y - offset_y) / self.zoom_factor)
+            
+            # 如果是帧删除模式
+            if self.is_delete_mode:
+                idx = self.current_frame_idx
+                display_idx = idx + 1
+                if self.select_start is None:
+                    self.select_start = idx
+                    self.delete_btn.setText(f"选择\n帧{display_idx}")
+                else:
+                    start, end = min(self.select_start, idx), max(self.select_start, idx)
+                    self.ranges.append((start, end))
+                    self.delete_list.addItem(f"帧 {start + 1} → {end + 1} ({end - start + 1}帧)")
+                    self.select_start = None
+                    self.delete_btn.setText("删除\n选中")
+                return
+            
             # 单击修改annotation的trace_id为当前ID
             panel = self.panel
             if panel and hasattr(panel, 'trace_id_input'):
@@ -536,6 +701,26 @@ class VideoViewer(QMainWindow):
 
     def get_current_frame(self):
         return self.current_frame_idx
+    
+    def backward(self):
+        """上一帧"""
+        if self.current_frame_idx > 0:
+            self.current_frame_idx -= 1
+            self.update_display()
+    
+    def forward(self):
+        """下一帧"""
+        if self.current_frame_idx < self.total_frames - 1:
+            self.current_frame_idx += 1
+            self.update_display()
+    
+    def toggle_play(self):
+        """播放/暂停"""
+        if self.timer.isActive():
+            self.timer.stop()
+        else:
+            # 设置播放间隔，约30fps
+            self.timer.start(33)
 
 
 def main():
