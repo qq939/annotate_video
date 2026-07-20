@@ -2797,22 +2797,12 @@ class UnifiedPanel(QMainWindow):
         # 纯语义模式：先用文本分割得到bboxes，再前向+后向追踪
         if has_items and not has_bboxes:
             try:
-                from app_utils import get_device, SAM_MODEL_PATH, patch_sam3_video_semantic, run_prompt_frame
+                from app_utils import get_sam_overrides, run_prompt_frame
+                from annotate_video import SAM_MODEL_PATH
                 
                 # 参考 run_prompt_frame 函数的逻辑
-                device, device_type = get_device()
-                overrides = dict(
-                    conf=0.25, task="segment", mode="predict",
-                    model=SAM_MODEL_PATH, device=device,
-                    half=device_type == 'cuda', save=False, verbose=False
-                )
-                if device_type == 'cuda':
-                    overrides['batch'] = 1
-                    overrides['stream_buffer'] = False
-                elif device_type == 'mps':
-                    overrides['half'] = True
-                    overrides['amp'] = True
-                    overrides['stream_buffer'] = True
+                overrides, _ = get_sam_overrides()
+                overrides['model'] = SAM_MODEL_PATH
                 
                 prompt_frame_path = mid_frames_dir / f"frame_{prompt_idx:06d}.jpg"
                 
