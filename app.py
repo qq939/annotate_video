@@ -2295,7 +2295,7 @@ class UnifiedPanel(QMainWindow):
         self.train_resume_check.setChecked(False)
         self.train_resume_check.setStyleSheet("QCheckBox { font-size: 11px; }")
         train_params_layout.addWidget(self.train_resume_check)
-        self.upload_obs_check = QCheckBox("上传OBS")
+        self.upload_obs_check = QCheckBox("数据集上传OBS")
         self.upload_obs_check.setChecked(True)
         self.upload_obs_check.setStyleSheet("QCheckBox { font-size: 11px; }")
         train_params_layout.addWidget(self.upload_obs_check)
