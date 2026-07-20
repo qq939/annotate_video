@@ -2798,6 +2798,7 @@ class UnifiedPanel(QMainWindow):
         if has_items and not has_bboxes:
             try:
                 from ultralytics.models.sam import SAM3VideoSemanticPredictor
+                from annotate_video import get_device, SAM_MODEL_PATH
                 _patch_sam3_video_semantic()
                 device, device_type = get_device()
                 overrides = dict(
