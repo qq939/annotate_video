@@ -2512,6 +2512,108 @@ class UnifiedPanel(QMainWindow):
             self.fixed_edit_btn.setText("编辑固定框")
             self.viewer.enable_bbox_drawing(False)
     
+    def _do_semantic_only(self, items_text):
+        """纯语义模式：只分割当前提示帧"""
+        prompt_idx = self.prompt_frame_idx
+        temp_mid = Path(TEMP_DATA_MID_DIR)
+        mid_frames_dir = temp_mid / "frames"
+        mid_labels_dir = temp_mid / "labels"
+        
+        print(f"[纯语义] 开始处理...")
+        
+        try:
+            from annotate_video import merge_masks_in_frame, get_device, SAM_MODEL_PATH
+            from ultralytics.models.sam import SAM3VideoSemanticPredictor
+            
+            _patch_sam3_video_semantic()
+            
+            device, device_type = get_device()
+            half = device_type == 'cuda'
+            overrides = dict(
+                conf=0.25, task="segment", mode="predict",
+                model=SAM_MODEL_PATH, device=device,
+                half=half, save=False, verbose=False
+            )
+            if device_type == 'cuda':
+                overrides['batch'] = 1
+                overrides['stream_buffer'] = False
+            elif device_type == 'mps':
+                overrides['half'] = True
+                overrides['amp'] = True
+                overrides['stream_buffer'] = True
+            
+            predictor = SAM3VideoSemanticPredictor(overrides=overrides)
+            
+            # 读取提示帧
+            frame_path = mid_frames_dir / f"frame_{prompt_idx:06d}.jpg"
+            if not frame_path.exists():
+                QMessageBox.warning(self, "错误", f"提示帧不存在: {frame_path}")
+                self.reset_prompt_btn()
+                return
+            
+            frame = cv2.imread(str(frame_path))
+            height, width = frame.shape[:2]
+            
+            # 使用文本提示进行语义分割
+            print(f"[纯语义] 使用文本提示: {items_text}")
+            results = predictor(source=str(frame_path), text=items_text)
+            
+            frame_anns = []
+            for r in results:
+                masks = r.masks
+                if masks is not None:
+                    masks_np = masks.data.cpu().numpy() if hasattr(masks, 'data') else np.array(masks)
+                    for i, mask in enumerate(masks_np):
+                        mask_binary = (mask > 0.5).astype(np.uint8)
+                        contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                        for cnt in contours:
+                            if len(cnt) >= 3:
+                                poly = cnt.squeeze().flatten().tolist()
+                                xs = poly[0::2]
+                                ys = poly[1::2]
+                                x1, x2 = min(xs), max(xs)
+                                y1, y2 = min(ys), max(ys)
+                                bbox = [float(x1), float(y1), float(x2 - x1), float(y2 - y1)]
+                                area = cv2.contourArea(cnt)
+                                if area > 0:
+                                    ann = {
+                                        'id': i + 1, 'track_id': 0, 'image_id': prompt_idx,
+                                        'category_id': 0, 'bbox': bbox, 'area': float(area),
+                                        'segmentation': [poly], 'iscrowd': 0, 'confidence': float(r.probs.max()) if hasattr(r, 'probs') else 1.0,
+                                        'category': items_text, 'trace_id_list': [0]
+                                    }
+                                    frame_anns.append(ann)
+            
+            if not frame_anns:
+                QMessageBox.warning(self, "提示", "未检测到分割结果")
+                self.reset_prompt_btn()
+                return
+            
+            # 保存到label文件
+            label_file = mid_labels_dir / f"frame_{prompt_idx:06d}.json"
+            existing = []
+            if label_file.exists():
+                with open(label_file, encoding='utf-8') as f:
+                    existing = json.load(f)
+            merged = existing + frame_anns
+            with open(label_file, 'w', encoding='utf-8') as f:
+                json.dump(merged, f, ensure_ascii=False)
+            
+            print(f"[纯语义] 已保存 {len(frame_anns)} 个标注到帧 {prompt_idx + 1}")
+            
+            # 更新 annotations.json
+            self._update_coco_annotations()
+            
+            self.reset_prompt_btn()
+            self.viewer.update_display()
+            QMessageBox.information(self, "完成", f"纯语义分割完成\n帧 {prompt_idx + 1}: {len(frame_anns)} 个目标")
+            
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(self, "错误", f"纯语义分割失败:\n{e}")
+            self.reset_prompt_btn()
+    
     def extract_video_clip_from_frames(self, frames_dir, start_idx, total_frames, output_path, fps=30):
         sample = cv2.imread(str(frames_dir / f"frame_{start_idx:06d}.jpg"))
         if sample is None:
@@ -2549,12 +2651,6 @@ class UnifiedPanel(QMainWindow):
             self.reset_prompt_btn()
             return
         
-        if has_items and not has_bboxes:
-            # 纯语义模式
-            QMessageBox.warning(self, "提示", "纯语义模式：请在提示帧上绘制 Bbox")
-            self.reset_prompt_btn()
-            return
-        
         prompt_idx = self.prompt_frame_idx
         total = self.total_frames
 
@@ -2569,6 +2665,11 @@ class UnifiedPanel(QMainWindow):
 
         self.prompt_btn.setText("正在处理...")
         QApplication.processEvents()
+        
+        # 纯语义模式：只分割当前提示帧
+        if has_items and not has_bboxes:
+            self._do_semantic_only(items_text)
+            return
 
         try:
             from annotate_video import merge_masks_in_frame, TrackManager, get_device, SAM_MODEL_PATH, put_chinese_text
