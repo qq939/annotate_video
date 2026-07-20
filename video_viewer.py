@@ -416,31 +416,42 @@ class VideoViewer(QMainWindow):
         import json
         import shutil
         import zipfile
-        import tempfile
         
-        # 选择文件（支持目录或zip）
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "选择数据集（文件夹或zip压缩包）", "",
-            "数据集 (*.zip);;文件夹 (*)"
-        )
-        if not file_path:
-            return
+        # 先尝试选择文件夹
+        dir_path = QFileDialog.getExistingDirectory(self, "选择COCO数据集目录", "")
+        zip_path = None
         
-        file_path = Path(file_path)
-        temp_dir = None
-        
-        try:
-            # 判断是zip还是目录
-            if file_path.suffix.lower() == '.zip':
-                # 解压zip到临时目录
-                print(f"[VideoViewer] 解压 {file_path.name}...")
-                temp_dir = Path(tempfile.mkdtemp())
-                with zipfile.ZipFile(file_path, 'r') as zf:
-                    zf.extractall(temp_dir)
-                dir_path = temp_dir
-            else:
-                dir_path = file_path
+        if not dir_path:
+            # 如果没选文件夹，尝试选择zip文件
+            zip_file, _ = QFileDialog.getOpenFileName(
+                self, "选择ZIP压缩包", "",
+                "ZIP文件 (*.zip)"
+            )
+            if not zip_file:
+                return
             
+            zip_path = Path(zip_file)
+            # 解压zip到项目根目录的temp_import目录
+            temp_import_dir = Path("temp_import")
+            if temp_import_dir.exists():
+                shutil.rmtree(temp_import_dir)
+            temp_import_dir.mkdir(exist_ok=True)
+            
+            print(f"[VideoViewer] 解压 {zip_path.name}...")
+            with zipfile.ZipFile(zip_path, 'r') as zf:
+                zf.extractall(temp_import_dir)
+            
+            # 查找解压后的根目录（zip里可能有嵌套）
+            items = list(temp_import_dir.iterdir())
+            if len(items) == 1 and items[0].is_dir():
+                dir_path = items[0]
+            else:
+                dir_path = temp_import_dir
+        else:
+            dir_path = Path(dir_path)
+        
+        temp_dir = None  # 用于标记是否需要清理
+        try:
             annotations_file = dir_path / "annotations.json"
             if not annotations_file.exists():
                 QMessageBox.warning(self, "错误", "目录下没有 annotations.json 文件")
@@ -519,10 +530,14 @@ class VideoViewer(QMainWindow):
             print(f"[VideoViewer] 导入完成: {new_count} 张图片，当前总帧数: {self.total_frames}")
             QMessageBox.information(self, "完成", f"成功导入 {new_count} 张图片\n当前总帧数: {self.total_frames}")
             
+        except Exception as e:
+            QMessageBox.warning(self, "错误", f"导入失败: {e}")
         finally:
-            # 清理临时目录
-            if temp_dir and temp_dir.exists():
-                shutil.rmtree(temp_dir)
+            # 清理临时目录（如果是从zip解压的）
+            if zip_path:
+                temp_import_dir = Path("temp_import")
+                if temp_import_dir.exists():
+                    shutil.rmtree(temp_import_dir)
 
     def set_controller(self, controller):
         self.controller = controller
