@@ -147,6 +147,9 @@ class VideoViewer(QMainWindow):
         self.select_start = None
         self.ranges = []  # 待删除范围 [(start, end), ...]
         self.is_delete_mode = False
+        
+        # 模式切换：A=标注模式，B=标记模式
+        self.is_mode_a = True  # True=模式A(标注), False=模式B(标记)
 
         self.init_ui()
 
@@ -168,6 +171,13 @@ class VideoViewer(QMainWindow):
         self.multi_frame_radio.setChecked(True)  # 默认多帧
         mode_layout.addWidget(self.single_frame_radio)
         mode_layout.addWidget(self.multi_frame_radio)
+        # A/B 模式切换
+        mode_layout.addWidget(QLabel("点击:"))
+        self.mode_ab_btn = QPushButton("A")
+        self.mode_ab_btn.setFixedWidth(30)
+        self.mode_ab_btn.setStyleSheet("font-weight: bold;")
+        self.mode_ab_btn.clicked.connect(self.toggle_mode_ab)
+        mode_layout.addWidget(self.mode_ab_btn)
         mode_layout.addStretch()
         # 添加视频按钮
         add_btn = QPushButton("+添加视频")
@@ -255,6 +265,17 @@ class VideoViewer(QMainWindow):
             self.delete_mode_btn.setStyleSheet("")
             self.delete_mode_btn.setText("帧删除")
             self.select_start = None
+    
+    def toggle_mode_ab(self):
+        """切换A/B模式"""
+        self.is_mode_a = not self.is_mode_a
+        if self.is_mode_a:
+            self.mode_ab_btn.setText("A")
+            self.mode_ab_btn.setStyleSheet("font-weight: bold; background-color: #3498db; color: white;")
+        else:
+            self.mode_ab_btn.setText("B")
+            self.mode_ab_btn.setStyleSheet("font-weight: bold; background-color: #e74c3c; color: white;")
+        print(f"[VideoViewer] 模式切换: {'A(标注)' if self.is_mode_a else 'B(标记)'}")
     
     def clear_delete(self):
         """清空待删除列表"""
@@ -364,8 +385,8 @@ class VideoViewer(QMainWindow):
                 cv2.imwrite(str(frame_path), frame)
                 # 创建空的label文件
                 label_path = self.labels_dir / f"frame_{idx:06d}.json"
-                with open(label_path, 'w') as f:
-                    json.dump([], f)
+                with open(label_path, 'w', encoding='utf-8') as f:
+                    json.dump([], f, ensure_ascii=False)
                 idx += 1
             cap.release()
             start_idx = idx
@@ -418,7 +439,13 @@ class VideoViewer(QMainWindow):
                     self.delete_btn.setText("删除\n选中")
                 return
             
-            # 单击修改annotation的trace_id为当前ID
+            # 模式B：标记模式
+            if not self.is_mode_a:
+                # 标记模式：标记当前帧或点击的物体
+                print(f"[标记] 帧 {self.current_frame_idx + 1}, 位置 ({video_x}, {video_y})")
+                return
+            
+            # 模式A：修改annotation的trace_id为当前ID
             panel = self.panel
             if panel and hasattr(panel, 'trace_id_input'):
                 current_tid = int(panel.trace_id_input.text()) if panel.trace_id_input.text() else 1000000
