@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 import json
 
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QRadioButton, QPushButton, QFileDialog)
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QRadioButton, QPushButton, QFileDialog, QInputDialog)
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QImage, QPixmap, QPainter, QPen, QColor
 from PyQt5.QtCore import pyqtSignal
@@ -260,19 +260,50 @@ class VideoViewer(QMainWindow):
                 is_single = self.single_frame_radio.isChecked()
                 print(f"[DEBUG] 单帧={is_single}, current_tid={current_tid}")
                 frame_annotations = self._get_current_annotations()
+                
+                # 找出所有被点击的annotation
+                clicked_anns = []
                 for ann in frame_annotations:
                     bbox = ann.get('bbox', [])
                     if len(bbox) >= 4:
                         x, y, w, h = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
                         if x <= video_x <= x + w and y <= video_y <= y + h:
-                            old_tid = ann.get('track_id', 0)
-                            if old_tid != current_tid:
-                                if is_single:
-                                    self._change_trace_id_single_frame(old_tid, current_tid, video_x, video_y)
-                                else:
-                                    self._change_trace_id_in_all_frames(old_tid, current_tid)
-                            return
-            self.video_clicked.emit(video_x, video_y, self.current_frame_idx)
+                            clicked_anns.append(ann)
+                
+                if len(clicked_anns) == 0:
+                    # 没有点击到任何annotation
+                    self.video_clicked.emit(video_x, video_y, self.current_frame_idx)
+                    return
+                
+                if len(clicked_anns) == 1:
+                    # 只有一个，直接修改
+                    ann = clicked_anns[0]
+                    old_tid = ann.get('track_id', 0)
+                    if old_tid != current_tid:
+                        if is_single:
+                            self._change_trace_id_single_frame(old_tid, current_tid, video_x, video_y)
+                        else:
+                            self._change_trace_id_in_all_frames(old_tid, current_tid)
+                    return
+                
+                # 多个annotation重叠，弹出选择对话框
+                unique_tids = list(set(ann.get('track_id', 0) for ann in clicked_anns))
+                unique_tids.sort()
+                
+                # 添加当前选中的trace_id作为选项
+                if current_tid not in unique_tids:
+                    unique_tids.append(current_tid)
+                    unique_tids.sort()
+                
+                # 构建选项列表
+                items = [f"Trace ID: {tid}" for tid in unique_tids]
+                item, ok = QInputDialog.getItem(self, "选择 Trace ID", "检测到多个目标重叠，请选择要修改的 Trace ID:", items, 0, False)
+                if ok and item:
+                    selected_tid = int(item.split(": ")[1])
+                    if is_single:
+                        self._change_trace_id_single_frame(selected_tid, current_tid, video_x, video_y)
+                    else:
+                        self._change_trace_id_in_all_frames(selected_tid, current_tid)
 
     def on_bbox_drawn(self, display_x1, display_y1, display_x2, display_y2):
         scaled_w = int(self.video_width * self.zoom_factor)

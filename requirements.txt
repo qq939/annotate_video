@@ -30,3 +30,4 @@ requests>=2.32.0
 seaborn>=0.13.0
 pandas>=2.2.0
 albumentations
+git+https://github.com/ultralytics/CLIP.git
