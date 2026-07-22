@@ -5158,9 +5158,9 @@ class UnifiedPanel(QMainWindow):
         import random
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         rand = random.randint(1000, 9999)
-        video_name = self.last_video_name or output_name.rsplit('.', 1)[0]
+        video_id = self.save_output_name.text().rsplit('.', 1)[0]  # 使用名称输入框的值作为ID
         ext = output_name.split('.')[-1] if '.' in output_name else 'mp4'
-        obs_filename = f"{video_name}_{timestamp}_{rand}_annotated.{ext}"
+        obs_filename = f"{video_id}_{timestamp}_{rand}_annotated.{ext}"
         obs_url = f"http://obs.dimond.top/{obs_filename}"
 
         print("正在上传到OBS...")
