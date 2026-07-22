@@ -2058,25 +2058,6 @@ class UnifiedPanel(QMainWindow):
         self.forward_cb.setStyleSheet("QCheckBox { font-size: 11px; }")
         frame_play_layout.addWidget(self.forward_cb)
         layout.addLayout(frame_play_layout)
-        
-        # 第三行：预览分割、换颜色按钮
-        tools_layout = QHBoxLayout()
-        tools_layout.setSpacing(4)
-        preview_seg_btn = QPushButton("预览分割")
-        preview_seg_btn.setFixedWidth(70)
-        preview_seg_btn.setFixedHeight(24)
-        preview_seg_btn.setStyleSheet("QPushButton { background-color: #9b59b6; color: white; border: none; border-radius: 3px; font-size: 11px; }")
-        preview_seg_btn.clicked.connect(self.preview_segmentation)
-        tools_layout.addWidget(preview_seg_btn)
-        
-        self.shuffle_colors_btn = QPushButton("换颜色")
-        self.shuffle_colors_btn.setFixedWidth(70)
-        self.shuffle_colors_btn.setFixedHeight(24)
-        self.shuffle_colors_btn.setStyleSheet("QPushButton { background-color: #e91e63; color: white; border: none; border-radius: 3px; font-size: 11px; }")
-        self.shuffle_colors_btn.clicked.connect(self.shuffle_palette_colors)
-        tools_layout.addWidget(self.shuffle_colors_btn)
-        tools_layout.addStretch()
-        layout.addLayout(tools_layout)
 
         # 第四行：提示帧按钮单独一行（撑满）
         prompt_layout = QHBoxLayout()
@@ -2241,11 +2222,11 @@ class UnifiedPanel(QMainWindow):
         self.export_frame_limit.setFixedHeight(22)
         input_dir_name_layout.addWidget(self.export_frame_limit)
         input_dir_name_layout.addWidget(QLabel("帧"))
-        input_dir_name_layout.addWidget(QLabel("名称:"))
-        self.save_output_name = QLineEdit("video")
-        self.save_output_name.setFixedWidth(80)
-        self.save_output_name.setFixedHeight(22)
-        input_dir_name_layout.addWidget(self.save_output_name)
+        input_dir_name_layout.addWidget(QLabel("ID:"))
+        self.train_id_input = QLineEdit(self.default_model_id)
+        self.train_id_input.setFixedWidth(100)
+        self.train_id_input.setFixedHeight(22)
+        input_dir_name_layout.addWidget(self.train_id_input)
         input_dir_name_layout.addWidget(QLabel("标题:"))
         self.labelme_title = QLineEdit("frame")
         self.labelme_title.setFixedWidth(60)
@@ -2289,6 +2270,14 @@ class UnifiedPanel(QMainWindow):
             btn.clicked.connect(lambda _, i=idx: self.on_color_select(i))
             self.color_btns.append(btn)
             self.color_btn_layout.addWidget(btn)
+        # 换颜色按钮
+        self.shuffle_colors_btn = QPushButton("换")
+        self.shuffle_colors_btn.setFixedWidth(30)
+        self.shuffle_colors_btn.setFixedHeight(20)
+        self.shuffle_colors_btn.setStyleSheet("QPushButton { background-color: #9b59b6; color: white; border: none; border-radius: 3px; font-size: 10px; }")
+        self.shuffle_colors_btn.clicked.connect(self.shuffle_palette_colors)
+        self.color_btn_layout.addWidget(self.shuffle_colors_btn)
+        self.color_btn_layout.addStretch()
         layout.addLayout(self.color_btn_layout)
 
         self.render_segment_check = QCheckBox("只展示bbox")
@@ -5170,7 +5159,7 @@ class UnifiedPanel(QMainWindow):
         import random
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         rand = random.randint(1000, 9999)
-        video_id = self.save_output_name.text().rsplit('.', 1)[0]  # 使用名称输入框的值作为ID
+        video_id = self.train_id_input.text() or self.default_model_id  # 使用ID输入框的值
         ext = output_name.split('.')[-1] if '.' in output_name else 'mp4'
         obs_filename = f"{video_id}_{timestamp}_{rand}_annotated.{ext}"
         obs_url = f"http://obs.dimond.top/{obs_filename}"
@@ -5309,7 +5298,7 @@ class UnifiedPanel(QMainWindow):
                 try:
                     timestamp = time.strftime("%Y%m%d_%H%M%S")
                     rand = random.randint(1000, 9999)
-                    video_name = self.last_video_name or self.save_output_name.text().rsplit('.', 1)[0]
+                    video_name = self.last_video_name or self.train_id_input.text() or self.default_model_id
                     zip_filename = f"{video_name}_{timestamp}_{rand}_cocodataset.zip"
                     zip_path = Path(zip_filename)
                     
