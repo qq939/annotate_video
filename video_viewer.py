@@ -121,21 +121,59 @@ class VideoLabel(QLabel):
             painter.drawRect(min(x1, x2), min(y1, y2), abs(x2 - x1), abs(y2 - y1))
             painter.end()
         
-        # 绘制点
-        if self.drawing_enabled and hasattr(self.parent(), 'prompt_points'):
+        # 绘制已保存的prompt_bboxes（蓝色矩形）
+        if hasattr(self.parent(), 'prompt_bboxes') and len(self.parent().prompt_bboxes) > 0:
             painter = QPainter(self)
-            painter.setPen(QPen(Qt.green, 8, Qt.SolidLine))
-            for px, py in self.parent().prompt_points:
+            scaled_w = int(self.video_width * self.zoom_factor)
+            scaled_h = int(self.video_height * self.zoom_factor)
+            label_w = self.width()
+            label_h = self.height()
+            offset_x = (label_w - scaled_w) / 2
+            offset_y = (label_h - scaled_h) / 2
+            
+            for idx, bbox in enumerate(self.parent().prompt_bboxes):
+                x1, y1, x2, y2 = bbox
                 # 转换为显示坐标
-                scaled_w = int(self.video_width * self.zoom_factor)
-                scaled_h = int(self.video_height * self.zoom_factor)
-                label_w = self.width()
-                label_h = self.height()
-                offset_x = (label_w - scaled_w) / 2
-                offset_y = (label_h - scaled_h) / 2
+                dx1 = int(x1 * self.zoom_factor + offset_x)
+                dy1 = int(y1 * self.zoom_factor + offset_y)
+                dx2 = int(x2 * self.zoom_factor + offset_x)
+                dy2 = int(y2 * self.zoom_factor + offset_y)
+                # 绘制蓝色矩形
+                painter.setPen(QPen(Qt.blue, 2))
+                painter.drawRect(min(dx1, dx2), min(dy1, dy2), abs(dx2 - dx1), abs(dy2 - dy1))
+                # 绘制序号
+                painter.setPen(QPen(Qt.white, 1))
+                font = painter.font()
+                font.setPointSize(10)
+                painter.setFont(font)
+                painter.drawText(min(dx1, dx2) + 2, min(dy1, dy2) + 14, f"B{idx + 1}")
+            painter.end()
+        
+        # 绘制点（绿色圆圈标记）- 始终显示
+        if hasattr(self.parent(), 'prompt_points') and len(self.parent().prompt_points) > 0:
+            painter = QPainter(self)
+            scaled_w = int(self.video_width * self.zoom_factor)
+            scaled_h = int(self.video_height * self.zoom_factor)
+            label_w = self.width()
+            label_h = self.height()
+            offset_x = (label_w - scaled_w) / 2
+            offset_y = (label_h - scaled_h) / 2
+            
+            for idx, (px, py) in enumerate(self.parent().prompt_points):
+                # 转换为显示坐标
                 display_x = int(px * self.zoom_factor + offset_x)
                 display_y = int(py * self.zoom_factor + offset_y)
-                painter.drawPoint(display_x, display_y)
+                # 绘制绿色圆圈
+                painter.setPen(QPen(Qt.green, 3))
+                painter.setBrush(Qt.green)
+                radius = max(8, int(10 * self.zoom_factor))
+                painter.drawEllipse(display_x - radius, display_y - radius, radius * 2, radius * 2)
+                # 绘制序号
+                painter.setPen(QPen(Qt.white, 1))
+                font = painter.font()
+                font.setPointSize(8)
+                painter.setFont(font)
+                painter.drawText(display_x - 4, display_y + 4, str(idx + 1))
             painter.end()
 
 
