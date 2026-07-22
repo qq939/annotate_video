@@ -62,8 +62,14 @@ class VideoLabel(QLabel):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton and self.drawing_enabled:
-            self._drag_start = (event.x(), event.y())
-            self._drag_current = (event.x(), event.y())
+            # 检查是否点模式
+            if hasattr(self.parent(), 'prompt_type') and self.parent().prompt_type == 'point':
+                # 点模式：点击添加点
+                self.point_clicked.emit(event.x(), event.y())
+            else:
+                # bbox模式：开始拖拽
+                self._drag_start = (event.x(), event.y())
+                self._drag_current = (event.x(), event.y())
             return
         if event.button() == Qt.LeftButton:
             self.point_clicked.emit(event.x(), event.y())
@@ -113,6 +119,23 @@ class VideoLabel(QLabel):
             x1, y1 = self._drag_start
             x2, y2 = self._drag_current
             painter.drawRect(min(x1, x2), min(y1, y2), abs(x2 - x1), abs(y2 - y1))
+            painter.end()
+        
+        # 绘制点
+        if self.drawing_enabled and hasattr(self.parent(), 'prompt_points'):
+            painter = QPainter(self)
+            painter.setPen(QPen(Qt.green, 8, Qt.SolidLine))
+            for px, py in self.parent().prompt_points:
+                # 转换为显示坐标
+                scaled_w = int(self.video_width * self.zoom_factor)
+                scaled_h = int(self.video_height * self.zoom_factor)
+                label_w = self.width()
+                label_h = self.height()
+                offset_x = (label_w - scaled_w) / 2
+                offset_y = (label_h - scaled_h) / 2
+                display_x = int(px * self.zoom_factor + offset_x)
+                display_y = int(py * self.zoom_factor + offset_y)
+                painter.drawPoint(display_x, display_y)
             painter.end()
 
 
@@ -558,6 +581,12 @@ class VideoViewer(QMainWindow):
             video_x = int((display_x - offset_x) / self.zoom_factor)
             video_y = int((display_y - offset_y) / self.zoom_factor)
             
+            # 检查是否是点模式
+            if hasattr(self.panel, 'prompt_type') and self.panel.prompt_type == 'point' and self.panel.prompt_drawing_mode:
+                self.add_prompt_point(video_x, video_y)
+                print(f"[点] 添加点 ({video_x}, {video_y}), 当前: {len(self.prompt_points)} 个点")
+                return
+            
             # 如果是帧删除模式
             if self.is_delete_mode:
                 idx = self.current_frame_idx
@@ -657,7 +686,23 @@ class VideoViewer(QMainWindow):
 
         self.prompt_bboxes.append([video_x1, video_y1, video_x2, video_y2])
         self.update_display()
-
+    
+    def add_prompt_point(self, video_x, video_y):
+        """添加一个点"""
+        if not hasattr(self, 'prompt_points'):
+            self.prompt_points = []
+        self.prompt_points.append([int(video_x), int(video_y)])
+        self.update_display()
+    
+    def get_prompt_points(self):
+        """获取提示点"""
+        return list(getattr(self, 'prompt_points', []))
+    
+    def clear_prompt_points(self):
+        """清除提示点"""
+        self.prompt_points = []
+        self.update_display()
+    
     def enable_bbox_drawing(self, enabled):
         self.drawing_mode = enabled
         self.image_label.set_drawing_enabled(enabled)
