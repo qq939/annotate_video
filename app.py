@@ -2059,24 +2059,32 @@ class UnifiedPanel(QMainWindow):
         frame_play_layout.addWidget(self.forward_cb)
         layout.addLayout(frame_play_layout)
 
-        # 第四行：提示帧按钮单独一行（撑满）
-        prompt_layout = QHBoxLayout()
+        # 第三行：预览分割、提示帧、点/Bbox切换
+        tools_layout = QHBoxLayout()
+        tools_layout.setSpacing(4)
+        
+        preview_seg_btn = QPushButton("预览分割")
+        preview_seg_btn.setFixedWidth(70)
+        preview_seg_btn.setFixedHeight(24)
+        preview_seg_btn.setStyleSheet("QPushButton { background-color: #9b59b6; color: white; border: none; border-radius: 3px; font-size: 11px; }")
+        preview_seg_btn.clicked.connect(self.preview_segmentation)
+        tools_layout.addWidget(preview_seg_btn)
+        
         self.prompt_btn = QPushButton("提示帧")
         self.prompt_btn.setFixedHeight(24)
         self.prompt_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.prompt_btn.setStyleSheet("QPushButton { background-color: #FFA500; color: white; border: none; border-radius: 3px; font-size: 11px; } QPushButton:hover { background-color: #FF8C00; }")
         self.prompt_btn.clicked.connect(self.toggle_prompt_mode)
-        prompt_layout.addWidget(self.prompt_btn)
+        tools_layout.addWidget(self.prompt_btn)
         
-        # 点/Bbox切换按钮
         self.prompt_type_btn = QPushButton("Bbox")
         self.prompt_type_btn.setFixedWidth(50)
         self.prompt_type_btn.setFixedHeight(24)
         self.prompt_type_btn.setStyleSheet("QPushButton { background-color: #3498db; color: white; border: none; border-radius: 3px; font-size: 10px; }")
         self.prompt_type_btn.clicked.connect(self.toggle_prompt_type)
-        self.prompt_type = 'bbox'  # 'bbox' 或 'point'
-        prompt_layout.addWidget(self.prompt_type_btn)
-        layout.addLayout(prompt_layout)
+        self.prompt_type = 'bbox'
+        tools_layout.addWidget(self.prompt_type_btn)
+        layout.addLayout(tools_layout)
 
         # 回退按钮单独一行（撑满）
         undo_layout = QHBoxLayout()
@@ -2508,11 +2516,16 @@ class UnifiedPanel(QMainWindow):
             print("提示帧模式：绘制矩形框")
     
     def shuffle_palette_colors(self):
-        """换一批颜色，重新随机排列"""
-        random.shuffle(self.palette_colors)
+        """换一批颜色，生成新的随机颜色"""
+        # 生成7个新的随机BGR颜色
+        new_colors = []
+        for _ in range(7):
+            new_colors.append((random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)))
+        self.palette_colors = new_colors
+        self.selected_color_index = 0
         print(f"[颜色] 已换一批颜色: {self.palette_colors}")
-        # 更新选中颜色
-        self.selected_color_index = 0  # 第一个颜色作为选中色
+        # 更新颜色按钮显示
+        self._update_color_btn_styles()
         if self.viewer:
             self.viewer.update_display()
     
