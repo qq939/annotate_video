@@ -4831,12 +4831,13 @@ class UnifiedPanel(QMainWindow):
             return
 
         # 上传标注视频
-        # OBS文件名添加时间戳，使用原视频名称
         import time
+        import random
         timestamp = time.strftime("%Y%m%d_%H%M%S")
+        rand = random.randint(1000, 9999)
         video_name = self.last_video_name or output_name.rsplit('.', 1)[0]
         ext = output_name.split('.')[-1] if '.' in output_name else 'mp4'
-        obs_filename = f"{video_name}_{timestamp}.{ext}"
+        obs_filename = f"{video_name}_{timestamp}_{rand}.{ext}"
         obs_url = f"http://obs.dimond.top/{obs_filename}"
 
         print("正在上传到OBS...")
@@ -4951,10 +4952,13 @@ class UnifiedPanel(QMainWindow):
             if self.upload_obs_check.isChecked():
                 import zipfile
                 import time
+                import random
                 try:
                     timestamp = time.strftime("%Y%m%d_%H%M%S")
-                    zip_filename = f"{train_id}_{timestamp}.zip"
-                    zip_path = Path(f"{train_id}_{timestamp}.zip")
+                    rand = random.randint(1000, 9999)
+                    video_name = self.last_video_name or self.save_output_name.text().rsplit('.', 1)[0]
+                    zip_filename = f"{video_name}_{timestamp}_{rand}_cocodataset.zip"
+                    zip_path = Path(zip_filename)
                     
                     # 压缩temp_data_post
                     print(f"[OBS] 正在压缩 temp_data_post...")
@@ -5461,8 +5465,10 @@ names: {class_names}
             # 压缩上传整个文件夹
             import zipfile
             import time
+            import random
             timestamp = time.strftime("%Y%m%d_%H%M%S")
-            zip_filename = f"{train_id}_{timestamp}.zip"
+            rand = random.randint(1000, 9999)
+            zip_filename = f"{train_id}_{timestamp}_{rand}_model.zip"
             zip_path = Path("1dst") / zip_filename
             with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
                 for f in upload_dir.rglob("*"):
