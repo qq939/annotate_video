@@ -2057,6 +2057,15 @@ class UnifiedPanel(QMainWindow):
         self.forward_cb.setChecked(True)
         self.forward_cb.setStyleSheet("QCheckBox { font-size: 11px; }")
         frame_play_layout.addWidget(self.forward_cb)
+        
+        # 预览分割按钮
+        self.preview_seg_btn = QPushButton("预览分割")
+        self.preview_seg_btn.setFixedWidth(70)
+        self.preview_seg_btn.setFixedHeight(24)
+        self.preview_seg_btn.setStyleSheet("QPushButton { background-color: #9b59b6; color: white; border: none; border-radius: 3px; font-size: 11px; } QPushButton:hover { background-color: #8e44ad; }")
+        self.preview_seg_btn.clicked.connect(self.preview_segmentation)
+        frame_play_layout.addWidget(self.preview_seg_btn)
+        
         layout.addLayout(frame_play_layout)
 
         # 第三行：提示帧按钮单独一行（撑满）
@@ -2498,6 +2507,106 @@ class UnifiedPanel(QMainWindow):
             self.prompt_type_btn.setText("Bbox")
             self.prompt_type_btn.setStyleSheet("QPushButton { background-color: #3498db; color: white; border: none; border-radius: 3px; font-size: 10px; }")
             print("提示帧模式：绘制矩形框")
+    
+    def preview_segmentation(self):
+        """预览分割：对当前帧进行无提示分割，弹出窗口显示结果"""
+        if not self.viewer:
+            QMessageBox.warning(self, "错误", "请先 Show 打开预览")
+            return
+        
+        try:
+            from app_utils import patch_sam3_video_semantic
+            from annotate_video import get_device, SAM_MODEL_PATH
+            from ultralytics.models.sam import SAM3VideoPredictor
+            import numpy as np
+            
+            patch_sam3_video_semantic()
+            device, device_type = get_device()
+            overrides = dict(
+                conf=0.25, task="segment", mode="predict",
+                model=SAM_MODEL_PATH, device=device_type,
+                half=device_type == 'cuda', save=False, verbose=False
+            )
+            predictor = SAM3VideoPredictor(overrides=overrides)
+            
+            # 获取当前帧
+            current_idx = self.viewer.get_current_frame()
+            frame_path = self.temp_data_path / "frames" / f"frame_{current_idx:06d}.jpg"
+            if not frame_path.exists():
+                QMessageBox.warning(self, "错误", f"无法读取帧: {frame_path}")
+                return
+            
+            print(f"[预览分割] 正在处理帧 {current_idx}...")
+            
+            # 使用set_image加载，然后用generate分割
+            predictor.set_image(str(frame_path))
+            im = predictor.features[0] if predictor.features is not None else None
+            if im is None:
+                predictor.reset_image()
+                QMessageBox.warning(self, "错误", "无法获取图像特征")
+                return
+            
+            pred_masks, pred_scores, pred_bboxes = predictor.generate(im)
+            predictor.reset_image()
+            
+            # 读取原始图像
+            img = cv2.imread(str(frame_path))
+            if img is None:
+                QMessageBox.warning(self, "错误", "无法读取图像")
+                return
+            
+            # 绘制分割结果
+            if pred_masks is not None and len(pred_masks) > 0:
+                masks_np = pred_masks.cpu().numpy() if hasattr(pred_masks, 'cpu') else pred_masks
+                # 随机颜色
+                np.random.seed(42)
+                colors = [(np.random.randint(50, 255), np.random.randint(50, 255), np.random.randint(50, 255)) for _ in range(len(masks_np))]
+                
+                for mi, mask in enumerate(masks_np):
+                    mask_binary = (mask > 0.5).astype(np.uint8)
+                    colored_mask = np.zeros_like(img)
+                    colored_mask[mask_binary > 0] = colors[mi % len(colors)]
+                    img = cv2.addWeighted(img, 1.0, colored_mask, 0.5, 0)
+                    # 绘制轮廓
+                    contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                    cv2.drawContours(img, contours, -1, colors[mi % len(colors)], 2)
+            else:
+                print("[预览分割] 未检测到分割结果")
+            
+            # 显示分数
+            h, w = img.shape[:2]
+            cv2.putText(img, f"Frame {current_idx + 1} | Masks: {len(pred_masks) if pred_masks is not None else 0}", 
+                        (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+            
+            # 创建弹出窗口显示
+            dialog = QDialog(self)
+            dialog.setWindowTitle(f"预览分割 - 帧 {current_idx + 1}")
+            dialog.setMinimumSize(min(w + 100, 1200), min(h + 100, 800))
+            
+            layout = QVBoxLayout(dialog)
+            
+            # 显示图像
+            h_w = int(h * min((1200 - 100) / w, (800 - 100) / h))
+            w_w = int(w * min((1200 - 100) / w, (800 - 100) / h))
+            display_img = cv2.resize(img, (w_w, h_w))
+            display_rgb = cv2.cvtColor(display_img, cv2.COLOR_BGR2RGB)
+            h_img = QImage(display_rgb.data, w_w, h_w, w_w * 3, QImage.Format_RGB888)
+            label = QLabel()
+            label.setPixmap(QPixmap.fromImage(h_img))
+            label.setAlignment(Qt.AlignCenter)
+            layout.addWidget(label)
+            
+            # 关闭按钮
+            close_btn = QPushButton("关闭")
+            close_btn.clicked.connect(dialog.close)
+            layout.addWidget(close_btn)
+            
+            dialog.exec_()
+            
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(self, "错误", f"预览分割失败:\n{e}")
     
     def toggle_prompt_mode(self):
         if not self.viewer:
