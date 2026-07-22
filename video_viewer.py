@@ -68,7 +68,17 @@ class VideoLabel(QLabel):
         if event.button() == Qt.LeftButton and self.drawing_enabled:
             # 检查是否点模式 - 从panel获取prompt_type
             parent = self.parent()
-            if hasattr(parent, 'panel') and parent.panel is not None and hasattr(parent.panel, 'prompt_type') and parent.panel.prompt_type == 'point':
+            prompt_type = 'bbox'
+            try:
+                if hasattr(parent, 'panel') and parent.panel is not None:
+                    prompt_type = getattr(parent.panel, 'prompt_type', 'bbox')
+                    print(f"[DEBUG mousePress] parent.panel.prompt_type = {prompt_type}")
+                else:
+                    print(f"[DEBUG mousePress] no parent.panel, parent={type(parent)}")
+            except Exception as e:
+                print(f"[DEBUG mousePress] error: {e}")
+            
+            if prompt_type == 'point':
                 # 点模式：转换为视频坐标并添加点
                 label_w = self.width()
                 label_h = self.height()
@@ -82,10 +92,10 @@ class VideoLabel(QLabel):
                     video_x = int((display_x - offset_x) / self.zoom_factor)
                     video_y = int((display_y - offset_y) / self.zoom_factor)
                     parent.add_prompt_point(video_x, video_y)
-            else:
-                # bbox模式：开始拖拽
-                self._drag_start = (event.x(), event.y())
-                self._drag_current = (event.x(), event.y())
+                return
+            # bbox模式：开始拖拽
+            self._drag_start = (event.x(), event.y())
+            self._drag_current = (event.x(), event.y())
             return
         if event.button() == Qt.LeftButton:
             self.point_clicked.emit(event.x(), event.y())
