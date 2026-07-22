@@ -2085,6 +2085,15 @@ class UnifiedPanel(QMainWindow):
         self.prompt_type_btn.clicked.connect(self.toggle_prompt_type)
         self.prompt_type = 'bbox'  # 'bbox' 或 'point'
         prompt_layout.addWidget(self.prompt_type_btn)
+        
+        # 换颜色按钮
+        self.shuffle_colors_btn = QPushButton("换颜色")
+        self.shuffle_colors_btn.setFixedWidth(60)
+        self.shuffle_colors_btn.setFixedHeight(24)
+        self.shuffle_colors_btn.setStyleSheet("QPushButton { background-color: #9b59b6; color: white; border: none; border-radius: 3px; font-size: 10px; }")
+        self.shuffle_colors_btn.clicked.connect(self.shuffle_palette_colors)
+        prompt_layout.addWidget(self.shuffle_colors_btn)
+        
         layout.addLayout(prompt_layout)
 
         # 回退按钮单独一行（撑满）
@@ -2507,6 +2516,15 @@ class UnifiedPanel(QMainWindow):
             self.prompt_type_btn.setText("Bbox")
             self.prompt_type_btn.setStyleSheet("QPushButton { background-color: #3498db; color: white; border: none; border-radius: 3px; font-size: 10px; }")
             print("提示帧模式：绘制矩形框")
+    
+    def shuffle_palette_colors(self):
+        """换一批颜色，重新随机排列"""
+        random.shuffle(self.palette_colors)
+        print(f"[颜色] 已换一批颜色: {self.palette_colors}")
+        # 更新选中颜色
+        self.selected_color_index = 0  # 第一个颜色作为选中色
+        if self.viewer:
+            self.viewer.update_display()
     
     def preview_segmentation(self):
         """预览分割：对当前帧进行无提示分割，弹出窗口显示结果"""
@@ -4798,6 +4816,20 @@ class UnifiedPanel(QMainWindow):
                 overlay = frame.copy()
 
                 current_track_positions = {}  # 当前帧的track_id -> (cx, cy, color)
+                
+                # 预先分配颜色：第一个颜色给最小trace_id，其他随机
+                unique_track_ids = sorted(set(ann.get('track_id', 0) for ann in annotations))
+                np.random.seed(i)  # 固定种子保证每帧一致性
+                color_assignments = {}
+                if unique_track_ids:
+                    # 最小trace_id使用选中颜色
+                    min_tid = unique_track_ids[0]
+                    color_assignments[min_tid] = self.palette_colors[self.selected_color_index]
+                    # 其他随机分配（使用洗牌后的颜色）
+                    other_colors = [c for idx, c in enumerate(self.palette_colors) if idx != self.selected_color_index]
+                    np.random.shuffle(other_colors)
+                    for idx, tid in enumerate(unique_track_ids[1:], 1):
+                        color_assignments[tid] = other_colors[idx % len(other_colors)] if other_colors else self.palette_colors[0]
 
                 for ann in annotations:
                     polygon = ann.get('segmentation')
@@ -4809,16 +4841,7 @@ class UnifiedPanel(QMainWindow):
                     cat_name = ann.get('category', 'Unknown')
                     conf = ann.get('confidence', 1.0)
                     track_id = ann.get('track_id', 0)
-                    if track_id == 1000:
-                        color = self.palette_colors[self.selected_color_index]
-                    else:
-                        n_colors = len(self.palette_colors) - 1
-                        color_idx_in_remapped = track_id % n_colors
-                        selected_idx = self.selected_color_index
-                        if color_idx_in_remapped < selected_idx:
-                            color = self.palette_colors[color_idx_in_remapped]
-                        else:
-                            color = self.palette_colors[color_idx_in_remapped + 1]
+                    color = color_assignments.get(track_id, self.palette_colors[self.selected_color_index])
 
                     if polygon and not self.render_segment_check.isChecked():
                         pts = np.array(polygon[0], dtype=np.int32).reshape(-1, 2)
@@ -4973,24 +4996,12 @@ class UnifiedPanel(QMainWindow):
                 
                 # 轨迹效果在addWeighted之后立即绘制（不被覆盖）
                 if enable_trail_line:
-                    # 只给最小的track_id用
+                    # 只给最小的track_id用选中颜色
                     min_tid = float('inf')
-                    min_tid_color = None
                     for ann in annotations:
                         tid = ann.get('track_id', 0)
                         if tid < min_tid:
                             min_tid = tid
-                            # 获取颜色
-                            if tid == 1000:
-                                min_tid_color = self.palette_colors[self.selected_color_index]
-                            else:
-                                n_colors = len(self.palette_colors) - 1
-                                color_idx = tid % n_colors
-                                selected_idx = self.selected_color_index
-                                if color_idx < selected_idx:
-                                    min_tid_color = self.palette_colors[color_idx]
-                                else:
-                                    min_tid_color = self.palette_colors[color_idx + 1]
                     # 清除其他tid的历史，只保留当前最小tid
                     for tid in list(trail_history.keys()):
                         if tid != min_tid:
@@ -5010,7 +5021,7 @@ class UnifiedPanel(QMainWindow):
                     # 绘制轨迹线条
                     if min_tid in trail_history and len(trail_history[min_tid]) >= 2:
                         positions = trail_history[min_tid]
-                        color = min_tid_color
+                        color = self.palette_colors[self.selected_color_index]  # 使用选中颜色
                         for j in range(len(positions) - 1):
                             thickness = 2
                             cv2.line(result_frame, positions[j], positions[j+1], color, thickness)
