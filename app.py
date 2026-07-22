@@ -2545,13 +2545,13 @@ class UnifiedPanel(QMainWindow):
         # 1. 语义+追踪：items有内容 且 prompt_bboxes有内容
         # 2. 纯语义：items有内容 且 prompt_bboxes为空
         # 3. 纯追踪：items为空 且 prompt_bboxes有内容
+        # 4. 自动分割：items为空 且 prompt_bboxes为空 → SAM自动分割所有物体
         has_items = bool(items_text)
         has_bboxes = bool(prompt_bboxes)
         
         if not has_items and not has_bboxes:
-            QMessageBox.warning(self, "错误", "请先绘制 Bbox 或填写物品名称")
-            self.reset_prompt_btn()
-            return
+            # 自动分割模式：SAM3会分割所有检测到的物体
+            print("[提示帧] 模式: 自动分割（无文本无bbox）")
         
         prompt_idx = self.prompt_frame_idx
         total = self.total_frames
@@ -2571,7 +2571,97 @@ class UnifiedPanel(QMainWindow):
         try:
             from app_utils import get_device, patch_sam3_video_semantic
             from annotate_video import merge_masks_in_frame, SAM_MODEL_PATH
-            from ultralytics.models.sam import SAM3VideoSemanticPredictor
+            from ultralytics.models.sam import SAM3VideoSemanticPredictor, SAM3VideoPredictor
+            
+            # 自动分割模式：既没有文本也没有bbox，使用SAM自动分割
+            if not has_items and not has_bboxes:
+                patch_sam3_video_semantic()
+                device, device_type = get_device()
+                overrides = dict(
+                    conf=0.25, task="segment", mode="predict",
+                    model=SAM_MODEL_PATH, device=device_type,
+                    half=device_type == 'cuda', save=False, verbose=False
+                )
+                if device_type == 'cuda':
+                    overrides['batch'] = 1
+                    overrides['stream_buffer'] = False
+                predictor = SAM3VideoPredictor(overrides=overrides)  # 不带语义
+                
+                def do_auto_seg_clip(start_frame, end_frame, forward):
+                    direction = "向前" if forward else "向后"
+                    if start_frame >= end_frame:
+                        return
+                    temp_frames = Path("temp_inject") / ("forward" if forward else "backward")
+                    temp_frames.mkdir(parents=True, exist_ok=True)
+                    frame_list = list(range(start_frame, end_frame))
+                    if not forward:
+                        frame_list = list(range(end_frame - 1, start_frame - 1, -1))
+                    for idx, i in enumerate(frame_list):
+                        src = mid_frames_dir / f"frame_{i:06d}.jpg"
+                        dst = temp_frames / f"frame_{idx:06d}.jpg"
+                        if src.exists():
+                            shutil.copy2(src, dst)
+                    clip_path = str(temp_frames / "clip.mp4")
+                    sample = cv2.imread(str(temp_frames / "frame_000000.jpg"))
+                    if sample is None:
+                        return
+                    height, width = sample.shape[:2]
+                    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                    out = cv2.VideoWriter(clip_path, fourcc, 30, (width, height))
+                    for idx in range(len(frame_list)):
+                        frame = cv2.imread(str(temp_frames / f"frame_{idx:06d}.jpg"))
+                        if frame is not None:
+                            out.write(frame)
+                    out.release()
+                    print(f"[自动分割{direction}] 无文本无bbox")
+                    results = list(predictor(source=clip_path, stream=True))
+                    for idx, r in enumerate(results):
+                        orig_idx = start_frame + idx if forward else end_frame - 1 - idx
+                        label_file = src_labels_dir / f"frame_{orig_idx:06d}.json"
+                        existing = []
+                        if label_file.exists():
+                            with open(label_file, encoding='utf-8') as f:
+                                existing = json.load(f)
+                        frame_anns = []
+                        if r.masks is not None:
+                            masks_np = r.masks.data.cpu().numpy() if hasattr(r.masks, 'data') else r.masks
+                            for mask in masks_np:
+                                mask_binary = (mask > 0.5).astype(np.uint8)
+                                contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                                for cnt in contours:
+                                    if len(cnt) >= 3:
+                                        poly = cnt.squeeze().flatten().tolist()
+                                        area = cv2.contourArea(cnt)
+                                        if area > 0:
+                                            xs = poly[0::2]
+                                            ys = poly[1::2]
+                                            x1, x2 = min(xs), max(xs)
+                                            y1, y2 = min(ys), max(ys)
+                                            frame_anns.append({
+                                                'track_id': 0,
+                                                'bbox': [float(x1), float(y1), float(x2 - x1), float(y2 - y1)],
+                                                'area': float(area),
+                                                'segmentation': [poly],
+                                                'iscrowd': 0,
+                                                'category': 'auto',
+                                                'trace_id_list': [0]
+                                            })
+                        merged = existing + frame_anns
+                        with open(label_file, 'w', encoding='utf-8') as f:
+                            json.dump(merged, f, ensure_ascii=False)
+                    print(f"[自动分割{direction}] 完成: {len(results)} 帧")
+                
+                if self.forward_cb.isChecked():
+                    print(f"[自动分割前向] 帧 {prompt_idx} → {total-1}")
+                    do_auto_seg_clip(prompt_idx, total, True)
+                if self.backward_cb.isChecked():
+                    print(f"[自动分割后向] 帧 0 → {prompt_idx}")
+                    do_auto_seg_clip(0, prompt_idx, False)
+                
+                self.reset_prompt_btn()
+                self.viewer.update_display()
+                QMessageBox.information(self, "完成", "自动分割完成")
+                return
             
             # 纯语义模式：items有内容但没有手动bbox
             # 直接用文本对整个视频做语义分割（不做追踪）
