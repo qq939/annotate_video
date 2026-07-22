@@ -43,6 +43,10 @@ class VideoLabel(QLabel):
         self.drawing_enabled = False
         self._drag_start = None
         self._drag_current = None
+        self.panel = None  # UnifiedPanel引用
+
+    def set_panel(self, panel):
+        self.panel = panel
 
     def set_zoom(self, factor):
         self.zoom_factor = factor
@@ -64,7 +68,7 @@ class VideoLabel(QLabel):
         if event.button() == Qt.LeftButton and self.drawing_enabled:
             # 检查是否点模式 - 从panel获取prompt_type
             parent = self.parent()
-            if hasattr(parent, 'panel') and hasattr(parent.panel, 'prompt_type') and parent.panel.prompt_type == 'point':
+            if hasattr(parent, 'panel') and parent.panel is not None and hasattr(parent.panel, 'prompt_type') and parent.panel.prompt_type == 'point':
                 # 点模式：转换为视频坐标并添加点
                 label_w = self.width()
                 label_h = self.height()
@@ -310,6 +314,7 @@ class VideoViewer(QMainWindow):
         self.image_label = VideoLabel()
         self.image_label.set_zoom(self.zoom_factor)
         self.image_label.set_video_size(self.video_width, self.video_height)
+        self.image_label.set_panel(self.panel)  # 设置panel引用
         self.image_label.setAlignment(Qt.AlignCenter)
         self.image_label.point_clicked.connect(self.on_click)
         self.image_label.bbox_drawn.connect(self.on_bbox_drawn)
