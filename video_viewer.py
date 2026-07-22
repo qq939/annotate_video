@@ -65,8 +65,19 @@ class VideoLabel(QLabel):
             # 检查是否点模式 - 从panel获取prompt_type
             parent = self.parent()
             if hasattr(parent, 'panel') and hasattr(parent.panel, 'prompt_type') and parent.panel.prompt_type == 'point':
-                # 点模式：点击添加点
-                self.point_clicked.emit(event.x(), event.y())
+                # 点模式：转换为视频坐标并添加点
+                label_w = self.width()
+                label_h = self.height()
+                scaled_w = int(self.video_width * self.zoom_factor)
+                scaled_h = int(self.video_height * self.zoom_factor)
+                offset_x = (label_w - scaled_w) / 2
+                offset_y = (label_h - scaled_h) / 2
+                
+                display_x, display_y = event.x(), event.y()
+                if offset_x <= display_x < offset_x + scaled_w and offset_y <= display_y < offset_y + scaled_h:
+                    video_x = int((display_x - offset_x) / self.zoom_factor)
+                    video_y = int((display_y - offset_y) / self.zoom_factor)
+                    parent.add_prompt_point(video_x, video_y)
             else:
                 # bbox模式：开始拖拽
                 self._drag_start = (event.x(), event.y())
