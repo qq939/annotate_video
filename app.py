@@ -2601,31 +2601,34 @@ class UnifiedPanel(QMainWindow):
                         dst = temp_frames / f"frame_{idx:06d}.jpg"
                         if src.exists():
                             shutil.copy2(src, dst)
-                    clip_path = str(temp_frames / "clip.mp4")
-                    sample = cv2.imread(str(temp_frames / "frame_000000.jpg"))
-                    if sample is None:
-                        return
-                    height, width = sample.shape[:2]
-                    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                    out = cv2.VideoWriter(clip_path, fourcc, 30, (width, height))
-                    for idx in range(len(frame_list)):
-                        frame = cv2.imread(str(temp_frames / f"frame_{idx:06d}.jpg"))
-                        if frame is not None:
-                            out.write(frame)
-                    out.release()
+                    
                     print(f"[自动分割{direction}] 无文本无bbox")
-                    results = list(predictor(source=clip_path, stream=True))
-                    for idx, r in enumerate(results):
+                    # 对每一帧使用generate进行自动分割
+                    for idx, i in enumerate(frame_list):
+                        frame_path = str(temp_frames / f"frame_{idx:06d}.jpg")
                         orig_idx = start_frame + idx if forward else end_frame - 1 - idx
+                        
+                        # 使用set_image加载图片，然后用generate分割
+                        predictor.set_image(frame_path)
+                        
+                        # 获取预处理后的图像张量
+                        im = predictor.features[0] if predictor.features is not None else None
+                        if im is None:
+                            continue
+                        
+                        # 使用generate进行自动分割
+                        pred_masks, pred_scores, pred_bboxes = predictor.generate(im)
+                        
                         label_file = src_labels_dir / f"frame_{orig_idx:06d}.json"
                         existing = []
                         if label_file.exists():
                             with open(label_file, encoding='utf-8') as f:
                                 existing = json.load(f)
+                        
                         frame_anns = []
-                        if r.masks is not None:
-                            masks_np = r.masks.data.cpu().numpy() if hasattr(r.masks, 'data') else r.masks
-                            for mask in masks_np:
+                        if pred_masks is not None and len(pred_masks) > 0:
+                            masks_np = pred_masks.cpu().numpy() if hasattr(pred_masks, 'cpu') else pred_masks
+                            for mi, mask in enumerate(masks_np):
                                 mask_binary = (mask > 0.5).astype(np.uint8)
                                 contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                                 for cnt in contours:
@@ -2646,10 +2649,13 @@ class UnifiedPanel(QMainWindow):
                                                 'category': 'auto',
                                                 'trace_id_list': [0]
                                             })
+                        
                         merged = existing + frame_anns
                         with open(label_file, 'w', encoding='utf-8') as f:
                             json.dump(merged, f, ensure_ascii=False)
-                    print(f"[自动分割{direction}] 完成: {len(results)} 帧")
+                        
+                        predictor.reset_image()
+                    print(f"[自动分割{direction}] 完成: {len(frame_list)} 帧")
                 
                 if self.forward_cb.isChecked():
                     print(f"[自动分割前向] 帧 {prompt_idx} → {total-1}")
