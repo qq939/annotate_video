@@ -2996,6 +2996,9 @@ class UnifiedPanel(QMainWindow):
             # 语义+追踪模式或纯追踪模式...
             # 继续使用原有的 process_clip 逻辑
 
+            # 定义is_semantic：只要有items_text就使用语义模式
+            is_semantic = has_items
+
             device, device_type = get_device()
             half = device_type == 'cuda'
             overrides = dict(
