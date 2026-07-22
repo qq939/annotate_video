@@ -1319,8 +1319,21 @@ class UnifiedPanel(QMainWindow):
             (255, 255, 0),   # 青 (BGR)
             (255, 0, 0),     # 蓝 (BGR)
             (128, 0, 128),   # 紫 (BGR)
+            (255, 0, 255),   # 粉 (BGR)
+            (0, 255, 128),   # 青绿 (BGR)
+            (128, 255, 0),   # 草绿 (BGR)
+            (255, 128, 0),   # 橙黄 (BGR)
+            (255, 64, 0),    # 橙红 (BGR)
+            (255, 192, 203), # 粉红 (BGR)
+            (138, 43, 226),  # 蓝紫 (BGR)
+            (75, 0, 130),    # 靛蓝 (BGR)
+            (0, 128, 128),   # 青色 (BGR)
+            (128, 0, 0),     # 栗色 (BGR)
+            (0, 128, 0),     # 翠绿 (BGR)
+            (128, 128, 0),   # 橄榄 (BGR)
+            (0, 64, 128),    # 普鲁士蓝 (BGR)
         ]
-        self.selected_color_index = random.randint(0, 6)
+        self.selected_color_index = random.randint(0, 19)
         # 生成1000档的track_id选项 (1000, 2000, 3000, ...)
         self.prompt_trace_id_options = list(range(1000, 1000000, 1000))
 
@@ -2517,9 +2530,9 @@ class UnifiedPanel(QMainWindow):
     
     def shuffle_palette_colors(self):
         """换一批颜色，生成新的随机颜色"""
-        # 生成7个新的随机BGR颜色
+        # 生成20个新的随机BGR颜色
         new_colors = []
-        for _ in range(7):
+        for _ in range(20):
             new_colors.append((random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)))
         self.palette_colors = new_colors
         self.selected_color_index = 0
