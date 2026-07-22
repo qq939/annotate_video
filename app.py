@@ -2540,13 +2540,28 @@ class UnifiedPanel(QMainWindow):
             
             # 使用set_image加载，然后用generate分割
             predictor.set_image(str(frame_path))
-            im = predictor.features[0] if predictor.features is not None else None
-            if im is None:
+            
+            # generate()需要张量，从features中获取
+            im_tensor = None
+            if predictor.features is not None:
+                if isinstance(predictor.features, list):
+                    im_tensor = predictor.features[0]
+                else:
+                    im_tensor = predictor.features
+            
+            if im_tensor is None:
                 predictor.reset_image()
                 QMessageBox.warning(self, "错误", "无法获取图像特征")
                 return
             
-            pred_masks, pred_scores, pred_bboxes = predictor.generate(im)
+            # 确保是张量格式
+            if hasattr(im_tensor, 'shape'):
+                pred_masks, pred_scores, pred_bboxes = predictor.generate(im_tensor)
+            else:
+                predictor.reset_image()
+                QMessageBox.warning(self, "错误", "图像特征格式错误")
+                return
+            
             predictor.reset_image()
             
             # 读取原始图像
