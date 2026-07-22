@@ -62,8 +62,9 @@ class VideoLabel(QLabel):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton and self.drawing_enabled:
-            # 检查是否点模式
-            if hasattr(self.parent(), 'prompt_type') and self.parent().prompt_type == 'point':
+            # 检查是否点模式 - 从panel获取prompt_type
+            parent = self.parent()
+            if hasattr(parent, 'panel') and hasattr(parent.panel, 'prompt_type') and parent.panel.prompt_type == 'point':
                 # 点模式：点击添加点
                 self.point_clicked.emit(event.x(), event.y())
             else:
@@ -122,7 +123,9 @@ class VideoLabel(QLabel):
             painter.end()
         
         # 绘制已保存的prompt_bboxes（蓝色矩形）
-        if hasattr(self.parent(), 'prompt_bboxes') and len(self.parent().prompt_bboxes) > 0:
+        parent = self.parent()
+        prompt_bboxes = getattr(parent, 'prompt_bboxes', []) if hasattr(parent, 'prompt_bboxes') else []
+        if len(prompt_bboxes) > 0:
             painter = QPainter(self)
             scaled_w = int(self.video_width * self.zoom_factor)
             scaled_h = int(self.video_height * self.zoom_factor)
@@ -131,7 +134,7 @@ class VideoLabel(QLabel):
             offset_x = (label_w - scaled_w) / 2
             offset_y = (label_h - scaled_h) / 2
             
-            for idx, bbox in enumerate(self.parent().prompt_bboxes):
+            for idx, bbox in enumerate(prompt_bboxes):
                 x1, y1, x2, y2 = bbox
                 # 转换为显示坐标
                 dx1 = int(x1 * self.zoom_factor + offset_x)
@@ -149,8 +152,9 @@ class VideoLabel(QLabel):
                 painter.drawText(min(dx1, dx2) + 2, min(dy1, dy2) + 14, f"B{idx + 1}")
             painter.end()
         
-        # 绘制点（绿色圆圈标记）- 始终显示
-        if hasattr(self.parent(), 'prompt_points') and len(self.parent().prompt_points) > 0:
+        # 绘制点（绿色圆圈标记）
+        prompt_points = getattr(parent, 'prompt_points', []) if hasattr(parent, 'prompt_points') else []
+        if len(prompt_points) > 0:
             painter = QPainter(self)
             scaled_w = int(self.video_width * self.zoom_factor)
             scaled_h = int(self.video_height * self.zoom_factor)
@@ -159,7 +163,7 @@ class VideoLabel(QLabel):
             offset_x = (label_w - scaled_w) / 2
             offset_y = (label_h - scaled_h) / 2
             
-            for idx, (px, py) in enumerate(self.parent().prompt_points):
+            for idx, (px, py) in enumerate(prompt_points):
                 # 转换为显示坐标
                 display_x = int(px * self.zoom_factor + offset_x)
                 display_y = int(py * self.zoom_factor + offset_y)
