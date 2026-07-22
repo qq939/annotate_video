@@ -2057,18 +2057,28 @@ class UnifiedPanel(QMainWindow):
         self.forward_cb.setChecked(True)
         self.forward_cb.setStyleSheet("QCheckBox { font-size: 11px; }")
         frame_play_layout.addWidget(self.forward_cb)
-        
-        # 预览分割按钮
-        self.preview_seg_btn = QPushButton("预览分割")
-        self.preview_seg_btn.setFixedWidth(70)
-        self.preview_seg_btn.setFixedHeight(24)
-        self.preview_seg_btn.setStyleSheet("QPushButton { background-color: #9b59b6; color: white; border: none; border-radius: 3px; font-size: 11px; } QPushButton:hover { background-color: #8e44ad; }")
-        self.preview_seg_btn.clicked.connect(self.preview_segmentation)
-        frame_play_layout.addWidget(self.preview_seg_btn)
-        
         layout.addLayout(frame_play_layout)
+        
+        # 第三行：预览分割、换颜色按钮
+        tools_layout = QHBoxLayout()
+        tools_layout.setSpacing(4)
+        preview_seg_btn = QPushButton("预览分割")
+        preview_seg_btn.setFixedWidth(70)
+        preview_seg_btn.setFixedHeight(24)
+        preview_seg_btn.setStyleSheet("QPushButton { background-color: #9b59b6; color: white; border: none; border-radius: 3px; font-size: 11px; }")
+        preview_seg_btn.clicked.connect(self.preview_segmentation)
+        tools_layout.addWidget(preview_seg_btn)
+        
+        self.shuffle_colors_btn = QPushButton("换颜色")
+        self.shuffle_colors_btn.setFixedWidth(70)
+        self.shuffle_colors_btn.setFixedHeight(24)
+        self.shuffle_colors_btn.setStyleSheet("QPushButton { background-color: #e91e63; color: white; border: none; border-radius: 3px; font-size: 11px; }")
+        self.shuffle_colors_btn.clicked.connect(self.shuffle_palette_colors)
+        tools_layout.addWidget(self.shuffle_colors_btn)
+        tools_layout.addStretch()
+        layout.addLayout(tools_layout)
 
-        # 第三行：提示帧按钮单独一行（撑满）
+        # 第四行：提示帧按钮单独一行（撑满）
         prompt_layout = QHBoxLayout()
         self.prompt_btn = QPushButton("提示帧")
         self.prompt_btn.setFixedHeight(24)
@@ -2085,15 +2095,6 @@ class UnifiedPanel(QMainWindow):
         self.prompt_type_btn.clicked.connect(self.toggle_prompt_type)
         self.prompt_type = 'bbox'  # 'bbox' 或 'point'
         prompt_layout.addWidget(self.prompt_type_btn)
-        
-        # 换颜色按钮
-        self.shuffle_colors_btn = QPushButton("换颜色")
-        self.shuffle_colors_btn.setFixedWidth(60)
-        self.shuffle_colors_btn.setFixedHeight(24)
-        self.shuffle_colors_btn.setStyleSheet("QPushButton { background-color: #9b59b6; color: white; border: none; border-radius: 3px; font-size: 10px; }")
-        self.shuffle_colors_btn.clicked.connect(self.shuffle_palette_colors)
-        prompt_layout.addWidget(self.shuffle_colors_btn)
-        
         layout.addLayout(prompt_layout)
 
         # 回退按钮单独一行（撑满）
@@ -2241,7 +2242,7 @@ class UnifiedPanel(QMainWindow):
         input_dir_name_layout.addWidget(self.export_frame_limit)
         input_dir_name_layout.addWidget(QLabel("帧"))
         input_dir_name_layout.addWidget(QLabel("名称:"))
-        self.save_output_name = QLineEdit("1dst.mp4")
+        self.save_output_name = QLineEdit("video")
         self.save_output_name.setFixedWidth(80)
         self.save_output_name.setFixedHeight(22)
         input_dir_name_layout.addWidget(self.save_output_name)
