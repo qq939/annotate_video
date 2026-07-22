@@ -66,17 +66,12 @@ class VideoLabel(QLabel):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton and self.drawing_enabled:
-            # 检查是否点模式 - 从panel获取prompt_type
-            parent = self.parent()
-            prompt_type = 'bbox'
-            try:
-                if hasattr(parent, 'panel') and parent.panel is not None:
-                    prompt_type = getattr(parent.panel, 'prompt_type', 'bbox')
-                    print(f"[DEBUG mousePress] parent.panel.prompt_type = {prompt_type}")
-                else:
-                    print(f"[DEBUG mousePress] no parent.panel, parent={type(parent)}")
-            except Exception as e:
-                print(f"[DEBUG mousePress] error: {e}")
+            # 检查是否点模式 - 直接使用self.panel
+            prompt_type = getattr(self, 'panel', None)
+            if prompt_type is not None:
+                prompt_type = getattr(prompt_type, 'prompt_type', 'bbox')
+            else:
+                prompt_type = 'bbox'
             
             if prompt_type == 'point':
                 # 点模式：转换为视频坐标并添加点
@@ -91,7 +86,7 @@ class VideoLabel(QLabel):
                 if offset_x <= display_x < offset_x + scaled_w and offset_y <= display_y < offset_y + scaled_h:
                     video_x = int((display_x - offset_x) / self.zoom_factor)
                     video_y = int((display_y - offset_y) / self.zoom_factor)
-                    parent.add_prompt_point(video_x, video_y)
+                    self.panel.add_prompt_point(video_x, video_y)
                 return
             # bbox模式：开始拖拽
             self._drag_start = (event.x(), event.y())
@@ -148,8 +143,8 @@ class VideoLabel(QLabel):
             painter.end()
         
         # 绘制已保存的prompt_bboxes（蓝色矩形）
-        parent = self.parent()
-        prompt_bboxes = getattr(parent, 'prompt_bboxes', []) if hasattr(parent, 'prompt_bboxes') else []
+        panel = getattr(self, 'panel', None)
+        prompt_bboxes = getattr(panel, 'prompt_bboxes', []) if panel else []
         if len(prompt_bboxes) > 0:
             painter = QPainter(self)
             scaled_w = int(self.video_width * self.zoom_factor)
@@ -178,7 +173,8 @@ class VideoLabel(QLabel):
             painter.end()
         
         # 绘制点（绿色圆圈标记）
-        prompt_points = getattr(parent, 'prompt_points', []) if hasattr(parent, 'prompt_points') else []
+        panel = getattr(self, 'panel', None)
+        prompt_points = getattr(panel, 'prompt_points', []) if panel else []
         if len(prompt_points) > 0:
             painter = QPainter(self)
             scaled_w = int(self.video_width * self.zoom_factor)
