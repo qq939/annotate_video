@@ -3048,6 +3048,9 @@ class UnifiedPanel(QMainWindow):
             forward_annotations = []
             backward_annotations = []
 
+            # 确保导入TrackManager
+            from annotate_video import TrackManager
+
             def process_clip(start_frame, end_frame, forward=True, prompt_bboxes=None):
                 direction = "向前" if forward else "向后"
                 print(f"\n[DEBUG {direction}] === 进入 process_clip ===")
