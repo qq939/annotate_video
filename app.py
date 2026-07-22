@@ -3281,49 +3281,28 @@ class UnifiedPanel(QMainWindow):
             print(f"=== 双向标注开始 === 提示帧: {prompt_idx}, 总帧数: {total}, 设备: [{device_str}], 前向={self.forward_cb.isChecked()}, 后向={self.backward_cb.isChecked()}, FIRST_ID={FIRST_ID}")
             forward_anns = []
             backward_anns = []
-            prompt_frame_anns = []
-            prompt_ann_id = FIRST_ID
             
-            # 保存提示帧本身的bbox和segmentation
-            prompt_frame_file = src_labels_dir / f"frame_{prompt_idx:06d}.json"
-            if prompt_bboxes:
-                prompt_anns = []
-                for pb in prompt_bboxes:
-                    x1, y1, x2, y2 = pb
-                    bbox = [float(x1), float(y1), float(x2 - x1), float(y2 - y1)]
-                    # 创建简单的polygon矩形
-                    poly = [x1, y1, x2, y1, x2, y2, x1, y2]
-                    area = float((x2 - x1) * (y2 - y1))
-                    ann = {
-                        'id': prompt_ann_id, 'track_id': FIRST_ID, 'image_id': prompt_idx,
-                        'category_id': 0, 'bbox': bbox, 'area': area,
-                        'segmentation': [poly], 'iscrowd': 0, 'confidence': 1.0,
-                        'category': 'Detect', 'trace_id_list': [FIRST_ID]
-                    }
-                    prompt_anns.append(ann)
-                    prompt_ann_id += 1
-                # 保存到label文件
-                existing = []
-                if prompt_frame_file.exists():
-                    with open(prompt_frame_file, encoding='utf-8') as f:
-                        existing = json.load(f)
-                merged = existing + prompt_anns
-                with open(prompt_frame_file, 'w', encoding='utf-8') as f:
-                    json.dump(merged, f, ensure_ascii=False)
-                prompt_frame_anns = prompt_anns
-                print(f"[提示帧] 已保存 {len(prompt_anns)} 个标注到 frame_{prompt_idx:06d}.json")
-            
+            # 根据勾选情况决定处理范围
+            # 前向：包含当前帧
+            # 后向：如果前向也勾选则不包含当前帧，否则包含当前帧
             if self.forward_cb.isChecked():
-                forward_start = prompt_idx + 1
+                forward_start = prompt_idx  # 包含当前帧
                 print(f"[1/2] 向前标注: 帧 {forward_start} → {total-1} (共 {total - forward_start} 帧)")
                 forward_anns = process_clip(forward_start, total, forward=True, prompt_bboxes=prompt_bboxes)
 
             if self.backward_cb.isChecked():
-                print(f"\n[2/2] 向后标注: 帧 0 → {prompt_idx-1} (共 {prompt_idx} 帧)")
-                backward_anns = process_clip(0, prompt_idx, forward=False, prompt_bboxes=prompt_bboxes)
+                if self.forward_cb.isChecked():
+                    # 前向已处理当前帧，后向不包含
+                    print(f"\n[2/2] 向后标注: 帧 0 → {prompt_idx-1} (共 {prompt_idx} 帧)")
+                    backward_anns = process_clip(0, prompt_idx, forward=False, prompt_bboxes=prompt_bboxes)
+                else:
+                    # 只有后向，需要处理当前帧
+                    backward_end = prompt_idx + 1  # 包含当前帧
+                    print(f"\n[2/2] 向后标注: 帧 0 → {backward_end-1} (共 {backward_end} 帧)")
+                    backward_anns = process_clip(0, backward_end, forward=False, prompt_bboxes=prompt_bboxes)
 
-            all_new_anns = backward_anns + forward_anns + prompt_frame_anns
-            print(f"\n[DEBUG 汇总] 向后标注={len(backward_anns)}, 向前标注={len(forward_anns)}, 提示帧标注={len(prompt_frame_anns)}, 合计={len(all_new_anns)}")
+            all_new_anns = backward_anns + forward_anns
+            print(f"\n[DEBUG 汇总] 向后标注={len(backward_anns)}, 向前标注={len(forward_anns)}, 合计={len(all_new_anns)}")
 
             if not all_new_anns:
                 QMessageBox.warning(self, "提示", "未检测到任何分割结果")
