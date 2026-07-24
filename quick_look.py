@@ -9,7 +9,7 @@ from pathlib import Path
 
 def export_model():
     # 查找最新训练文件夹（train*）
-    yolo_runs_dir = Path("runs/detect/yolo_runs")
+    yolo_runs_dir = Path(r"C:\Users\jiali\Downloads\annotate_video\runs\detect\yolo_runs")
     train_dirs = list(yolo_runs_dir.glob("train*"))
     train_dirs = [d for d in train_dirs if d.is_dir() and (d / "weights").exists()]
     
