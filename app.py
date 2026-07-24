@@ -5904,7 +5904,7 @@ names: {class_names}
             if best_pt.exists():
                 # 有best.pt，加载作为预训练权重
                 model = YOLO(str(best_pt))
-                model.train(
+                result = model.train(
                     data=yaml_path.as_posix(),
                     epochs=epochs,
                     imgsz=640,
@@ -5915,10 +5915,15 @@ names: {class_names}
                     name=train_dir.name,
                     resume=False
                 )
+                if hasattr(result, 'save_dir'):
+                    actual = Path(result.save_dir)
+                    if actual.exists():
+                        train_dir = actual
+                        print(f"[YOLO] 继续训练，新路径: {train_dir}")
             elif last_pt.exists():
                 # 有last.pt，加载作为预训练权重
                 model = YOLO(str(last_pt))
-                model.train(
+                result = model.train(
                     data=yaml_path.as_posix(),
                     epochs=epochs,
                     imgsz=640,
@@ -5929,11 +5934,16 @@ names: {class_names}
                     name=train_dir.name,
                     resume=False
                 )
+                if hasattr(result, 'save_dir'):
+                    actual = Path(result.save_dir)
+                    if actual.exists():
+                        train_dir = actual
+                        print(f"[YOLO] 继续训练，新路径: {train_dir}")
             elif best_onnx.exists():
                 # 只有onnx，从onnx加载
                 print("[YOLO] 只有best.onnx，从ONNX加载...")
                 model = YOLO(str(best_onnx))
-                model.train(
+                result = model.train(
                     data=yaml_path.as_posix(),
                     epochs=epochs,
                     imgsz=640,
@@ -5941,8 +5951,14 @@ names: {class_names}
                     device=0,
                     workers=0,
                     project=yolo_project.as_posix(),
-                    name=train_dir.name
+                    name=train_dir.name,
+                    resume=False
                 )
+                if hasattr(result, 'save_dir'):
+                    actual = Path(result.save_dir)
+                    if actual.exists():
+                        train_dir = actual
+                        print(f"[YOLO] 继续训练(ONNX)，新路径: {train_dir}")
             else:
                 print("[YOLO] 未找到best.pt、last.pt或best.onnx")
                 return
@@ -5975,7 +5991,33 @@ names: {class_names}
         print(f"[YOLO] 路径存在: {best_model.exists()}")
         if best_model.exists():
             model = YOLO(str(best_model))
-            model.export(format="onnx")
+            # 显式指定导出参数，确保 TensorRT 兼容性
+            model.export(format="onnx", imgsz=640, opset=12, simplify=True)
+            
+            # 验证 ONNX 输出 class 数与 model.json 一致
+            onnx_path = best_model.parent / "best.onnx"
+            if onnx_path.exists():
+                try:
+                    import onnx
+                    onnx_model = onnx.load(str(onnx_path))
+                    # YOLO ONNX 输出 shape: [1, 4 + nc, N] 或 [1, N, 4 + nc]
+                    for out in onnx_model.graph.output:
+                        dims = [d.dim_value for d in out.type.tensor_type.shape.dim]
+                        if len(dims) == 3:
+                            # 找包含 nc 的维度（哪一维 >= 5 且不是 N=8400）
+                            for d in dims:
+                                if d >= 5 and d != 8400:
+                                    onnx_class_count = d - 4  # 减去 bbox(4)
+                                    print(f"[ONNX验证] ONNX输出shape: {dims}, 推断 class count = {onnx_class_count}")
+                                    if onnx_class_count != len(class_names):
+                                        print(f"[ONNX验证] ⚠️ 警告! ONNX class count ({onnx_class_count}) ≠ model.json classCount ({len(class_names)})")
+                                    else:
+                                        print(f"[ONNX验证] ✓ ONNX class count 与 model.json 一致: {onnx_class_count}")
+                                    break
+                except ImportError:
+                    print("[ONNX验证] onnx 库未安装，跳过验证")
+                except Exception as e:
+                    print(f"[ONNX验证] 验证失败（非致命）: {e}")
             
             # 创建model.json
             train_id = self.train_id_input.text() or self.default_model_id
