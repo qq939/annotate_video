@@ -15,6 +15,8 @@ from PyQt5.QtCore import Qt, QTimer, QPoint, QRect, pyqtSignal
 from PyQt5.QtGui import QPainter, QPen, QColor
 from PyQt5.Qt import QDragEnterEvent, QDropEvent
 
+# BASE_DIR: 项目根目录（app.py 所在目录），所有相对路径以此为准，避免 CWD 不一致导致路径错误
+BASE_DIR = Path(__file__).resolve().parent
 
 class TrimSlider(QSlider):
     """带A-B区间高亮和竖线指示器的自定义进度条"""
@@ -985,7 +987,7 @@ class TrimDialog(QDialog):
         if hasattr(self, 'temp_video_path') and Path(self.temp_video_path).exists():
             return  # 已存在则跳过
         
-        temp_dir = Path("temp")
+        temp_dir = BASE_DIR / "temp"
         temp_dir.mkdir(exist_ok=True)
         temp_path = str(temp_dir / "temp.mp4")
         
@@ -1121,7 +1123,7 @@ class TrimDialog(QDialog):
             return
         
         # 保存临时视频用于预览
-        temp_dir = Path("temp")
+        temp_dir = BASE_DIR / "temp"
         temp_dir.mkdir(exist_ok=True)
         temp_path = str(temp_dir / "temp.mp4")
         
@@ -1222,7 +1224,7 @@ class TrimDialog(QDialog):
         timestamp = time.strftime("%Y%m%d%H%M%S")
         
         # 使用临时视频
-        temp_video_path = str(Path("temp") / "temp.mp4")
+        temp_video_path = str(BASE_DIR / "temp" / "temp.mp4")
         if not Path(temp_video_path).exists():
             QMessageBox.warning(self, "错误", "临时视频不存在，请重新加载视频")
             return
@@ -1287,7 +1289,7 @@ class UnifiedPanel(QMainWindow):
         """)
         self.setGeometry(100, 100, int(500*1.7), int(650*1.7))
         self.ctrl = VideoController()
-        self.temp_data_path = Path("temp_data")
+        self.temp_data_path = BASE_DIR / "temp_data"
         self.viewer = None
         self.video_process = None
         self.total_frames = 1
@@ -2768,7 +2770,7 @@ class UnifiedPanel(QMainWindow):
                     direction = "向前" if forward else "向后"
                     if start_frame >= end_frame:
                         return
-                    temp_frames = Path("temp_inject") / ("forward" if forward else "backward")
+                    temp_frames = BASE_DIR / "temp_inject" / ("forward" if forward else "backward")
                     temp_frames.mkdir(parents=True, exist_ok=True)
                     frame_list = list(range(start_frame, end_frame))
                     if not forward:
@@ -2869,7 +2871,7 @@ class UnifiedPanel(QMainWindow):
                     direction = "向前" if forward else "向后"
                     if start_frame >= end_frame:
                         return
-                    temp_frames = Path("temp_inject") / ("forward" if forward else "backward")
+                    temp_frames = BASE_DIR / "temp_inject" / ("forward" if forward else "backward")
                     temp_frames.mkdir(parents=True, exist_ok=True)
                     frame_list = list(range(start_frame, end_frame))
                     if not forward:
@@ -2957,7 +2959,7 @@ class UnifiedPanel(QMainWindow):
                     direction = "向前" if forward else "向后"
                     if start_frame >= end_frame:
                         return
-                    temp_frames = Path("temp_inject") / ("forward" if forward else "backward")
+                    temp_frames = BASE_DIR / "temp_inject" / ("forward" if forward else "backward")
                     temp_frames.mkdir(parents=True, exist_ok=True)
                     frame_list = list(range(start_frame, end_frame))
                     if not forward:
@@ -3100,7 +3102,7 @@ class UnifiedPanel(QMainWindow):
                     print(f"[DEBUG {direction}] start_frame >= end_frame, 直接返回空列表")
                     return []
 
-                temp_frames = Path("temp_inject") / ("forward" if forward else "backward")
+                temp_frames = BASE_DIR / "temp_inject" / ("forward" if forward else "backward")
                 temp_frames.mkdir(parents=True, exist_ok=True)
 
                 frame_count = end_frame - start_frame
@@ -3423,7 +3425,7 @@ class UnifiedPanel(QMainWindow):
                         json.dump(frame_anns, f, ensure_ascii=False)
             print(f"[DEBUG 汇总] ✓ labels目录已更新")
 
-            shutil.rmtree(Path("temp_inject"), ignore_errors=True)
+            shutil.rmtree(BASE_DIR / "temp_inject", ignore_errors=True)
 
             print(f"=== 双向标注完成 === 新增标注: {len(all_new_anns)}, 总标注: {len(coco['annotations'])}")
             self.statusBar().showMessage(f"双向标注完成: +{len(all_new_anns)} 条")
@@ -4001,8 +4003,8 @@ class UnifiedPanel(QMainWindow):
 
         # 选择视频时删除temp_data和temp_data_mid
         import shutil
-        temp_data = Path("temp_data")
-        temp_data_mid = Path("temp_data_mid")
+        temp_data = BASE_DIR / "temp_data"
+        temp_data_mid = BASE_DIR / "temp_data_mid"
         if temp_data.exists():
             shutil.rmtree(temp_data)
         if temp_data_mid.exists():
@@ -4133,7 +4135,7 @@ class UnifiedPanel(QMainWindow):
             return
 
         labelme_path = Path(labelme_dir)
-        temp_data = Path("temp_data")
+        temp_data = BASE_DIR / "temp_data"
 
         # 收集所有json和图片
         json_files = sorted(labelme_path.glob("*.json"))
@@ -4369,17 +4371,17 @@ class UnifiedPanel(QMainWindow):
             return
         
         # 如果选择的是temp_data，只覆盖temp_data_mid
-        is_temp_data = src.resolve() == Path("temp_data").resolve()
+        is_temp_data = src.resolve() == (BASE_DIR / "temp_data").resolve()
         
         # 复制到temp_data_mid
-        dst = Path(TEMP_DATA_MID_DIR)
+        dst = BASE_DIR / TEMP_DATA_MID_DIR
         if dst.exists():
             shutil.rmtree(dst)
         shutil.copytree(src, dst)
         
         # 如果不是temp_data，同时复制到temp_data
         if not is_temp_data:
-            dst_temp = Path("temp_data")
+            dst_temp = BASE_DIR / "temp_data"
             if dst_temp.exists():
                 shutil.rmtree(dst_temp)
             shutil.copytree(src, dst_temp)
@@ -4574,7 +4576,7 @@ class UnifiedPanel(QMainWindow):
 
         # 清空temp_data_post
         import shutil
-        output_path = Path("temp_data_post")
+        output_path = BASE_DIR / "temp_data_post"
         if output_path.exists():
             shutil.rmtree(output_path)
         output_path.mkdir(parents=True)
@@ -4736,7 +4738,7 @@ names: {class_names}
         """将temp_data_post转换为labelme格式"""
         import shutil
         input_path = Path(input_dir)
-        output_path = Path("label_x_label_me")
+        output_path = BASE_DIR / "label_x_label_me"
 
         # 获取title和digit参数
         title = self.labelme_title.text() or "frame"
@@ -4879,7 +4881,7 @@ names: {class_names}
         input_dir = self.save_input_dir.text() or "temp_data_post"
         output_name = f"{self.train_id_input.text() or self.default_model_id}.mp4"
 
-        output_path = Path("1dst") / output_name
+        output_path = BASE_DIR / "1dst" / output_name
         output_path.parent.mkdir(exist_ok=True)
 
         input_path = Path(input_dir)
@@ -5287,8 +5289,8 @@ names: {class_names}
                 print(f"[YOLO] 开始训练模型...")
                 try:
                     # 继续训练时重新从temp_data_post导出并增广
-                    self._export_to_labelme(Path("temp_data_post"))
-                    self._train_yolo_model(Path("label_x_label_me"))
+                    self._export_to_labelme(BASE_DIR / "temp_data_post")
+                    self._train_yolo_model(BASE_DIR / "label_x_label_me")
                 except Exception as e:
                     print(f"[YOLO] 训练失败: {e}")
                     import traceback
@@ -5322,7 +5324,7 @@ names: {class_names}
         # 保存原视频到temp文件夹（命名为ID_raw.mp4）
         train_id = self.train_id_input.text() or self.default_model_id
         video_name = self.last_video_name or self.train_id_input.text() or self.default_model_id
-        temp_dataset_dir = Path("temp") / f"{train_id}_dataset"
+        temp_dataset_dir = BASE_DIR / "temp" / f"{train_id}_dataset"
         temp_dataset_dir.mkdir(parents=True, exist_ok=True)
         raw_video_path = temp_dataset_dir / f"{train_id}_raw.mp4"
         
@@ -5334,7 +5336,7 @@ names: {class_names}
         videos = coco_data.get('info', {}).get('videos', [])
         # 如果videos为空，直接使用temp/temp.mp4
         if not videos:
-            temp_video = Path("temp/temp.mp4")
+            temp_video = BASE_DIR / "temp" / "temp.mp4"
             if temp_video.exists():
                 videos = [str(temp_video)]
         
@@ -5356,7 +5358,7 @@ names: {class_names}
         
         # 兜底：如果上述都失败了，直接强制用 temp/temp.mp4
         if not raw_frames:
-            temp_video = Path("temp/temp.mp4")
+            temp_video = BASE_DIR / "temp" / "temp.mp4"
             if temp_video.exists():
                 print(f"[保存] 原视频列表未获取到有效视频，兜底使用: {temp_video}")
                 cap = cv2.VideoCapture(str(temp_video))
@@ -5405,7 +5407,7 @@ names: {class_names}
 
         # 复制label_x_label_me到temp文件夹
         import zipfile
-        labelme_dir = Path("label_x_label_me")
+        labelme_dir = BASE_DIR / "label_x_label_me"
         if labelme_dir.exists():
             # 保存dataset到temp
             temp_labelme_dir = temp_dataset_dir / "labelme"
@@ -5447,7 +5449,7 @@ names: {class_names}
             model_output_dir.mkdir(parents=True, exist_ok=True)
             
             # 优先从temp_data_post复制已有的model.json（保持顺序一致）
-            post_model_json = Path("temp_data_post") / "model.json"
+            post_model_json = BASE_DIR / "temp_data_post" / "model.json"
             if post_model_json.exists():
                 shutil.copy2(post_model_json, model_output_dir / "model.json")
                 print(f"[保存] 从temp_data_post复制model.json到: {model_output_dir}")
@@ -5474,7 +5476,7 @@ names: {class_names}
                     
                     # 压缩temp_data_post
                     print(f"[OBS] 正在压缩 temp_data_post...")
-                    data_post_dir = Path("temp_data_post")
+                    data_post_dir = BASE_DIR / "temp_data_post"
                     if data_post_dir.exists():
                         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
                             for file in data_post_dir.rglob("*"):
@@ -5509,15 +5511,15 @@ names: {class_names}
         import shutil
         
         labelme_dir = Path(labelme_dir)
-        output_dir = Path("yolo_dataset")
-        yolo_project = Path("yolo_runs")
+        output_dir = BASE_DIR / "yolo_dataset"
+        yolo_project = BASE_DIR / "yolo_runs"
         
         # 清理旧数据
         if output_dir.exists():
             shutil.rmtree(output_dir)
         
         # 优先使用temp_data_post中的dataset.yaml
-        post_dataset_yaml = Path("temp_data_post") / "dataset.yaml"
+        post_dataset_yaml = BASE_DIR / "temp_data_post" / "dataset.yaml"
         if post_dataset_yaml.exists():
             print(f"[YOLO] 使用temp_data_post中的dataset.yaml")
             yaml_path = post_dataset_yaml
@@ -5534,7 +5536,7 @@ names: {class_names}
             print(f"[YOLO] 从dataset.yaml读取类别: {class_names}")
         else:
             # 如果没有dataset.yaml，从temp_data_post/model.json读取
-            post_model_json = Path("temp_data_post") / "model.json"
+            post_model_json = BASE_DIR / "temp_data_post" / "model.json"
             class_names = []
             if post_model_json.exists():
                 try:
@@ -5839,7 +5841,7 @@ names: {class_names}
         print(f"[YOLO] 训练集: {len(train_files)}, 验证集: {len(val_files)}")
         
         # 训练输出目录（使用绝对路径）
-        yolo_runs_dir = Path.cwd() / "runs" / "detect" / "yolo_runs"
+        yolo_runs_dir = BASE_DIR / "runs" / "detect" / "yolo_runs"
         print(f"[YOLO] 训练输出目录: {yolo_runs_dir.resolve()}")
         resume = self.train_resume_check.isChecked()
         
@@ -5979,7 +5981,7 @@ names: {class_names}
             train_id = self.train_id_input.text() or self.default_model_id
             # 从 temp_data_post/model.json 读取 classes_id（保持与导出时一致）
             classes_id = []
-            post_model_json = Path("temp_data_post") / "model.json"
+            post_model_json = BASE_DIR / "temp_data_post" / "model.json"
             if post_model_json.exists():
                 try:
                     with open(post_model_json, encoding='utf-8') as f:
@@ -6016,7 +6018,7 @@ names: {class_names}
                 json.dump(model_json, f, ensure_ascii=False, indent=2)
             
             # 整体拷贝runs/detect/yolo_runs文件夹到1dst/{ID}_train
-            upload_dir = Path("1dst") / f"{train_id}_train"
+            upload_dir = BASE_DIR / "1dst" / f"{train_id}_train"
             if upload_dir.exists():
                 shutil.rmtree(upload_dir)
             shutil.copytree(yolo_runs_dir, upload_dir)
@@ -6029,7 +6031,7 @@ names: {class_names}
             timestamp = time.strftime("%Y%m%d_%H%M%S")
             rand = random.randint(1000, 9999)
             zip_filename = f"{train_id}_{timestamp}_{rand}_model.zip"
-            zip_path = Path("1dst") / zip_filename
+            zip_path = BASE_DIR / "1dst" / zip_filename
             with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
                 for f in upload_dir.rglob("*"):
                     if f.is_file():
@@ -6066,7 +6068,7 @@ def main():
             cmd.extend(['--merge-iou', str(args.merge_iou)])
         if args.items:
             cmd.extend(['--items', args.items])
-        subprocess.Popen(cmd, cwd=str(Path.cwd()))
+        subprocess.Popen(cmd, cwd=str(BASE_DIR))
         return
 
     app = QApplication(sys.argv)
