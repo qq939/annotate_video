@@ -5354,6 +5354,23 @@ names: {class_names}
                     raw_frames.append(frame.copy())
                 cap.release()
         
+        # 兜底：如果上述都失败了，直接强制用 temp/temp.mp4
+        if not raw_frames:
+            temp_video = Path("temp/temp.mp4")
+            if temp_video.exists():
+                print(f"[保存] 原视频列表未获取到有效视频，兜底使用: {temp_video}")
+                cap = cv2.VideoCapture(str(temp_video))
+                if cap.isOpened():
+                    raw_fps = cap.get(cv2.CAP_PROP_FPS)
+                    raw_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    raw_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    while True:
+                        ret, frame = cap.read()
+                        if not ret:
+                            break
+                        raw_frames.append(frame.copy())
+                    cap.release()
+        
         if raw_frames and raw_fps is not None:
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
             out_raw = cv2.VideoWriter(str(raw_video_path), fourcc, raw_fps, (raw_width, raw_height))
