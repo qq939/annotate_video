@@ -5546,23 +5546,23 @@ names: {class_names}
         
         print(f"[YOLO] 检测到类别: {class_names}")
         
-        # 如果没有使用temp_data_post中的dataset.yaml，则创建
-        if not post_dataset_yaml.exists():
-            output_dir.mkdir(parents=True, exist_ok=True)
-            (output_dir / "images" / "train").mkdir(parents=True, exist_ok=True)
-            (output_dir / "images" / "val").mkdir(parents=True, exist_ok=True)
-            (output_dir / "labels" / "train").mkdir(parents=True, exist_ok=True)
-            (output_dir / "labels" / "val").mkdir(parents=True, exist_ok=True)
-            
-            yaml_content = f"""path: {output_dir.as_posix()}
+        # 始终创建 yolo_dataset 目录和 dataset.yaml（训练数据在这里）
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "images" / "train").mkdir(parents=True, exist_ok=True)
+        (output_dir / "images" / "val").mkdir(parents=True, exist_ok=True)
+        (output_dir / "labels" / "train").mkdir(parents=True, exist_ok=True)
+        (output_dir / "labels" / "val").mkdir(parents=True, exist_ok=True)
+        
+        yaml_content = f"""path: {output_dir.as_posix()}
 train: images/train
 val: images/val
 nc: {len(class_names)}
 names: {class_names}
 """
-            yaml_path = output_dir / "dataset.yaml"
-            with open(yaml_path, 'w', encoding='utf-8') as f:
-                f.write(yaml_content)
+        yaml_path = output_dir / "dataset.yaml"
+        with open(yaml_path, 'w', encoding='utf-8') as f:
+            f.write(yaml_content)
+        print(f"[YOLO] 数据集yaml已生成: {yaml_path}")
         
         # 获取所有图片文件
         img_files = []
