@@ -5510,8 +5510,6 @@ names: {class_names}
                 for line in f:
                     if line.startswith('names:'):
                         # 解析names列表
-                        pass
-                    elif ':' in line and not line.startswith('#'):
                         parts = line.strip().split(':', 1)
                         if len(parts) == 2:
                             class_names = eval(parts[1].strip())
