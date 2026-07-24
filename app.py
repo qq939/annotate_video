@@ -5977,6 +5977,20 @@ names: {class_names}
             
             # 创建model.json
             train_id = self.train_id_input.text() or self.default_model_id
+            # 从 temp_data_post/model.json 读取 classes_id（保持与导出时一致）
+            classes_id = []
+            post_model_json = Path("temp_data_post") / "model.json"
+            if post_model_json.exists():
+                try:
+                    with open(post_model_json, encoding='utf-8') as f:
+                        post_model = json.load(f)
+                    classes_id = post_model.get('classes_id', [])
+                except Exception:
+                    pass
+            # 回退：如果没有 classes_id，用 class_names 索引 + 1000000
+            if not classes_id:
+                classes_id = [1000000 + i for i in range(len(class_names))]
+            
             model_json = {
                 "id": train_id,
                 "displayName": train_id,
@@ -5986,6 +6000,7 @@ names: {class_names}
                 "inputWidth": 640,
                 "inputHeight": 640,
                 "classes": class_names,
+                "classes_id": classes_id,
                 "yolo": {
                     "outputLayout": "channels_first",
                     "scoreMode": "class_only",
