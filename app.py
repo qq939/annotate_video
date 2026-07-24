@@ -4281,7 +4281,15 @@ class UnifiedPanel(QMainWindow):
             QMessageBox.critical(self, "错误", f"annotations.json 文件损坏!")
             return
         
-        # 如果有model.json，读取类别名称和trace_id映射
+        self.total_frames = len(coco_data.get('images', []))
+        self.temp_data_path = temp_mid
+        viewer_path = str(temp_mid)
+
+        self._load_trace_id_mappings()
+        self._apply_trace_id_mappings_to_mid()
+
+        # 如果有model.json，读取类别名称填入输入框（放在 _load_trace_id_mappings 之后，
+        # 因为 _update_category_list 会重建 category_inputs，必须先建好再填值）
         model_json_file = temp_mid / "model.json"
         if model_json_file.exists():
             try:
@@ -4293,12 +4301,20 @@ class UnifiedPanel(QMainWindow):
                 # 更新ID输入框
                 self.train_id_input.setText(model_info.get('id', ''))
                 
-                # 更新类别名称（如果有对应的category_inputs）
-                if classes and hasattr(self, 'category_inputs'):
+                # 根据 classes_id（实际 trace_id）匹配 category_tids 找到正确的输入框位置
+                if classes and hasattr(self, 'category_tids') and self.category_tids:
+                    for idx, tid in enumerate(classes_id):
+                        if idx < len(classes) and tid in self.category_tids:
+                            cat_idx = self.category_tids.index(tid)
+                            if cat_idx < len(self.category_inputs):
+                                self.category_inputs[cat_idx].setText(classes[idx])
+                    print(f"[显示] 从model.json加载类别: {classes}")
+                elif classes and hasattr(self, 'category_inputs'):
+                    # 回退：按索引直接填（旧逻辑兼容）
                     for idx, class_name in enumerate(classes):
                         if idx < len(self.category_inputs):
                             self.category_inputs[idx].setText(class_name)
-                    print(f"[显示] 从model.json加载类别: {classes}")
+                    print(f"[显示] 从model.json加载类别(旧方式): {classes}")
                 
                 # 应用trace_id映射（classes_id索引对应classes索引）
                 if classes_id and hasattr(self.ctrl, 'assigned_to_original'):
@@ -4309,13 +4325,6 @@ class UnifiedPanel(QMainWindow):
                     print(f"[显示] 从model.json加载trace_id映射: {len(classes_id)} 条")
             except Exception as e:
                 print(f"[显示] 读取model.json失败: {e}")
-        
-        self.total_frames = len(coco_data.get('images', []))
-        self.temp_data_path = temp_mid
-        viewer_path = str(temp_mid)
-
-        self._load_trace_id_mappings()
-        self._apply_trace_id_mappings_to_mid()
 
         self.viewer = VideoViewer(viewer_path, controller=self.ctrl, panel=self)
         self.viewer.video_clicked.connect(self.handle_viewer_click)
