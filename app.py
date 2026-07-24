@@ -5354,7 +5354,7 @@ names: {class_names}
                     raw_frames.append(frame.copy())
                 cap.release()
         
-        if raw_frames and raw_fps:
+        if raw_frames and raw_fps is not None:
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
             out_raw = cv2.VideoWriter(str(raw_video_path), fourcc, raw_fps, (raw_width, raw_height))
             for frame in raw_frames:
