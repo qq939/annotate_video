@@ -5795,6 +5795,12 @@ names: {class_names}
             
             return yolo_lines
         
+        # 创建YOLO目录结构
+        (output_dir / "images" / "train").mkdir(parents=True, exist_ok=True)
+        (output_dir / "images" / "val").mkdir(parents=True, exist_ok=True)
+        (output_dir / "labels" / "train").mkdir(parents=True, exist_ok=True)
+        (output_dir / "labels" / "val").mkdir(parents=True, exist_ok=True)
+        
         # 处理训练集
         for img_file in train_files:
             json_file = img_file.with_suffix('.json')
