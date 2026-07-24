@@ -1333,7 +1333,7 @@ class UnifiedPanel(QMainWindow):
             (128, 128, 0),   # 橄榄 (BGR)
             (0, 64, 128),    # 普鲁士蓝 (BGR)
         ]
-        self.selected_color_index = random.randint(0, 19)
+        self.selected_color_index = 0  # 默认选中第一个颜色
         # 生成1000档的track_id选项 (1000, 2000, 3000, ...)
         self.prompt_trace_id_options = list(range(1000, 1000000, 1000))
 
@@ -2243,11 +2243,6 @@ class UnifiedPanel(QMainWindow):
         self.export_frame_limit.setFixedHeight(22)
         input_dir_name_layout.addWidget(self.export_frame_limit)
         input_dir_name_layout.addWidget(QLabel("帧"))
-        input_dir_name_layout.addWidget(QLabel("ID:"))
-        self.train_id_input = QLineEdit(self.default_model_id)
-        self.train_id_input.setFixedWidth(100)
-        self.train_id_input.setFixedHeight(22)
-        input_dir_name_layout.addWidget(self.train_id_input)
         input_dir_name_layout.addWidget(QLabel("标题:"))
         self.labelme_title = QLineEdit("frame")
         self.labelme_title.setFixedWidth(60)
@@ -2314,16 +2309,11 @@ class UnifiedPanel(QMainWindow):
         # 训练参数
         train_params_layout = QHBoxLayout()
         train_params_layout.setSpacing(4)
-        train_params_layout.addWidget(QLabel("ID:"))
+        train_params_layout.addWidget(QLabel("训练ID:"))
         self.train_id_input = QLineEdit(self.default_model_id)
-        self.train_id_input.setFixedWidth(100)
+        self.train_id_input.setFixedWidth(120)
         self.train_id_input.setFixedHeight(22)
         train_params_layout.addWidget(self.train_id_input)
-        train_params_layout.addWidget(QLabel("描述:"))
-        self.train_desc_input = QLineEdit(self.default_model_desc)
-        self.train_desc_input.setFixedWidth(100)
-        self.train_desc_input.setFixedHeight(22)
-        train_params_layout.addWidget(self.train_desc_input)
         train_params_layout.addWidget(QLabel("Epoch:"))
         self.train_epochs_input = QLineEdit("30")
         self.train_epochs_input.setFixedWidth(40)
@@ -3589,7 +3579,7 @@ class UnifiedPanel(QMainWindow):
             text = self.trace_id_list.item(i).text()
             mappings.append(text)
         with open(mappings_file, 'w', encoding='utf-8') as f:
-            json.dump(mapping, f, ensure_ascii=False)
+            json.dump(mappings, f, ensure_ascii=False)
         print(f"已保存 trace_id_mappings 到 {mappings_file}")
         self._update_category_list()
 
@@ -3656,6 +3646,7 @@ class UnifiedPanel(QMainWindow):
         self.category_layout.addWidget(title)
         
         # 添加新的类别行
+        self.category_tids = list(target_ids)  # 保存实际 tid 列表，供 _get_category_for_track_id 和导出使用
         for idx, tid in enumerate(target_ids):
             row = QHBoxLayout()
             row.setSpacing(2)
@@ -4289,6 +4280,36 @@ class UnifiedPanel(QMainWindow):
         except json.JSONDecodeError:
             QMessageBox.critical(self, "错误", f"annotations.json 文件损坏!")
             return
+        
+        # 如果有model.json，读取类别名称和trace_id映射
+        model_json_file = temp_mid / "model.json"
+        if model_json_file.exists():
+            try:
+                with open(model_json_file, encoding='utf-8') as f:
+                    model_info = json.load(f)
+                classes = model_info.get('classes', [])
+                classes_id = model_info.get('classes_id', [])
+                
+                # 更新ID输入框
+                self.train_id_input.setText(model_info.get('id', ''))
+                
+                # 更新类别名称（如果有对应的category_inputs）
+                if classes and hasattr(self, 'category_inputs'):
+                    for idx, class_name in enumerate(classes):
+                        if idx < len(self.category_inputs):
+                            self.category_inputs[idx].setText(class_name)
+                    print(f"[显示] 从model.json加载类别: {classes}")
+                
+                # 应用trace_id映射（classes_id索引对应classes索引）
+                if classes_id and hasattr(self.ctrl, 'assigned_to_original'):
+                    for idx, tid in enumerate(classes_id):
+                        if idx < len(classes):
+                            class_name = classes[idx]
+                            self.ctrl.assigned_to_original[tid] = class_name
+                    print(f"[显示] 从model.json加载trace_id映射: {len(classes_id)} 条")
+            except Exception as e:
+                print(f"[显示] 读取model.json失败: {e}")
+        
         self.total_frames = len(coco_data.get('images', []))
         self.temp_data_path = temp_mid
         viewer_path = str(temp_mid)
@@ -4313,7 +4334,14 @@ class UnifiedPanel(QMainWindow):
             self.save_input_dir.setText(folder)
 
     def _get_category_for_track_id(self, track_id):
-        # track_id - 1000000 直接作为类别列表索引
+        # 使用 self.category_tids 查找实际 tid 对应的类别
+        if hasattr(self, 'category_tids') and self.category_tids:
+            if track_id in self.category_tids:
+                idx = self.category_tids.index(track_id)
+                if idx < len(self.category_inputs):
+                    name = self.category_inputs[idx].text() or "Detect"
+                    return (idx, name)
+        # 回退：按 tid-1000000 计算索引（旧逻辑兼容）
         if track_id >= 1000000:
             idx = track_id - 1000000
             if idx < len(self.category_inputs):
@@ -4547,6 +4575,29 @@ class UnifiedPanel(QMainWindow):
         output_frames_dir.mkdir(exist_ok=True)
 
         cat_id_set = set()
+        
+        # 从UI文本框category_inputs读取用户定义的trace_id映射
+        # 创建 tid -> class_name 的映射，使用实际 tid 而非硬算 idx+1000000
+        tid_to_class = {}  # tid -> class_name
+        category_tids = getattr(self, 'category_tids', [])
+        if hasattr(self, 'category_inputs') and self.category_inputs:
+            for idx, inp in enumerate(self.category_inputs):
+                class_name = inp.text().strip()
+                if class_name:
+                    # 使用实际 tid（从 category_tids 获取），而非 1000000+idx
+                    tid = category_tids[idx] if idx < len(category_tids) else (1000000 + idx)
+                    tid_to_class[tid] = class_name
+                    cat_id_set.add((idx, class_name))
+            class_names_from_ui = [inp.text().strip() for inp in self.category_inputs if inp.text().strip()]
+            print(f"[导出] 从UI文本框读取类别: {class_names_from_ui}")
+        
+        # 更新temp_data_mid的annotations.json的categories
+        sorted_cat_list = sorted(cat_id_set, key=lambda x: x[0])
+        updated_categories = [{'id': cid, 'name': cname} for cid, cname in sorted_cat_list]
+        coco_data['categories'] = updated_categories
+        with open(annotations_file, 'w', encoding='utf-8') as f:
+            json.dump(coco_data, f, ensure_ascii=False)
+        print(f"[导出] 已更新temp_data_mid/annotations.json的categories")
 
         print("步骤1: 保存到 temp_data_post...")
         for i in range(export_frames):
@@ -4602,13 +4653,18 @@ class UnifiedPanel(QMainWindow):
                         if unique_key in all_seen_ids:
                             continue
                         all_seen_ids.add(unique_key)
-                        cat_id, cat_name = self._get_category_for_track_id(tid)
-                        cat_id_set.add((cat_id, cat_name))
+                        # 从UI文本框映射获取类别名和cat_id
+                        class_name = tid_to_class.get(tid, self.ctrl.category_name)
+                        tid_id, _ = self._get_category_for_track_id(tid) if tid in tid_to_class else (tid - 1000000, class_name)
                         ann_copy = ann.copy()
-                        ann_copy['category_id'] = cat_id
-                        ann_copy['category'] = cat_name
+                        ann_copy['category_id'] = tid_id
+                        ann_copy['category'] = class_name
                         all_annotations.append(ann_copy)
-        categories_list = [{'id': cid, 'name': cname} for cid, cname in sorted(cat_id_set, key=lambda x: x[0])]
+        
+        # 按trace_id排序生成类别列表（确保顺序一致）
+        sorted_categories = sorted(cat_id_set, key=lambda x: x[0])
+        categories_list = [{'id': cid, 'name': cname} for cid, cname in sorted_categories]
+        
         coco_output = {
             'info': video_info,
             'images': [{'id': i, 'frame_idx': i} for i in range(export_frames)],
@@ -4618,6 +4674,51 @@ class UnifiedPanel(QMainWindow):
 
         with open(output_path / "annotations.json", 'w', encoding='utf-8') as f:
             json.dump(coco_output, f, ensure_ascii=False)
+        
+        # 生成model.json和dataset.yaml到temp_data_post目录
+        train_id = self.train_id_input.text() or self.default_model_id
+        # 从categories_list获取类别（这是从标注数据中提取的真实类别）
+        class_names = [cat['name'] for cat in categories_list]
+        # classes_id 使用实际的 trace_id（从 category_tids 读取，而非 cat_id+1000000）
+        if category_tids:
+            classes_id = [category_tids[cat['id']] if cat['id'] < len(category_tids) else (cat['id'] + 1000000) for cat in categories_list]
+        else:
+            classes_id = [cat['id'] + 1000000 for cat in categories_list]
+        
+        model_json = {
+            "id": train_id,
+            "displayName": train_id,
+            "description": "",
+            "taskType": "detection",
+            "modelFile": "best.onnx",
+            "inputWidth": 640,
+            "inputHeight": 640,
+            "classes": class_names,
+            "classes_id": classes_id,
+            "yolo": {
+                "outputLayout": "channels_first",
+                "scoreMode": "class_only",
+                "classCount": len(class_names),
+                "tensorRtCacheKey": train_id
+            }
+        }
+        with open(output_path / "model.json", 'w', encoding='utf-8') as f:
+            json.dump(model_json, f, ensure_ascii=False, indent=2)
+        
+        # 生成dataset.yaml（与model.json的classes顺序一致）
+        yaml_content = f"""path: {output_path.as_posix()}
+train: images/train
+val: images/val
+nc: {len(class_names)}
+names: {class_names}
+"""
+        with open(output_path / "dataset.yaml", 'w', encoding='utf-8') as f:
+            f.write(yaml_content)
+        
+        print(f"[导出] model.json已生成到: {output_path / 'model.json'}")
+        print(f"[导出] dataset.yaml已生成到: {output_path / 'dataset.yaml'}")
+        print(f"[导出] 类别: {class_names}")
+        print(f"[导出] classes_id: {classes_id}")
 
         print(f"导出完成: {output_path}")
         QMessageBox.information(self, "完成", f"数据已保存到 {output_path}\n\n帧数: {export_frames}")
@@ -4767,7 +4868,7 @@ class UnifiedPanel(QMainWindow):
 
     def run_save(self):
         input_dir = self.save_input_dir.text() or "temp_data_post"
-        output_name = self.save_output_name.text() or "1dst.mp4"
+        output_name = f"{self.train_id_input.text() or self.default_model_id}.mp4"
 
         output_path = Path("1dst") / output_name
         output_path.parent.mkdir(exist_ok=True)
@@ -4838,11 +4939,14 @@ class UnifiedPanel(QMainWindow):
                 np.random.seed(i)  # 固定种子保证每帧一致性
                 color_assignments = {}
                 if unique_track_ids:
-                    # 最小trace_id使用选中颜色
+                    # 最小trace_id使用选中颜色，没有选中或超出范围则用index=0
                     min_tid = unique_track_ids[0]
-                    color_assignments[min_tid] = self.palette_colors[self.selected_color_index]
+                    selected_idx = getattr(self, 'selected_color_index', 0)
+                    if selected_idx >= len(self.palette_colors):
+                        selected_idx = 0
+                    color_assignments[min_tid] = self.palette_colors[selected_idx]
                     # 其他随机分配（使用洗牌后的颜色）
-                    other_colors = [c for idx, c in enumerate(self.palette_colors) if idx != self.selected_color_index]
+                    other_colors = [c for idx, c in enumerate(self.palette_colors) if idx != selected_idx]
                     np.random.shuffle(other_colors)
                     for idx, tid in enumerate(unique_track_ids[1:], 1):
                         color_assignments[tid] = other_colors[idx % len(other_colors)] if other_colors else self.palette_colors[0]
@@ -4857,7 +4961,8 @@ class UnifiedPanel(QMainWindow):
                     cat_name = ann.get('category', 'Unknown')
                     conf = ann.get('confidence', 1.0)
                     track_id = ann.get('track_id', 0)
-                    color = color_assignments.get(track_id, self.palette_colors[self.selected_color_index])
+                    safe_idx = self.selected_color_index if self.selected_color_index < len(self.palette_colors) else 0
+                    color = color_assignments.get(track_id, self.palette_colors[safe_idx])
 
                     if polygon and not self.render_segment_check.isChecked():
                         pts = np.array(polygon[0], dtype=np.int32).reshape(-1, 2)
@@ -5037,7 +5142,8 @@ class UnifiedPanel(QMainWindow):
                     # 绘制轨迹线条
                     if min_tid in trail_history and len(trail_history[min_tid]) >= 2:
                         positions = trail_history[min_tid]
-                        color = self.palette_colors[self.selected_color_index]  # 使用选中颜色
+                        safe_idx = self.selected_color_index if self.selected_color_index < len(self.palette_colors) else 0
+                        color = self.palette_colors[safe_idx]  # 使用选中颜色
                         for j in range(len(positions) - 1):
                             thickness = 2
                             cv2.line(result_frame, positions[j], positions[j+1], color, thickness)
@@ -5206,7 +5312,7 @@ class UnifiedPanel(QMainWindow):
         
         # 保存原视频到temp文件夹（命名为ID_raw.mp4）
         train_id = self.train_id_input.text() or self.default_model_id
-        video_name = self.last_video_name or self.save_output_name.text().rsplit('.', 1)[0]
+        video_name = self.last_video_name or self.train_id_input.text() or self.default_model_id
         temp_dataset_dir = Path("temp") / f"{train_id}_dataset"
         temp_dataset_dir.mkdir(parents=True, exist_ok=True)
         raw_video_path = temp_dataset_dir / f"{train_id}_raw.mp4"
@@ -5217,6 +5323,12 @@ class UnifiedPanel(QMainWindow):
         raw_width = None
         raw_height = None
         videos = coco_data.get('info', {}).get('videos', [])
+        # 如果videos为空，直接使用temp/temp.mp4
+        if not videos:
+            temp_video = Path("temp/temp.mp4")
+            if temp_video.exists():
+                videos = [str(temp_video)]
+        
         if videos:
             for vp in videos:
                 cap = cv2.VideoCapture(vp)
@@ -5306,15 +5418,21 @@ class UnifiedPanel(QMainWindow):
                 train_dir = yolo_runs_dir / "train"
             
             model_output_dir = temp_dataset_dir / "model"
+            model_output_dir.mkdir(parents=True, exist_ok=True)
+            
+            # 优先从temp_data_post复制已有的model.json（保持顺序一致）
+            post_model_json = Path("temp_data_post") / "model.json"
+            if post_model_json.exists():
+                shutil.copy2(post_model_json, model_output_dir / "model.json")
+                print(f"[保存] 从temp_data_post复制model.json到: {model_output_dir}")
+            
+            # 复制已有的onnx
             if train_dir.exists():
-                model_output_dir.mkdir(parents=True, exist_ok=True)
                 best_onnx = train_dir / "weights" / "best.onnx"
-                model_json = train_dir / "weights" / "model.json"
                 if best_onnx.exists():
                     shutil.copy2(best_onnx, model_output_dir / "best.onnx")
-                if model_json.exists():
-                    shutil.copy2(model_json, model_output_dir / "model.json")
-                print(f"[保存] 模型已保存到: {model_output_dir} (from {train_dir.name})")
+                    print(f"[保存] 已复制best.onnx到: {model_output_dir}")
+            print(f"[保存] 模型目录: {model_output_dir}")
             
             # 上传temp_data_post到OBS
             if self.upload_obs_check.isChecked():
@@ -5372,17 +5490,48 @@ class UnifiedPanel(QMainWindow):
         if output_dir.exists():
             shutil.rmtree(output_dir)
         
-        # 提取类别名
-        class_names = []
-        for json_file in labelme_dir.glob("*.json"):
-            try:
-                with open(json_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    for shape in data.get('shapes', []):
-                        if shape.get('label') not in class_names:
-                            class_names.append(shape.get('label'))
-            except:
-                pass
+        # 优先使用temp_data_post中的dataset.yaml
+        post_dataset_yaml = Path("temp_data_post") / "dataset.yaml"
+        if post_dataset_yaml.exists():
+            print(f"[YOLO] 使用temp_data_post中的dataset.yaml")
+            yaml_path = post_dataset_yaml
+            # 从yaml读取class_names
+            class_names = []
+            with open(yaml_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    if line.startswith('names:'):
+                        # 解析names列表
+                        pass
+                    elif ':' in line and not line.startswith('#'):
+                        parts = line.strip().split(':', 1)
+                        if len(parts) == 2:
+                            class_names = eval(parts[1].strip())
+                            break
+            print(f"[YOLO] 从dataset.yaml读取类别: {class_names}")
+        else:
+            # 如果没有dataset.yaml，从temp_data_post/model.json读取
+            post_model_json = Path("temp_data_post") / "model.json"
+            class_names = []
+            if post_model_json.exists():
+                try:
+                    with open(post_model_json, 'r', encoding='utf-8') as f:
+                        model_info = json.load(f)
+                    class_names = model_info.get('classes', [])
+                    print(f"[YOLO] 从temp_data_post/model.json读取类别顺序: {class_names}")
+                except:
+                    pass
+            
+            # 如果还是没有，从labelme目录提取
+            if not class_names:
+                for json_file in labelme_dir.glob("*.json"):
+                    try:
+                        with open(json_file, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+                            for shape in data.get('shapes', []):
+                                if shape.get('label') not in class_names:
+                                    class_names.append(shape.get('label'))
+                    except:
+                        pass
         
         if not class_names:
             print("[YOLO] 未检测到类别")
@@ -5390,22 +5539,23 @@ class UnifiedPanel(QMainWindow):
         
         print(f"[YOLO] 检测到类别: {class_names}")
         
-        # 创建dataset.yaml
-        output_dir.mkdir(parents=True, exist_ok=True)
-        (output_dir / "images" / "train").mkdir(parents=True, exist_ok=True)
-        (output_dir / "images" / "val").mkdir(parents=True, exist_ok=True)
-        (output_dir / "labels" / "train").mkdir(parents=True, exist_ok=True)
-        (output_dir / "labels" / "val").mkdir(parents=True, exist_ok=True)
-        
-        yaml_content = f"""path: {output_dir.as_posix()}
+        # 如果没有使用temp_data_post中的dataset.yaml，则创建
+        if not post_dataset_yaml.exists():
+            output_dir.mkdir(parents=True, exist_ok=True)
+            (output_dir / "images" / "train").mkdir(parents=True, exist_ok=True)
+            (output_dir / "images" / "val").mkdir(parents=True, exist_ok=True)
+            (output_dir / "labels" / "train").mkdir(parents=True, exist_ok=True)
+            (output_dir / "labels" / "val").mkdir(parents=True, exist_ok=True)
+            
+            yaml_content = f"""path: {output_dir.as_posix()}
 train: images/train
 val: images/val
 nc: {len(class_names)}
 names: {class_names}
 """
-        yaml_path = output_dir / "dataset.yaml"
-        with open(yaml_path, 'w', encoding='utf-8') as f:
-            f.write(yaml_content)
+            yaml_path = output_dir / "dataset.yaml"
+            with open(yaml_path, 'w', encoding='utf-8') as f:
+                f.write(yaml_content)
         
         # 获取所有图片文件
         img_files = []
@@ -5658,8 +5808,9 @@ names: {class_names}
         
         print(f"[YOLO] 训练集: {len(train_files)}, 验证集: {len(val_files)}")
         
-        # 训练输出目录
-        yolo_runs_dir = Path("runs/detect/yolo_runs")
+        # 训练输出目录（使用绝对路径）
+        yolo_runs_dir = Path.cwd() / "runs" / "detect" / "yolo_runs"
+        print(f"[YOLO] 训练输出目录: {yolo_runs_dir.resolve()}")
         resume = self.train_resume_check.isChecked()
         
         # 如果继续训练，查找编号最大的train文件夹
@@ -5700,7 +5851,6 @@ names: {class_names}
                 with open(prev_model_json, encoding='utf-8') as f:
                     prev_info = json.load(f)
                 self.train_id_input.setText(prev_info.get('id', ''))
-                self.train_desc_input.setText(prev_info.get('description', ''))
                 print(f"[YOLO] 从上次的model.json读取: id={prev_info.get('id')}")
             except:
                 pass
@@ -5767,7 +5917,7 @@ names: {class_names}
         else:
             # 全新训练
             model = YOLO("yolo11m.pt")
-            model.train(
+            result = model.train(
                 data=yaml_path.as_posix(),
                 epochs=epochs,
                 imgsz=640,
@@ -5779,25 +5929,16 @@ names: {class_names}
                 patience=10,
                 cache="ram"
             )
+            # 从训练结果中获取实际输出路径
+            if hasattr(result, 'save_dir'):
+                actual_save_dir = Path(result.save_dir)
+                if actual_save_dir.exists():
+                    train_dir = actual_save_dir
+                    print(f"[YOLO] 从训练结果获取实际路径: {train_dir}")
         
         # 导出ONNX
-        # 查找最新的train目录（从训练日志中解析）
-        latest_train_dir = None
-        # 从训练日志中解析
-        yolo_runs_dir = Path("runs/detect/yolo_runs")
-        train_dirs = list(yolo_runs_dir.glob("train*"))
-        if train_dirs:
-            def get_train_num(p):
-                name = p.name
-                if name == "train":
-                    return 0
-                suffix = name.replace("train", "")
-                nums = [int(x) for x in suffix.split("-") if x.isdigit()]
-                return nums[-1] if nums else 0
-            train_dirs.sort(key=get_train_num, reverse=True)
-            latest_train_dir = train_dirs[0]
-        
-        best_model = latest_train_dir / "weights" / "best.pt" if latest_train_dir else train_dir / "weights" / "best.pt"
+        # 直接使用训练时的train_dir
+        best_model = train_dir / "weights" / "best.pt"
         print(f"[YOLO] 检查模型路径: {best_model.resolve()}")
         print(f"[YOLO] 路径存在: {best_model.exists()}")
         if best_model.exists():
@@ -5806,19 +5947,25 @@ names: {class_names}
             
             # 创建model.json
             train_id = self.train_id_input.text() or self.default_model_id
-            train_desc = self.train_desc_input.text() or self.default_model_desc
             model_json = {
                 "id": train_id,
-                "displayname": train_id,  # displayname同id
-                "description": train_desc,
-                "model_path": f"{train_id}_train/best.onnx",
+                "displayName": train_id,
+                "description": "",
+                "taskType": "detection",
+                "modelFile": "best.onnx",
+                "inputWidth": 640,
+                "inputHeight": 640,
                 "classes": class_names,
-                "nc": len(class_names),
-                "input_size": [640, 640]
+                "yolo": {
+                    "outputLayout": "channels_first",
+                    "scoreMode": "class_only",
+                    "classCount": len(class_names),
+                    "tensorRtCacheKey": train_id
+                }
             }
             
             # 保存model.json到weights文件夹
-            weights_dir = latest_train_dir / "weights" if latest_train_dir else best_model.parent
+            weights_dir = best_model.parent
             weights_json = weights_dir / "model.json"
             with open(weights_json, 'w', encoding='utf-8') as f:
                 json.dump(model_json, f, ensure_ascii=False, indent=2)

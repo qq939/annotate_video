@@ -140,37 +140,15 @@ body { font-family: 'Segoe UI', sans-serif; background: #1e1e2e; color: #cdd6f4;
       </div>
       <div class="category-map" style="margin-top:6px">
         <label style="font-size:12px;color:#a6adc8;">类别名称 (trace_id → 类别):</label>
-        <div class="row" style="margin-top:2px">
-          <label style="width:70px;">1000000:</label>
-          <input type="text" class="category-input" data-track-id="1000000" value="Detect" style="flex:1;min-width:0;">
-        </div>
-        <div class="row" style="margin-top:2px">
-          <label style="width:70px;">1000001:</label>
-          <input type="text" class="category-input" data-track-id="1000001" value="Detect" style="flex:1;min-width:0;">
-        </div>
-        <div class="row" style="margin-top:2px">
-          <label style="width:70px;">1000002:</label>
-          <input type="text" class="category-input" data-track-id="1000002" value="Detect" style="flex:1;min-width:0;">
-        </div>
-        <div class="row" style="margin-top:2px">
-          <label style="width:70px;">1000003:</label>
-          <input type="text" class="category-input" data-track-id="1000003" value="Detect" style="flex:1;min-width:0;">
-        </div>
-        <div class="row" style="margin-top:2px">
-          <label style="width:70px;">1000004:</label>
-          <input type="text" class="category-input" data-track-id="1000004" value="Detect" style="flex:1;min-width:0;">
-        </div>
-        <div class="row" style="margin-top:2px">
-          <label style="width:70px;">1000005:</label>
-          <input type="text" class="category-input" data-track-id="1000005" value="Detect" style="flex:1;min-width:0;">
-        </div>
-        <div class="row" style="margin-top:2px">
-          <label style="width:70px;">1000006:</label>
-          <input type="text" class="category-input" data-track-id="1000006" value="Detect" style="flex:1;min-width:0;">
-        </div>
-        <div class="row" style="margin-top:2px">
-          <label style="width:70px;">1000007:</label>
-          <input type="text" class="category-input" data-track-id="1000007" value="Detect" style="flex:1;min-width:0;">
+        <div id="categoryInputsContainer">
+          <div class="row" style="margin-top:2px"><label style="width:70px;">1000000:</label><input type="text" class="category-input" data-track-id="1000000" value="Detect" style="flex:1;min-width:0;"></div>
+          <div class="row" style="margin-top:2px"><label style="width:70px;">1000001:</label><input type="text" class="category-input" data-track-id="1000001" value="Detect" style="flex:1;min-width:0;"></div>
+          <div class="row" style="margin-top:2px"><label style="width:70px;">1000002:</label><input type="text" class="category-input" data-track-id="1000002" value="Detect" style="flex:1;min-width:0;"></div>
+          <div class="row" style="margin-top:2px"><label style="width:70px;">1000003:</label><input type="text" class="category-input" data-track-id="1000003" value="Detect" style="flex:1;min-width:0;"></div>
+          <div class="row" style="margin-top:2px"><label style="width:70px;">1000004:</label><input type="text" class="category-input" data-track-id="1000004" value="Detect" style="flex:1;min-width:0;"></div>
+          <div class="row" style="margin-top:2px"><label style="width:70px;">1000005:</label><input type="text" class="category-input" data-track-id="1000005" value="Detect" style="flex:1;min-width:0;"></div>
+          <div class="row" style="margin-top:2px"><label style="width:70px;">1000006:</label><input type="text" class="category-input" data-track-id="1000006" value="Detect" style="flex:1;min-width:0;"></div>
+          <div class="row" style="margin-top:2px"><label style="width:70px;">1000007:</label><input type="text" class="category-input" data-track-id="1000007" value="Detect" style="flex:1;min-width:0;"></div>
         </div>
       </div>
       <div class="slider-row" style="margin-top:4px">
@@ -476,8 +454,45 @@ function stopDebugPolling() {
 }
 
 function getCategoryMappings() {
-  const inputs = Array.from(document.querySelectorAll('.category-input'));
-  return inputs.map(inp => (inp.value || 'Detect').trim() || 'Detect');
+  const inputs = document.querySelectorAll('.category-input');
+  const mappings = {};
+  inputs.forEach(inp => {
+    const tid = parseInt(inp.getAttribute('data-track-id'));
+    const name = (inp.value || 'Detect').trim() || 'Detect';
+    if (!isNaN(tid)) {
+      mappings[tid] = name;
+    }
+  });
+  return mappings;
+}
+
+function refreshCategoryInputs(trackIds) {
+  const container = $('categoryInputsContainer');
+  if (!container) return;
+  // 保存当前输入值
+  const saved = getCategoryMappings();
+  container.innerHTML = '';
+  const sorted = [...new Set(trackIds)].sort((a, b) => a - b);
+  sorted.forEach(tid => {
+    const existing = saved[tid] || 'Detect';
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.style.marginTop = '2px';
+    const label = document.createElement('label');
+    label.style.width = '70px';
+    label.textContent = tid + ':';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'category-input';
+    input.setAttribute('data-track-id', tid);
+    input.value = existing;
+    input.style.flex = '1';
+    input.style.minWidth = '0';
+    row.appendChild(label);
+    row.appendChild(input);
+    container.appendChild(row);
+  });
+  addDebugLog('类别输入框已更新: ' + sorted.length + ' 个 trace_id', 'info');
 }
 
 function toggleDebug() {
@@ -832,6 +847,9 @@ async function showViewer(refresh) {
     const info = await apiGet('/api/get_video_info');
     addDebugLog('视频信息读取完成: total=' + info.total + ', annotations=' + ((info.annotations || []).length), 'info');
     state.totalFrames = info.total;
+    // 从标注数据中提取所有唯一的 track_id（>=1000000），刷新类别输入框
+    const trackIds = [...new Set((info.annotations || []).map(a => a.track_id).filter(tid => tid >= 1000000))];
+    refreshCategoryInputs(trackIds.length > 0 ? trackIds : [1000000, 1000001, 1000002, 1000003, 1000004, 1000005, 1000006, 1000007]);
     $('exportBtn').disabled = state.totalFrames <= 0;
     updateFrameInfo();
     await loadFrame(state.currentFrame || 0);

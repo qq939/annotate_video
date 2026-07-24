@@ -636,10 +636,37 @@ def copy_temp_data(src_dir, dst_dir, apply_mappings=None, log_func=None):
 
 # ==================== 导出相关 ====================
 def get_category_for_track_id(track_id, category_mappings=None):
-    """按app.py的导出规则把提示帧目标track_id映射到类别。"""
+    """把track_id映射到类别名称和YOLO class id。
+    
+    支持两种格式：
+    1. dict: {track_id: category_name}（推荐，支持非连续 trace_id）
+    2. list: ['name0', 'name1', ...]（旧格式，假设 1000000~1000007 连续）
+    
+    Returns:
+        (cat_id, cat_name)
+    """
     if not category_mappings:
-        category_mappings = ['Detect'] * 8
-
+        return 0, 'Detect'
+    
+    # 新格式：dict {track_id: category_name}
+    if isinstance(category_mappings, dict):
+        # JSON key 是字符串，需转 int
+        tid_to_name = {}
+        for k, v in category_mappings.items():
+            try:
+                tid_to_name[int(k)] = str(v).strip() or 'Detect'
+            except (ValueError, TypeError):
+                pass
+        
+        if track_id in tid_to_name:
+            name = tid_to_name[track_id]
+            # 按 track_id 排序，用序号作为 YOLO class_id
+            sorted_tids = sorted(tid_to_name.keys())
+            cat_id = sorted_tids.index(track_id)
+            return cat_id, name
+        return 0, 'Detect'
+    
+    # 旧格式兼容：list（假设 1000000~1000007 连续）
     if 1000000 <= track_id <= 1000007:
         idx = track_id - 1000000
         return idx, category_mappings[idx] if idx < len(category_mappings) else 'Detect'
@@ -652,7 +679,7 @@ def export_to_temp_data_post(cat_maps=None, del_track_id_list=None, temp_mid_dir
     """导出到temp_data_post
     
     Args:
-        cat_maps: 类别映射列表
+        cat_maps: 类别映射，支持 dict {track_id: category_name}（推荐）或 list（旧格式）
         del_track_id_list: 要删除的track_id列表
         temp_mid_dir: 源目录，默认为TEMP_DATA_MID_DIR
     """
