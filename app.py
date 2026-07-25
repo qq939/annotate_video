@@ -2211,6 +2211,15 @@ class UnifiedPanel(QMainWindow):
         assign_layout.addStretch()
         layout.addLayout(assign_layout)
 
+        # 训练ID - 占一整行
+        train_id_layout = QHBoxLayout()
+        train_id_layout.setSpacing(4)
+        train_id_layout.addWidget(QLabel("训练ID:"))
+        self.train_id_input = QLineEdit(self.default_model_id)
+        self.train_id_input.setFixedHeight(22)
+        train_id_layout.addWidget(self.train_id_input)
+        layout.addLayout(train_id_layout)
+
         self.export_btn = QPushButton("📦 导出到 temp_data_post")
         self.export_btn.setFixedHeight(26)
         self.export_btn.clicked.connect(self.export_to_temp_data_post)
@@ -2311,11 +2320,6 @@ class UnifiedPanel(QMainWindow):
         # 训练参数
         train_params_layout = QHBoxLayout()
         train_params_layout.setSpacing(4)
-        train_params_layout.addWidget(QLabel("训练ID:"))
-        self.train_id_input = QLineEdit(self.default_model_id)
-        self.train_id_input.setFixedWidth(120)
-        self.train_id_input.setFixedHeight(22)
-        train_params_layout.addWidget(self.train_id_input)
         train_params_layout.addWidget(QLabel("Epoch:"))
         self.train_epochs_input = QLineEdit("30")
         self.train_epochs_input.setFixedWidth(40)
