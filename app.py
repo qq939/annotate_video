@@ -5372,6 +5372,8 @@ names: {class_names}
                             break
                         raw_frames.append(frame.copy())
                     cap.release()
+                else:
+                    print(f"[保存] 兜底视频无法打开: {temp_video}")
         
         if raw_frames and raw_fps is not None:
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
@@ -5385,6 +5387,7 @@ names: {class_names}
             if self.upload_obs_check.isChecked():
                 import time
                 import random
+                import zipfile
                 timestamp = time.strftime("%Y%m%d_%H%M%S")
                 rand = random.randint(1000, 9999)
                 raw_zip_filename = f"{video_name}_{timestamp}_{rand}.zip"
@@ -5512,7 +5515,8 @@ names: {class_names}
         
         labelme_dir = Path(labelme_dir)
         output_dir = BASE_DIR / "yolo_dataset"
-        yolo_project = BASE_DIR / "yolo_runs"
+        yolo_runs_dir = BASE_DIR / "runs" / "detect" / "yolo_runs"
+        yolo_project = yolo_runs_dir  # 与训练输出目录一致
         
         # 清理旧数据
         if output_dir.exists():
@@ -5840,8 +5844,7 @@ names: {class_names}
         
         print(f"[YOLO] 训练集: {len(train_files)}, 验证集: {len(val_files)}")
         
-        # 训练输出目录（使用绝对路径）
-        yolo_runs_dir = BASE_DIR / "runs" / "detect" / "yolo_runs"
+        # 训练输出目录（已在函数开头定义为 yolo_runs_dir）
         print(f"[YOLO] 训练输出目录: {yolo_runs_dir.resolve()}")
         resume = self.train_resume_check.isChecked()
         
