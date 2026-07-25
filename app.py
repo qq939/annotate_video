@@ -4370,24 +4370,36 @@ class UnifiedPanel(QMainWindow):
             QMessageBox.warning(self, "错误", "选择的文件夹不存在")
             return
         
-        # 如果选择的是temp_data，只覆盖temp_data_mid
+        # 判断来源类型
         is_temp_data = src.resolve() == (BASE_DIR / "temp_data").resolve()
+        is_mid = src.resolve() == (BASE_DIR / TEMP_DATA_MID_DIR).resolve()
         
-        # 复制到temp_data_mid
-        dst = BASE_DIR / TEMP_DATA_MID_DIR
-        if dst.exists():
-            shutil.rmtree(dst)
-        shutil.copytree(src, dst)
-        
-        # 如果不是temp_data，同时复制到temp_data
-        if not is_temp_data:
+        if is_mid:
+            # 选的是mid → 用mid直接覆盖temp_data
+            dst_temp = BASE_DIR / "temp_data"
+            if dst_temp.exists():
+                shutil.rmtree(dst_temp)
+            shutil.copytree(src, dst_temp)
+            QMessageBox.information(self, "完成", f"已用 {src.name} 覆盖 temp_data")
+        elif is_temp_data:
+            # 选的是temp_data → 覆盖temp_data_mid
+            dst_mid = BASE_DIR / TEMP_DATA_MID_DIR
+            if dst_mid.exists():
+                shutil.rmtree(dst_mid)
+            shutil.copytree(src, dst_mid)
+            QMessageBox.information(self, "完成", f"已复制 {src.name} 到 temp_data_mid")
+        else:
+            # 其他文件夹 → 覆盖两者
+            dst_mid = BASE_DIR / TEMP_DATA_MID_DIR
+            if dst_mid.exists():
+                shutil.rmtree(dst_mid)
+            shutil.copytree(src, dst_mid)
+            
             dst_temp = BASE_DIR / "temp_data"
             if dst_temp.exists():
                 shutil.rmtree(dst_temp)
             shutil.copytree(src, dst_temp)
             QMessageBox.information(self, "完成", f"已复制 {src.name} 到 temp_data 和 temp_data_mid")
-        else:
-            QMessageBox.information(self, "完成", f"已复制 {src.name} 到 temp_data_mid")
         
         if self.viewer:
             self.viewer.update_display()
