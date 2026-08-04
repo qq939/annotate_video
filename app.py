@@ -2548,7 +2548,6 @@ class UnifiedPanel(QMainWindow):
             from app_utils import patch_sam3_video_semantic
             from annotate_video import get_device, SAM_MODEL_PATH
             from ultralytics.models.sam import SAM3VideoPredictor
-            import numpy as np
             
             patch_sam3_video_semantic()
             device, device_type = get_device()
@@ -2867,7 +2866,6 @@ class UnifiedPanel(QMainWindow):
                 predictor = SAM3VideoSemanticPredictor(overrides=overrides)
                 
                 # 将点转换为numpy数组
-                import numpy as np
                 points_np = np.array(prompt_points, dtype=np.float32)
                 labels_np = np.ones(len(prompt_points), dtype=np.int32)  # 1表示前景
                 
@@ -3097,7 +3095,6 @@ class UnifiedPanel(QMainWindow):
             from annotate_video import TrackManager
 
             def process_clip(start_frame, end_frame, forward=True, prompt_bboxes=None):
-                import numpy as np
                 direction = "向前" if forward else "向后"
                 print(f"\n[DEBUG {direction}] === 进入 process_clip ===")
                 print(f"[DEBUG {direction}] start_frame={start_frame}, end_frame={end_frame}, 总帧数={end_frame - start_frame}, 设备=[{device_str}]")
