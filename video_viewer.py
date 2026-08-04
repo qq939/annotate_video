@@ -790,7 +790,7 @@ class VideoViewer(QMainWindow):
         """获取当前帧的annotations"""
         label_path = str(self.labels_dir / f"frame_{self.current_frame_idx:06d}.json")
         if Path(label_path).exists():
-            with open(label_path) as f:
+            with open(label_path, encoding='utf-8') as f:
                 return json.load(f)
         return []
     
@@ -807,7 +807,7 @@ class VideoViewer(QMainWindow):
                 if a.get('bbox') == ann.get('bbox'):
                     annotations[i] = ann
                     break
-        with open(label_path, 'w') as f:
+        with open(label_path, 'w', encoding='utf-8') as f:
             json.dump(annotations, f)
         if self.controller and hasattr(self.controller, 'refresh_trace_id_list'):
             self.panel.refresh_trace_id_list()
@@ -817,7 +817,7 @@ class VideoViewer(QMainWindow):
         undo_changes = []
         for frame_file in sorted(self.labels_dir.glob("frame_*.json")):
             try:
-                with open(frame_file) as f:
+                with open(frame_file, encoding='utf-8') as f:
                     annotations = json.load(f)
                 new_anns = []
                 for ann in annotations:
@@ -832,7 +832,7 @@ class VideoViewer(QMainWindow):
                         })
                         ann['track_id'] = new_tid
                     new_anns.append(ann)
-                with open(frame_file, 'w') as f:
+                with open(frame_file, 'w', encoding='utf-8') as f:
                     json.dump(new_anns, f)
             except:
                 pass
@@ -859,7 +859,7 @@ class VideoViewer(QMainWindow):
         
         changed = False
         try:
-            with open(frame_file) as f:
+            with open(frame_file, encoding='utf-8') as f:
                 annotations = json.load(f)
             for ann in annotations:
                 bbox = ann.get('bbox', [])
@@ -872,7 +872,7 @@ class VideoViewer(QMainWindow):
                         changed = True
                         break  # 只修改第一个匹配的bbox
             if changed:
-                with open(frame_file, 'w') as f:
+                with open(frame_file, 'w', encoding='utf-8') as f:
                     json.dump(annotations, f)
         except:
             return
@@ -904,7 +904,7 @@ class VideoViewer(QMainWindow):
         label_path = str(self.labels_dir / f"frame_{idx:06d}.json")
         frame_annotations = []
         if Path(label_path).exists():
-            with open(label_path) as f:
+            with open(label_path, encoding='utf-8') as f:
                 frame_annotations = json.load(f)
 
         return frame, frame_annotations

@@ -8,6 +8,22 @@ import cv2
 import numpy as np
 import json
 import subprocess
+
+# 全局修复：让 json.dump/dumps 默认 ensure_ascii=False（中文不转义）
+# Python 3.11+ json.load/loads 已默认 UTF-8，无需额外处理
+_orig_json_dump = json.dump
+_orig_json_dumps = json.dumps
+
+def _utf8_dump(obj, fp, *args, **kwargs):
+    kwargs.setdefault('ensure_ascii', False)
+    return _orig_json_dump(obj, fp, *args, **kwargs)
+
+def _utf8_dumps(obj, *args, **kwargs):
+    kwargs.setdefault('ensure_ascii', False)
+    return _orig_json_dumps(obj, *args, **kwargs)
+
+json.dump = _utf8_dump
+json.dumps = _utf8_dumps
 from pathlib import Path
 
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QSlider, QLabel, QLineEdit, QFileDialog, QGroupBox, QTextEdit, QMessageBox, QListWidget, QSizePolicy, QDialog, QInputDialog, QCheckBox, QToolButton, QMenu)
