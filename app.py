@@ -2097,6 +2097,14 @@ class UnifiedPanel(QMainWindow):
         self.prompt_btn.setStyleSheet("QPushButton { background-color: #FFA500; color: white; border: none; border-radius: 3px; font-size: 11px; } QPushButton:hover { background-color: #FF8C00; }")
         self.prompt_btn.clicked.connect(self.toggle_prompt_mode)
         tools_layout.addWidget(self.prompt_btn)
+        
+        self.exit_prompt_btn = QPushButton("退出提示帧")
+        self.exit_prompt_btn.setFixedWidth(70)
+        self.exit_prompt_btn.setFixedHeight(24)
+        self.exit_prompt_btn.setStyleSheet("QPushButton { background-color: #e74c3c; color: white; border: none; border-radius: 3px; font-size: 10px; } QPushButton:hover { background-color: #c0392b; }")
+        self.exit_prompt_btn.clicked.connect(self.exit_prompt_mode)
+        self.exit_prompt_btn.hide()
+        tools_layout.addWidget(self.exit_prompt_btn)
         layout.addLayout(tools_layout)
 
         # 回退按钮单独一行（撑满）
@@ -2296,8 +2304,8 @@ class UnifiedPanel(QMainWindow):
             self.color_btns.append(btn)
             self.color_btn_layout.addWidget(btn)
         # 换颜色按钮
-        self.shuffle_colors_btn = QPushButton("换")
-        self.shuffle_colors_btn.setFixedWidth(30)
+        self.shuffle_colors_btn = QPushButton("换一批颜色")
+        self.shuffle_colors_btn.setFixedWidth(80)
         self.shuffle_colors_btn.setFixedHeight(20)
         self.shuffle_colors_btn.setStyleSheet("QPushButton { background-color: #9b59b6; color: white; border: none; border-radius: 3px; font-size: 10px; }")
         self.shuffle_colors_btn.clicked.connect(self.shuffle_palette_colors)
@@ -2647,6 +2655,7 @@ class UnifiedPanel(QMainWindow):
             self.prompt_frame_idx = self.viewer.get_current_frame()
             self.prompt_btn.setText("执行提示帧")
             self.prompt_btn.setStyleSheet("QPushButton { background-color: #00CC00; color: white; border: none; border-radius: 3px; } QPushButton:hover { background-color: #009900; }")
+            self.exit_prompt_btn.show()
             self.viewer.enable_bbox_drawing(True)
             self.viewer.clear_prompt_bboxes()
             self.viewer.clear_prompt_points()
@@ -2655,6 +2664,7 @@ class UnifiedPanel(QMainWindow):
             else:
                 print(f"提示帧模式：在帧 {self.prompt_frame_idx + 1} 上绘制 Bbox")
         else:
+            self.exit_prompt_btn.hide()
             self.prompt_btn.setEnabled(False)
             self.prompt_btn.setText("处理中...")
             self.viewer.enable_bbox_drawing(False)
@@ -3576,12 +3586,22 @@ class UnifiedPanel(QMainWindow):
             self.viewer.update_display()
         print(f"[Undo] 已回退 {restored} 个标注")
 
+    def exit_prompt_mode(self):
+        """退出提示帧模式（取消绘制，不执行推理）"""
+        self.reset_prompt_btn()
+        if self.viewer:
+            self.viewer.clear_prompt_bboxes()
+            self.viewer.clear_prompt_points()
+            self.viewer.update_display()
+        print("已退出提示帧模式")
+
     def reset_prompt_btn(self):
         self.prompt_drawing_mode = False
         self.prompt_frame_idx = -1
         self.prompt_btn.setEnabled(True)
         self.prompt_btn.setText("设为提示帧")
         self.prompt_btn.setStyleSheet("QPushButton { background-color: #FFA500; color: white; border: none; border-radius: 3px; } QPushButton:hover { background-color: #FF8C00; }")
+        self.exit_prompt_btn.hide()
         if self.viewer:
             self.viewer.enable_bbox_drawing(False)
 
