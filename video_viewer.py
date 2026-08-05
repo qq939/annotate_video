@@ -942,23 +942,16 @@ class VideoViewer(QMainWindow):
             if not frame_path.exists():
                 print(f"[点分割] 帧文件不存在: {frame_path}")
                 return
-            predictor.set_image(str(frame_path))
-            im_tensor = None
-            if predictor.features is not None:
-                im_tensor = predictor.features[0] if isinstance(predictor.features, list) else predictor.features
-            if im_tensor is None:
-                predictor.reset_image()
-                print("[点分割] 无法获取图像特征")
-                return
             points_np = np.array([[float(video_x), float(video_y)]], dtype=np.float32)
             labels_np = np.ones(1, dtype=np.int32)
-            pred_masks, pred_scores, pred_bboxes = predictor.generate(
-                im_tensor, points=points_np, labels=labels_np)
-            predictor.reset_image()
-            if pred_masks is None or len(pred_masks) == 0:
+            # 用 source= 方式传参，points/labels 由 predictor 内部处理
+            results = list(predictor(source=str(frame_path), points=points_np, labels=labels_np))
+            if not results or results[0].masks is None:
                 print("[点分割] 未检测到分割结果")
                 return
-            masks_np = pred_masks.cpu().numpy() if hasattr(pred_masks, "cpu") else pred_masks
+            r = results[0]
+            masks_tensor = r.masks.data if hasattr(r.masks, "data") else r.masks
+            masks_np = masks_tensor.cpu().numpy() if hasattr(masks_tensor, "cpu") else masks_tensor
             color = (random.randint(50, 255), random.randint(50, 255), random.randint(50, 255))
             for mask in masks_np:
                 mask_binary = (mask > 0.5).astype(np.uint8)
