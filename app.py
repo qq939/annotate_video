@@ -2733,6 +2733,7 @@ class UnifiedPanel(QMainWindow):
         return frame_count
 
     def do_bidirectional_inject(self):
+        from annotate_video import TrackManager  # 必须在所有闭包函数定义之前import
         prompt_bboxes = self.viewer.get_prompt_bboxes()
         prompt_points = self.viewer.get_prompt_points()
         items_text = self.items_input.text().strip()
@@ -2784,7 +2785,6 @@ class UnifiedPanel(QMainWindow):
                     overrides['batch'] = 1
                     overrides['stream_buffer'] = False
                 predictor = SAM3VideoPredictor(overrides=overrides)  # 不带语义
-                from annotate_video import TrackManager  # 必须在函数定义前import，避免闭包找不到
                 
                 def do_auto_seg_clip(start_frame, end_frame, forward):
                     direction = "向前" if forward else "向后"
