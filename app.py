@@ -2886,6 +2886,8 @@ class UnifiedPanel(QMainWindow):
                 labels_np = np.ones(len(prompt_points), dtype=np.int32)  # 1表示前景
                 
                 def do_point_seg_clip(start_frame, end_frame, forward):
+                    # 每个方向用独立的 predictor 实例，避免 inference_state 冲突导致 IndexError
+                    predictor_local = SAM3VideoSemanticPredictor(overrides=overrides)
                     direction = "向前" if forward else "向后"
                     if start_frame >= end_frame:
                         return
@@ -2912,7 +2914,7 @@ class UnifiedPanel(QMainWindow):
                             out.write(frame)
                     out.release()
                     print(f"[点分割{direction}] 点={len(prompt_points)}, 文本={items_text}")
-                    results = list(predictor(source=clip_path, stream=True, points=points_np, labels=labels_np, text=items_text if items_text else None))
+                    results = list(predictor_local(source=clip_path, stream=True, points=points_np, labels=labels_np, text=items_text if items_text else None))
                     for idx, r in enumerate(results):
                         orig_idx = start_frame + idx if forward else end_frame - 1 - idx
                         label_file = src_labels_dir / f"frame_{orig_idx:06d}.json"
@@ -2974,6 +2976,8 @@ class UnifiedPanel(QMainWindow):
                 predictor = SAM3VideoSemanticPredictor(overrides=overrides)
                 
                 def do_pure_semantic_clip(start_frame, end_frame, forward):
+                    # 每个方向用独立的 predictor 实例，避免 inference_state 冲突导致 IndexError
+                    predictor_local = SAM3VideoSemanticPredictor(overrides=overrides)
                     direction = "向前" if forward else "向后"
                     if start_frame >= end_frame:
                         return
@@ -3000,7 +3004,7 @@ class UnifiedPanel(QMainWindow):
                             out.write(frame)
                     out.release()
                     print(f"[纯语义{direction}] 使用文本={items_text}")
-                    results = list(predictor(source=clip_path, stream=True, text=items_text))
+                    results = list(predictor_local(source=clip_path, stream=True, text=items_text))
                     for idx, r in enumerate(results):
                         orig_idx = start_frame + idx if forward else end_frame - 1 - idx
                         label_file = src_labels_dir / f"frame_{orig_idx:06d}.json"
@@ -3111,6 +3115,11 @@ class UnifiedPanel(QMainWindow):
             from annotate_video import TrackManager
 
             def process_clip(start_frame, end_frame, forward=True, prompt_bboxes=None):
+                # 每个方向用独立的 predictor 实例，避免 inference_state 冲突导致 IndexError
+                if is_semantic:
+                    predictor_local = SAM3VideoSemanticPredictor(overrides=overrides)
+                else:
+                    predictor_local = SAM3VideoPredictor(overrides=overrides)
                 direction = "向前" if forward else "向后"
                 print(f"\n[DEBUG {direction}] === 进入 process_clip ===")
                 print(f"[DEBUG {direction}] start_frame={start_frame}, end_frame={end_frame}, 总帧数={end_frame - start_frame}, 设备=[{device_str}]")
@@ -3171,13 +3180,13 @@ class UnifiedPanel(QMainWindow):
                 print(f"[DEBUG {direction}] prompt_bboxes={prompt_bboxes}, is_semantic={is_semantic}")
                 if is_semantic:
                     # 语义模式：使用文本提示
-                    results = predictor(source=clip_path, stream=True, bboxes=prompt_bboxes, labels=[1]*len(prompt_bboxes), text=items_text)
+                    results = predictor_local(source=clip_path, stream=True, bboxes=prompt_bboxes, labels=[1]*len(prompt_bboxes), text=items_text)
                 elif prompt_bboxes:
                     # 纯追踪模式：使用bbox提示
-                    results = predictor(source=clip_path, stream=True, bboxes=prompt_bboxes, labels=[1]*len(prompt_bboxes))
+                    results = predictor_local(source=clip_path, stream=True, bboxes=prompt_bboxes, labels=[1]*len(prompt_bboxes))
                 else:
                     # 无提示：纯追踪
-                    results = predictor(source=clip_path, stream=True)
+                    results = predictor_local(source=clip_path, stream=True)
                     print(f"[DEBUG {direction}] ⚠️ 无提示，使用无提示模式")
                 manager = TrackManager(iou_threshold=float(self.iou_input.text() or "0.02"))
                 manager.next_track_id = FIRST_ID
