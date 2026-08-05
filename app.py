@@ -2097,14 +2097,6 @@ class UnifiedPanel(QMainWindow):
         self.prompt_btn.setStyleSheet("QPushButton { background-color: #FFA500; color: white; border: none; border-radius: 3px; font-size: 11px; } QPushButton:hover { background-color: #FF8C00; }")
         self.prompt_btn.clicked.connect(self.toggle_prompt_mode)
         tools_layout.addWidget(self.prompt_btn)
-        
-        self.prompt_type_btn = QPushButton("Bbox")
-        self.prompt_type_btn.setFixedWidth(50)
-        self.prompt_type_btn.setFixedHeight(24)
-        self.prompt_type_btn.setStyleSheet("QPushButton { background-color: #3498db; color: white; border: none; border-radius: 3px; font-size: 10px; }")
-        self.prompt_type_btn.clicked.connect(self.toggle_prompt_type)
-        self.prompt_type = 'bbox'
-        tools_layout.addWidget(self.prompt_type_btn)
         layout.addLayout(tools_layout)
 
         # 回退按钮单独一行（撑满）
@@ -2517,18 +2509,6 @@ class UnifiedPanel(QMainWindow):
             self.backward_btn.setText("倒帧")
             self.backward_fast_btn.setText("■倒播")
 
-    def toggle_prompt_type(self):
-        """切换点/bbox模式"""
-        if self.prompt_type == 'bbox':
-            self.prompt_type = 'point'
-            self.prompt_type_btn.setText("点")
-            self.prompt_type_btn.setStyleSheet("QPushButton { background-color: #e74c3c; color: white; border: none; border-radius: 3px; font-size: 10px; }")
-            print("提示帧模式：点击添加点")
-        else:
-            self.prompt_type = 'bbox'
-            self.prompt_type_btn.setText("Bbox")
-            self.prompt_type_btn.setStyleSheet("QPushButton { background-color: #3498db; color: white; border: none; border-radius: 3px; font-size: 10px; }")
-            print("提示帧模式：绘制矩形框")
     
     def shuffle_palette_colors(self):
         """换一批颜色，生成新的随机颜色"""
@@ -2670,7 +2650,7 @@ class UnifiedPanel(QMainWindow):
             self.viewer.enable_bbox_drawing(True)
             self.viewer.clear_prompt_bboxes()
             self.viewer.clear_prompt_points()
-            if self.prompt_type == 'point':
+            if self.viewer.prompt_type == 'point':
                 print(f"提示帧模式：在帧 {self.prompt_frame_idx + 1} 上点击添加点")
             else:
                 print(f"提示帧模式：在帧 {self.prompt_frame_idx + 1} 上绘制 Bbox")
@@ -2736,7 +2716,7 @@ class UnifiedPanel(QMainWindow):
         has_items = bool(items_text)
         has_bboxes = bool(prompt_bboxes)
         has_points = bool(prompt_points)
-        use_points = has_points and self.prompt_type == 'point'
+        use_points = has_points and self.viewer.prompt_type == 'point'
         
         if not has_items and not has_bboxes and not has_points:
             # 自动分割模式：SAM3会分割所有检测到的物体

@@ -44,9 +44,13 @@ class VideoLabel(QLabel):
         self._drag_start = None
         self._drag_current = None
         self.panel = None  # UnifiedPanel引用
+        self.viewer = None  # VideoViewer引用
 
     def set_panel(self, panel):
         self.panel = panel
+
+    def set_viewer(self, viewer):
+        self.viewer = viewer
 
     def set_zoom(self, factor):
         self.zoom_factor = factor
@@ -66,12 +70,10 @@ class VideoLabel(QLabel):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton and self.drawing_enabled:
-            # 检查是否点模式 - 直接使用self.panel
-            prompt_type = getattr(self, 'panel', None)
-            if prompt_type is not None:
-                prompt_type = getattr(prompt_type, 'prompt_type', 'bbox')
-            else:
-                prompt_type = 'bbox'
+            # 从 VideoViewer 读取点/bbox模式
+            prompt_type = 'bbox'
+            if self.viewer is not None:
+                prompt_type = getattr(self.viewer, 'prompt_type', 'bbox')
             
             if prompt_type == 'point':
                 # 点模式：转换为视频坐标，通过 point_clicked 信号让 VideoViewer 处理
@@ -267,6 +269,9 @@ class VideoViewer(QMainWindow):
         
         # 模式切换：A=标注模式，B=标记模式
         self.is_mode_a = True  # True=模式A(标注), False=模式B(标记)
+        
+        # 点/Bbox切换
+        self.prompt_type = 'bbox'
 
         self.init_ui()
 
@@ -295,6 +300,13 @@ class VideoViewer(QMainWindow):
         self.mode_ab_btn.setStyleSheet("font-weight: bold;")
         self.mode_ab_btn.clicked.connect(self.toggle_mode_ab)
         mode_layout.addWidget(self.mode_ab_btn)
+        # Bbox/点切换按钮
+        self.prompt_type_btn = QPushButton("Bbox")
+        self.prompt_type_btn.setFixedWidth(50)
+        self.prompt_type_btn.setFixedHeight(22)
+        self.prompt_type_btn.setStyleSheet("QPushButton { background-color: #3498db; color: white; border: none; border-radius: 3px; font-size: 10px; }")
+        self.prompt_type_btn.clicked.connect(self.toggle_prompt_type)
+        mode_layout.addWidget(self.prompt_type_btn)
         mode_layout.addStretch()
         # 添加视频按钮
         add_btn = QPushButton("+添加视频")
@@ -352,6 +364,7 @@ class VideoViewer(QMainWindow):
         self.image_label.set_zoom(self.zoom_factor)
         self.image_label.set_video_size(self.video_width, self.video_height)
         self.image_label.set_panel(self.panel)  # 设置panel引用
+        self.image_label.set_viewer(self)  # 设置viewer引用
         self.image_label.setAlignment(Qt.AlignCenter)
         self.image_label.point_clicked.connect(self.on_click)
         self.image_label.bbox_drawn.connect(self.on_bbox_drawn)
@@ -391,6 +404,19 @@ class VideoViewer(QMainWindow):
             self.delete_mode_btn.setText("帧删除")
             self.select_start = None
     
+    def toggle_prompt_type(self):
+        """切换点/bbox模式"""
+        if self.prompt_type == 'bbox':
+            self.prompt_type = 'point'
+            self.prompt_type_btn.setText("点")
+            self.prompt_type_btn.setStyleSheet("QPushButton { background-color: #e74c3c; color: white; border: none; border-radius: 3px; font-size: 10px; }")
+            print("提示帧模式：点击添加点")
+        else:
+            self.prompt_type = 'bbox'
+            self.prompt_type_btn.setText("Bbox")
+            self.prompt_type_btn.setStyleSheet("QPushButton { background-color: #3498db; color: white; border: none; border-radius: 3px; font-size: 10px; }")
+            print("提示帧模式：绘制矩形框")
+
     def toggle_mode_ab(self):
         """切换A/B模式"""
         self.is_mode_a = not self.is_mode_a
@@ -679,7 +705,7 @@ class VideoViewer(QMainWindow):
             video_y = int((display_y - offset_y) / self.zoom_factor)
             
             # 检查是否是点模式
-            if hasattr(self.panel, 'prompt_type') and self.panel.prompt_type == 'point' and self.panel.prompt_drawing_mode:
+            if self.prompt_type == 'point' and self.panel.prompt_drawing_mode:
                 self.add_prompt_point(video_x, video_y)
                 print(f"[点] 添加点 ({video_x}, {video_y}), 当前: {len(self.prompt_points)} 个点")
                 # 点击点后立即运行SAM分割并渲染
