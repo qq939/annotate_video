@@ -5995,6 +5995,7 @@ names: {class_names}
                     workers=0,
                     project=yolo_project.as_posix(),
                     name=train_dir.name,
+                    patience=20,
                     resume=False
                 )
                 if hasattr(result, 'save_dir'):
@@ -6014,6 +6015,7 @@ names: {class_names}
                     workers=0,
                     project=yolo_project.as_posix(),
                     name=train_dir.name,
+                    patience=20,
                     resume=False
                 )
                 if hasattr(result, 'save_dir'):
@@ -6034,6 +6036,7 @@ names: {class_names}
                     workers=0,
                     project=yolo_project.as_posix(),
                     name=train_dir.name,
+                    patience=20,
                     resume=False
                 )
                 if hasattr(result, 'save_dir'):
@@ -6056,7 +6059,7 @@ names: {class_names}
                 workers=0,
                 project=yolo_project.as_posix(),
                 name=train_dir.name,
-                patience=10,
+                patience=20,
                 cache="ram"
             )
             # 从训练结果中获取实际输出路径
