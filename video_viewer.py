@@ -515,69 +515,87 @@ class VideoViewer(QMainWindow):
         if not file_paths:
             return
         
-        print(f"[VideoViewer] 添加 {len(file_paths)} 个视频的帧...")
-        
-        # 获取当前最大帧号
-        existing_frames = list(self.frames_dir.glob("frame_*.jpg"))
-        start_idx = len(existing_frames)
-        target_w, target_h = self.video_width, self.video_height
-        
-        # 从每个视频读取帧
-        for vi, vp in enumerate(file_paths):
-            cap = cv2.VideoCapture(vp)
-            if not cap.isOpened():
-                print(f"[VideoViewer] 无法打开: {vp}")
-                continue
+        try:
+            # 确保目录存在
+            self.frames_dir.mkdir(parents=True, exist_ok=True)
+            self.labels_dir.mkdir(parents=True, exist_ok=True)
             
-            # 读取第一帧检测分辨率
-            ret, first_frame = cap.read()
-            if not ret:
-                cap.release()
-                continue
-            src_h, src_w = first_frame.shape[:2]
-            need_resize = (src_w != target_w or src_h != target_h)
-            if need_resize:
-                print(f"[VideoViewer] 视频 {vi+1} 分辨率 {src_w}x{src_h} -> 调整为 {target_w}x{target_h}")
+            print(f"[VideoViewer] 添加 {len(file_paths)} 个视频的帧...")
             
-            # 处理第一帧
-            idx = start_idx
-            frame = cv2.resize(first_frame, (target_w, target_h)) if need_resize else first_frame
-            frame_path = self.frames_dir / f"frame_{idx:06d}.jpg"
-            cv2.imwrite(str(frame_path), frame)
-            label_path = self.labels_dir / f"frame_{idx:06d}.json"
-            with open(label_path, 'w', encoding='utf-8') as f:
-                json.dump([], f, ensure_ascii=False)
-            idx += 1
+            # 获取当前最大帧号
+            existing_frames = list(self.frames_dir.glob("frame_*.jpg"))
+            start_idx = len(existing_frames)
+            target_w, target_h = self.video_width, self.video_height
+            print(f"[VideoViewer] 当前已有 {start_idx} 帧, target={target_w}x{target_h}")
             
-            # 处理剩余帧
-            while True:
-                ret, frame = cap.read()
+            total_added = 0
+            # 从每个视频读取帧
+            for vi, vp in enumerate(file_paths):
+                vp_str = str(vp)
+                cap = cv2.VideoCapture(vp_str)
+                if not cap.isOpened():
+                    print(f"[VideoViewer] 无法打开视频: {vp_str}")
+                    QMessageBox.warning(self, "错误", f"无法打开视频:\n{vp_str}")
+                    continue
+                
+                # 读取第一帧检测分辨率
+                ret, first_frame = cap.read()
                 if not ret:
-                    break
+                    print(f"[VideoViewer] 视频 {vi+1} 无帧数据: {vp_str}")
+                    cap.release()
+                    continue
+                src_h, src_w = first_frame.shape[:2]
+                need_resize = (src_w != target_w or src_h != target_h)
                 if need_resize:
-                    frame = cv2.resize(frame, (target_w, target_h))
+                    print(f"[VideoViewer] 视频 {vi+1} 分辨率 {src_w}x{src_h} -> 调整为 {target_w}x{target_h}")
+                
+                # 处理第一帧
+                idx = start_idx
+                frame = cv2.resize(first_frame, (target_w, target_h)) if need_resize else first_frame
                 frame_path = self.frames_dir / f"frame_{idx:06d}.jpg"
                 cv2.imwrite(str(frame_path), frame)
                 label_path = self.labels_dir / f"frame_{idx:06d}.json"
                 with open(label_path, 'w', encoding='utf-8') as f:
                     json.dump([], f, ensure_ascii=False)
                 idx += 1
-            cap.release()
-            start_idx = idx
-        
-        # 更新总数
-        self.total_frames = len(list(self.frames_dir.glob("frame_*.jpg")))
-        
-        # 更新coco_data（所有帧分辨率一致，使用target尺寸）
-        self.coco_data['images'] = [
-            {'id': i, 'file_name': f"frame_{i:06d}.jpg", 'width': target_w, 'height': target_h, 'frame_count': i}
-            for i in range(self.total_frames)
-        ]
-        with open(self.temp_data_path / 'annotations.json', 'w', encoding='utf-8') as f:
-            json.dump(self.coco_data, f, ensure_ascii=False)
-        
-        self.update_display()
-        print(f"[VideoViewer] 添加完成，当前总帧数: {self.total_frames}")
+                
+                # 处理剩余帧
+                while True:
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
+                    if need_resize:
+                        frame = cv2.resize(frame, (target_w, target_h))
+                    frame_path = self.frames_dir / f"frame_{idx:06d}.jpg"
+                    cv2.imwrite(str(frame_path), frame)
+                    label_path = self.labels_dir / f"frame_{idx:06d}.json"
+                    with open(label_path, 'w', encoding='utf-8') as f:
+                        json.dump([], f, ensure_ascii=False)
+                    idx += 1
+                cap.release()
+                added_this = idx - start_idx
+                total_added += added_this
+                print(f"[VideoViewer] 视频 {vi+1}: 添加 {added_this} 帧")
+                start_idx = idx
+            
+            # 更新总数
+            self.total_frames = len(list(self.frames_dir.glob("frame_*.jpg")))
+            
+            # 更新coco_data（所有帧分辨率一致，使用target尺寸）
+            self.coco_data['images'] = [
+                {'id': i, 'file_name': f"frame_{i:06d}.jpg", 'width': target_w, 'height': target_h, 'frame_count': i}
+                for i in range(self.total_frames)
+            ]
+            with open(self.temp_data_path / 'annotations.json', 'w', encoding='utf-8') as f:
+                json.dump(self.coco_data, f, ensure_ascii=False)
+            
+            self.update_display()
+            print(f"[VideoViewer] 添加完成，当前总帧数: {self.total_frames}")
+            QMessageBox.information(self, "完成", f"已添加 {total_added} 帧\n当前总帧数: {self.total_frames}")
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(self, "错误", f"添加视频帧失败:\n{e}")
 
     def import_coco_dataset(self):
         """导入COCO格式数据集，支持zip压缩包和文件夹格式"""
