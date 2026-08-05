@@ -926,30 +926,26 @@ class VideoViewer(QMainWindow):
         print(f"[单帧修改] 修改了1个bbox")
     
     def run_point_segmentation(self, video_x, video_y):
-        """点击点后立即运行SAM分割，渲染分割结果"""
+        """点击点后立即运行SAM单图分割，渲染分割结果"""
         try:
             from annotate_video import get_device, SAM_MODEL_PATH
-            from ultralytics.models.sam import SAM3VideoPredictor
+            from ultralytics.models.sam import SAM3Predictor
             device, device_type = get_device()
             overrides = {"conf": 0.25, "task": "segment", "mode": "predict",
                          "model": SAM_MODEL_PATH, "device": device_type,
                          "half": device_type == "cuda", "save": False, "verbose": False}
-            if device_type == "cuda":
-                overrides["batch"] = 1
-                overrides["stream_buffer"] = False
-            predictor = SAM3VideoPredictor(overrides=overrides)
+            predictor = SAM3Predictor(overrides=overrides)
             frame_path = self.frames_dir / f"frame_{self.current_frame_idx:06d}.jpg"
             if not frame_path.exists():
                 print(f"[点分割] 帧文件不存在: {frame_path}")
                 return
             points_np = np.array([[float(video_x), float(video_y)]], dtype=np.float32)
             labels_np = np.ones(1, dtype=np.int32)
-            # 用 source= 方式传参，points/labels 由 predictor 内部处理
-            results = list(predictor(source=str(frame_path), points=points_np, labels=labels_np))
-            if not results or results[0].masks is None:
+            results = predictor(source=str(frame_path), points=points_np, labels=labels_np)
+            r = list(results)[0] if hasattr(results, "__iter__") else results
+            if not hasattr(r, "masks") or r.masks is None:
                 print("[点分割] 未检测到分割结果")
                 return
-            r = results[0]
             masks_tensor = r.masks.data if hasattr(r.masks, "data") else r.masks
             masks_np = masks_tensor.cpu().numpy() if hasattr(masks_tensor, "cpu") else masks_tensor
             color = (random.randint(50, 255), random.randint(50, 255), random.randint(50, 255))
