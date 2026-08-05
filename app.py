@@ -2331,6 +2331,11 @@ class UnifiedPanel(QMainWindow):
         self.train_epochs_input.setFixedWidth(40)
         self.train_epochs_input.setFixedHeight(22)
         train_params_layout.addWidget(self.train_epochs_input)
+        train_params_layout.addWidget(QLabel("Batch:"))
+        self.train_batch_input = QLineEdit("16")
+        self.train_batch_input.setFixedWidth(40)
+        self.train_batch_input.setFixedHeight(22)
+        train_params_layout.addWidget(self.train_batch_input)
         self.train_resume_check = QCheckBox("继续训练")
         self.train_resume_check.setChecked(False)
         self.train_resume_check.setStyleSheet("QCheckBox { font-size: 11px; }")
@@ -5965,7 +5970,9 @@ names: {class_names}
         # 训练模型
         epochs_input = self.train_epochs_input.text() if hasattr(self, 'train_epochs_input') else "30"
         epochs = int(epochs_input) if epochs_input else 30
-        print(f"[YOLO] 开始训练... epochs={epochs}")
+        batch_input = self.train_batch_input.text() if hasattr(self, 'train_batch_input') else "16"
+        batch_size = int(batch_input) if batch_input else 16
+        print(f"[YOLO] 开始训练... epochs={epochs}, batch={batch_size}")
         from ultralytics import YOLO
         
         if resume:
@@ -5983,7 +5990,7 @@ names: {class_names}
                     data=yaml_path.as_posix(),
                     epochs=epochs,
                     imgsz=640,
-                    batch=8,
+                    batch=batch_size,
                     device=0,
                     workers=0,
                     project=yolo_project.as_posix(),
@@ -6002,7 +6009,7 @@ names: {class_names}
                     data=yaml_path.as_posix(),
                     epochs=epochs,
                     imgsz=640,
-                    batch=8,
+                    batch=batch_size,
                     device=0,
                     workers=0,
                     project=yolo_project.as_posix(),
@@ -6022,7 +6029,7 @@ names: {class_names}
                     data=yaml_path.as_posix(),
                     epochs=epochs,
                     imgsz=640,
-                    batch=8,
+                    batch=batch_size,
                     device=0,
                     workers=0,
                     project=yolo_project.as_posix(),
@@ -6044,7 +6051,7 @@ names: {class_names}
                 data=yaml_path.as_posix(),
                 epochs=epochs,
                 imgsz=640,
-                batch=8,
+                batch=batch_size,
                 device=0,
                 workers=0,
                 project=yolo_project.as_posix(),
