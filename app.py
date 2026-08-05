@@ -5459,21 +5459,17 @@ names: {class_names}
             out_raw.release()
             print(f"[保存] 原视频已保存到: {raw_video_path}")
             
-            # 上传原视频到OBS
+            # 上传原视频到OBS（mp4格式）
             if self.upload_obs_check.isChecked():
                 import time
                 import random
-                import zipfile
                 timestamp = time.strftime("%Y%m%d_%H%M%S")
                 rand = random.randint(1000, 9999)
-                raw_zip_filename = f"{video_name}_{timestamp}_{rand}.zip"
-                raw_zip_path = Path(raw_zip_filename)
-                with zipfile.ZipFile(raw_zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-                    zf.write(raw_video_path, raw_video_path.name)
-                raw_zip_url = f"http://obs.dimond.top/{raw_zip_filename}"
-                result = subprocess.run(['curl', '--upload-file', str(raw_zip_path), raw_zip_url], capture_output=True, text=True)
+                raw_obs_filename = f"{video_name}_{timestamp}_{rand}.mp4"
+                raw_obs_url = f"http://obs.dimond.top/{raw_obs_filename}"
+                result = subprocess.run(['curl', '--upload-file', str(raw_video_path), raw_obs_url], capture_output=True, text=True)
                 if result.returncode == 0:
-                    print(f"[OBS] 原视频上传成功: {raw_zip_url}")
+                    print(f"[OBS] 原视频上传成功: {raw_obs_url}")
                 else:
                     print(f"[OBS] 原视频上传失败: {result.stderr}")
         else:
