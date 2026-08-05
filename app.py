@@ -2978,6 +2978,8 @@ class UnifiedPanel(QMainWindow):
                 def do_pure_semantic_clip(start_frame, end_frame, forward):
                     # 每个方向用独立的 predictor 实例，避免 inference_state 冲突导致 IndexError
                     predictor_local = SAM3VideoSemanticPredictor(overrides=overrides)
+                    # TrackManager 追踪不同实例，分配不同 track_id（同一语义类别下不同物体）
+                    manager = TrackManager(iou_threshold=float(iou_val))
                     direction = "向前" if forward else "向后"
                     if start_frame >= end_frame:
                         return
@@ -3015,7 +3017,33 @@ class UnifiedPanel(QMainWindow):
                         frame_anns = []
                         if r.masks is not None:
                             masks_np = r.masks.data.cpu().numpy() if hasattr(r.masks, 'data') else r.masks
-                            for mask in masks_np:
+                            bboxes_np = None
+                            if hasattr(r, 'boxes') and r.boxes is not None:
+                                boxes_data = r.boxes.data.cpu().numpy() if hasattr(r.boxes.data, 'cpu') else r.boxes.data
+                                bboxes_np = boxes_data
+                            # 用 TrackManager 给每个 mask 分配不同 track_id
+                            cur_masks = [m for m in masks_np]
+                            cur_bboxes = []
+                            for mi in range(len(cur_masks)):
+                                mask = cur_masks[mi]
+                                mask_binary = (mask > 0.5).astype(np.uint8)
+                                contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                                cnt_area = 0
+                                x1, y1, w, h = 0, 0, 0, 0
+                                for cnt in contours:
+                                    if len(cnt) >= 3:
+                                        a = cv2.contourArea(cnt)
+                                        if a > cnt_area:
+                                            cnt_area = a
+                                            poly = cnt.squeeze().flatten().tolist()
+                                            xs = poly[0::2]
+                                            ys = poly[1::2]
+                                            x1, x2 = min(xs), max(xs)
+                                            y1, y2 = min(ys), max(ys)
+                                            w, h = x2 - x1, y2 - y1
+                                cur_bboxes.append([float(x1), float(y1), float(w), float(h)])
+                            track_ids = manager.update(cur_masks, cur_bboxes, idx)
+                            for mi, mask in enumerate(masks_np):
                                 mask_binary = (mask > 0.5).astype(np.uint8)
                                 contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                                 for cnt in contours:
@@ -3023,18 +3051,19 @@ class UnifiedPanel(QMainWindow):
                                         poly = cnt.squeeze().flatten().tolist()
                                         area = cv2.contourArea(cnt)
                                         if area > 0:
+                                            tid = track_ids[mi] if mi < len(track_ids) else manager.next_track_id
                                             xs = poly[0::2]
                                             ys = poly[1::2]
                                             x1, x2 = min(xs), max(xs)
                                             y1, y2 = min(ys), max(ys)
                                             frame_anns.append({
-                                                'track_id': 0,
+                                                'track_id': tid,
                                                 'bbox': [float(x1), float(y1), float(x2 - x1), float(y2 - y1)],
                                                 'area': float(area),
                                                 'segmentation': [poly],
                                                 'iscrowd': 0,
                                                 'category': items_text,
-                                                'trace_id_list': [0]
+                                                'trace_id_list': [tid]
                                             })
                         merged = existing + frame_anns
                         with open(label_file, 'w', encoding='utf-8') as f:
