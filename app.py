@@ -2784,6 +2784,7 @@ class UnifiedPanel(QMainWindow):
                     overrides['batch'] = 1
                     overrides['stream_buffer'] = False
                 predictor = SAM3VideoPredictor(overrides=overrides)  # 不带语义
+                from annotate_video import TrackManager  # 必须在函数定义前import，避免闭包找不到
                 
                 def do_auto_seg_clip(start_frame, end_frame, forward):
                     direction = "向前" if forward else "向后"
@@ -3140,9 +3141,6 @@ class UnifiedPanel(QMainWindow):
             print(f"=== 双向标注开始 === 提示帧: {prompt_idx}, 总帧数: {total}, 设备: [{device_str}], 前向={self.forward_cb.isChecked()}, 后向={self.backward_cb.isChecked()}, FIRST_ID={FIRST_ID}")
             forward_annotations = []
             backward_annotations = []
-
-            # 确保导入TrackManager
-            from annotate_video import TrackManager
 
             def process_clip(start_frame, end_frame, forward=True, prompt_bboxes=None):
                 # 每个方向用独立的 predictor 实例，避免 inference_state 冲突导致 IndexError
