@@ -74,7 +74,7 @@ class VideoLabel(QLabel):
                 prompt_type = 'bbox'
             
             if prompt_type == 'point':
-                # 点模式：转换为视频坐标并添加点
+                # 点模式：转换为视频坐标，通过 point_clicked 信号让 VideoViewer 处理
                 label_w = self.width()
                 label_h = self.height()
                 scaled_w = int(self.video_width * self.zoom_factor)
@@ -84,9 +84,8 @@ class VideoLabel(QLabel):
                 
                 display_x, display_y = event.x(), event.y()
                 if offset_x <= display_x < offset_x + scaled_w and offset_y <= display_y < offset_y + scaled_h:
-                    video_x = int((display_x - offset_x) / self.zoom_factor)
-                    video_y = int((display_y - offset_y) / self.zoom_factor)
-                    self.panel.add_prompt_point(video_x, video_y)
+                    # point_clicked 已有 (display_x, display_y) 定义，on_click 会做坐标转换
+                    self.point_clicked.emit(display_x, display_y)
                 return
             # bbox模式：开始拖拽
             self._drag_start = (event.x(), event.y())
@@ -172,6 +171,35 @@ class VideoLabel(QLabel):
                 painter.drawText(min(dx1, dx2) + 2, min(dy1, dy2) + 14, f"B{idx + 1}")
             painter.end()
         
+        # 绘制点分割mask（半透明彩色叠加）- 从VideoViewer获取
+        panel = getattr(self, 'panel', None)
+        prompt_masks = getattr(panel, 'prompt_masks', []) if panel else []
+        if prompt_masks:
+            # 需要从帧图像读取并叠加mask
+            if hasattr(self, 'frames_dir'):
+                frame_path = self.frames_dir / f"frame_{self.current_frame_idx:06d}.jpg"
+                if frame_path.exists():
+                    frame = cv2.imread(str(frame_path))
+                    if frame is not None:
+                        overlay = frame.copy()
+                        for mask_arr, color in prompt_masks:
+                            if mask_arr.shape[0] == frame.shape[0] and mask_arr.shape[1] == frame.shape[1]:
+                                overlay[mask_arr > 0] = color
+                        frame_display = cv2.addWeighted(frame, 0.5, overlay, 0.5, 0)
+                        h, w = frame_display.shape[:2]
+                        rgb = cv2.cvtColor(frame_display, cv2.COLOR_BGR2RGB)
+                        h_img = QImage(rgb.data, w, h, w * 3, QImage.Format_RGB888)
+                        painter = QPainter(self)
+                        scaled_w = int(w * self.zoom_factor)
+                        scaled_h = int(h * self.zoom_factor)
+                        label_w = self.width()
+                        label_h = self.height()
+                        offset_x = (label_w - scaled_w) // 2
+                        offset_y = (label_h - scaled_h) // 2
+                        scaled_img = h_img.scaled(scaled_w, scaled_h, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
+                        painter.drawImage(offset_x, offset_y, scaled_img)
+                        painter.end()
+        
         # 绘制点（绿色圆圈标记）
         panel = getattr(self, 'panel', None)
         prompt_points = getattr(panel, 'prompt_points', []) if panel else []
@@ -204,6 +232,7 @@ class VideoLabel(QLabel):
 
 class VideoViewer(QMainWindow):
     video_clicked = pyqtSignal(int, int, int)
+    prompt_mask_ready = pyqtSignal(list)  # 点分割mask准备好后发出
 
     def __init__(self, temp_data_path, controller=None, panel=None):
         super().__init__()
@@ -226,6 +255,8 @@ class VideoViewer(QMainWindow):
         self.zoom_factor = 1.0
 
         self.prompt_bboxes = []
+        self.prompt_masks = []  # 点分割的mask列表 [(mask_array, color), ...]
+        self.prompt_mask_pixmap = None  # 缓存的mask叠加渲染图
         self.drawing_mode = False
         
         # 帧删除相关
@@ -333,7 +364,9 @@ class VideoViewer(QMainWindow):
     def keyPressEvent(self, event):
         key = event.key()
         if key == Qt.Key_C:
-            self.undo_last_bbox()
+            # 取消点/分割标注
+            self.cancel_point_annotation()
+            print("[C键] 已取消点和分割")
         elif key == Qt.Key_Escape:
             self.close()
     
@@ -649,6 +682,8 @@ class VideoViewer(QMainWindow):
             if hasattr(self.panel, 'prompt_type') and self.panel.prompt_type == 'point' and self.panel.prompt_drawing_mode:
                 self.add_prompt_point(video_x, video_y)
                 print(f"[点] 添加点 ({video_x}, {video_y}), 当前: {len(self.prompt_points)} 个点")
+                # 点击点后立即运行SAM分割并渲染
+                self.run_point_segmentation(video_x, video_y)
                 return
             
             # 如果是帧删除模式
@@ -889,6 +924,87 @@ class VideoViewer(QMainWindow):
             self.panel.refresh_trace_id_list()
         self.update_display()
         print(f"[单帧修改] 修改了1个bbox")
+    
+    def run_point_segmentation(self, video_x, video_y):
+        """点击点后立即运行SAM分割，渲染分割结果"""
+        try:
+            from annotate_video import get_device, SAM_MODEL_PATH
+            from ultralytics.models.sam import SAM3VideoPredictor
+            device, device_type = get_device()
+            overrides = {"conf": 0.25, "task": "segment", "mode": "predict",
+                         "model": SAM_MODEL_PATH, "device": device_type,
+                         "half": device_type == "cuda", "save": False, "verbose": False}
+            if device_type == "cuda":
+                overrides["batch"] = 1
+                overrides["stream_buffer"] = False
+            predictor = SAM3VideoPredictor(overrides=overrides)
+            frame_path = self.frames_dir / f"frame_{self.current_frame_idx:06d}.jpg"
+            if not frame_path.exists():
+                print(f"[点分割] 帧文件不存在: {frame_path}")
+                return
+            predictor.set_image(str(frame_path))
+            im_tensor = None
+            if predictor.features is not None:
+                im_tensor = predictor.features[0] if isinstance(predictor.features, list) else predictor.features
+            if im_tensor is None:
+                predictor.reset_image()
+                print("[点分割] 无法获取图像特征")
+                return
+            points_np = np.array([[float(video_x), float(video_y)]], dtype=np.float32)
+            labels_np = np.ones(1, dtype=np.int32)
+            pred_masks, pred_scores, pred_bboxes = predictor.generate(
+                im_tensor, points=points_np, labels=labels_np)
+            predictor.reset_image()
+            if pred_masks is None or len(pred_masks) == 0:
+                print("[点分割] 未检测到分割结果")
+                return
+            masks_np = pred_masks.cpu().numpy() if hasattr(pred_masks, "cpu") else pred_masks
+            color = (random.randint(50, 255), random.randint(50, 255), random.randint(50, 255))
+            for mask in masks_np:
+                mask_binary = (mask > 0.5).astype(np.uint8)
+                self.prompt_masks.append((mask_binary, color))
+            print(f"[点分割] 生成了 {len(masks_np)} 个分割, 颜色={color}")
+        except Exception as e:
+            import traceback
+            print(f"[点分割] 分割失败: {e}")
+            traceback.print_exc()
+            return
+        self._render_point_mask_pixmap()
+        self.update_display()
+    
+    def _render_point_mask_pixmap(self):
+        """渲染所有prompt_masks为叠加图并缓存"""
+        if not self.prompt_masks or not hasattr(self, 'frames_dir'):
+            self.prompt_mask_pixmap = None
+            return
+        frame_path = self.frames_dir / f"frame_{self.current_frame_idx:06d}.jpg"
+        if not frame_path.exists():
+            self.prompt_mask_pixmap = None
+            return
+        frame = cv2.imread(str(frame_path))
+        if frame is None:
+            self.prompt_mask_pixmap = None
+            return
+        overlay = frame.copy()
+        for mask_arr, color in self.prompt_masks:
+            if mask_arr.shape[0] == frame.shape[0] and mask_arr.shape[1] == frame.shape[1]:
+                overlay[mask_arr > 0] = color
+        frame_display = cv2.addWeighted(frame, 0.5, overlay, 0.5, 0)
+        rgb = cv2.cvtColor(frame_display, cv2.COLOR_BGR2RGB)
+        h_img = QImage(rgb.data, rgb.shape[1], rgb.shape[0], rgb.shape[1] * 3, QImage.Format_RGB888)
+        self.prompt_mask_pixmap = QPixmap.fromImage(h_img)
+    
+    def clear_point_masks(self):
+        """清除点分割mask"""
+        self.prompt_masks = []
+        self.prompt_mask_pixmap = None
+        self.update_display()
+    
+    def cancel_point_annotation(self):
+        """按C键：取消点和分割"""
+        self.clear_prompt_points()
+        self.clear_point_masks()
+        self.update_display()
     
     def set_zoom(self, factor):
         self.zoom_factor = factor
