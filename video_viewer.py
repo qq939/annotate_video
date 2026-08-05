@@ -520,21 +520,44 @@ class VideoViewer(QMainWindow):
         # 获取当前最大帧号
         existing_frames = list(self.frames_dir.glob("frame_*.jpg"))
         start_idx = len(existing_frames)
+        target_w, target_h = self.video_width, self.video_height
         
         # 从每个视频读取帧
-        for vp in file_paths:
+        for vi, vp in enumerate(file_paths):
             cap = cv2.VideoCapture(vp)
             if not cap.isOpened():
+                print(f"[VideoViewer] 无法打开: {vp}")
                 continue
             
+            # 读取第一帧检测分辨率
+            ret, first_frame = cap.read()
+            if not ret:
+                cap.release()
+                continue
+            src_h, src_w = first_frame.shape[:2]
+            need_resize = (src_w != target_w or src_h != target_h)
+            if need_resize:
+                print(f"[VideoViewer] 视频 {vi+1} 分辨率 {src_w}x{src_h} -> 调整为 {target_w}x{target_h}")
+            
+            # 处理第一帧
             idx = start_idx
+            frame = cv2.resize(first_frame, (target_w, target_h)) if need_resize else first_frame
+            frame_path = self.frames_dir / f"frame_{idx:06d}.jpg"
+            cv2.imwrite(str(frame_path), frame)
+            label_path = self.labels_dir / f"frame_{idx:06d}.json"
+            with open(label_path, 'w', encoding='utf-8') as f:
+                json.dump([], f, ensure_ascii=False)
+            idx += 1
+            
+            # 处理剩余帧
             while True:
                 ret, frame = cap.read()
                 if not ret:
                     break
+                if need_resize:
+                    frame = cv2.resize(frame, (target_w, target_h))
                 frame_path = self.frames_dir / f"frame_{idx:06d}.jpg"
                 cv2.imwrite(str(frame_path), frame)
-                # 创建空的label文件
                 label_path = self.labels_dir / f"frame_{idx:06d}.json"
                 with open(label_path, 'w', encoding='utf-8') as f:
                     json.dump([], f, ensure_ascii=False)
@@ -545,9 +568,9 @@ class VideoViewer(QMainWindow):
         # 更新总数
         self.total_frames = len(list(self.frames_dir.glob("frame_*.jpg")))
         
-        # 更新coco_data
+        # 更新coco_data（所有帧分辨率一致，使用target尺寸）
         self.coco_data['images'] = [
-            {'id': i, 'file_name': f"frame_{i:06d}.jpg", 'width': self.video_width, 'height': self.video_height, 'frame_count': i}
+            {'id': i, 'file_name': f"frame_{i:06d}.jpg", 'width': target_w, 'height': target_h, 'frame_count': i}
             for i in range(self.total_frames)
         ]
         with open(self.temp_data_path / 'annotations.json', 'w', encoding='utf-8') as f:
