@@ -2980,6 +2980,7 @@ class UnifiedPanel(QMainWindow):
                     predictor_local = SAM3VideoSemanticPredictor(overrides=overrides)
                     # TrackManager 追踪不同实例，分配不同 track_id（同一语义类别下不同物体）
                     manager = TrackManager(iou_threshold=float(iou_val))
+                    manager.next_track_id = FIRST_ID  # 遵循1000档层级规范
                     direction = "向前" if forward else "向后"
                     if start_frame >= end_frame:
                         return
