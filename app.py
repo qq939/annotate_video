@@ -2975,9 +2975,27 @@ class UnifiedPanel(QMainWindow):
                     half=device_type == 'cuda', save=False, verbose=False
                 )
                 predictor = SAM3VideoSemanticPredictor(overrides=overrides)
-                
+
+                # 计算 FIRST_ID（查找未被占用的1000档位）
+                occupied_bands = set()
+                if src_annotations_file.exists():
+                    with open(src_annotations_file, encoding='utf-8') as f:
+                        coco = json.load(f)
+                    for ann in coco.get('annotations', []):
+                        tid = ann.get('track_id', 0)
+                        occupied_bands.add((tid // 1000) * 1000)
+                FIRST_ID = None
+                for band in range(1000, 1000000, 1000):
+                    if band not in occupied_bands:
+                        FIRST_ID = band
+                        break
+                else:
+                    QMessageBox.warning(self, "错误", "所有 track_id 档位都已被占用")
+                    self.reset_prompt_btn()
+                    return
+                print(f"[纯语义] FIRST_ID={FIRST_ID}")
+
                 def do_pure_semantic_clip(start_frame, end_frame, forward):
-                    nonlocal FIRST_ID  # 声明使用外层变量，避免闭包作用域错误
                     # 每个方向用独立的 predictor 实例，避免 inference_state 冲突导致 IndexError
                     predictor_local = SAM3VideoSemanticPredictor(overrides=overrides)
                     # TrackManager 追踪不同实例，分配不同 track_id（同一语义类别下不同物体）
