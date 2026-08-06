@@ -4498,9 +4498,9 @@ class UnifiedPanel(QMainWindow):
         
         total_frames = self.total_frames
         if end_frame == -1 or end_frame >= total_frames:
-            end_frame = total_frames - 1
+            end_frame = total_frames  # 保持1-based闭区间，range(start-1, end)自然覆盖到最后一帧
         
-        print(f"[固定框] 用户输入: {start_frame} - {end_frame}, 总帧数: {total_frames}")
+        print(f"[固定框] 用户输入: {start_frame} - {end_frame} (1-based闭区间), 总帧数: {total_frames}")
         
         # 转换为coco格式: [x, y, w, h]
         coco_bbox = [min(bbox[0], bbox[2]), min(bbox[1], bbox[3]), 
@@ -4510,8 +4510,8 @@ class UnifiedPanel(QMainWindow):
         # 记录回退信息（用户输入是1-indexed，frame文件是0-indexed）
         undo_changes = []
         added = 0
-        print(f"[固定框] 实际标注帧范围: {start_frame} 到 {end_frame} (转为0-indexed: {start_frame-1} 到 {end_frame-1})")
-        for i in range(start_frame - 1, end_frame):
+        print(f"[固定框] 实际标注帧范围: {start_frame} 到 {end_frame} (0-indexed: {start_frame-1} 到 {end_frame-1})")
+        for i in range(start_frame - 1, end_frame):  # 1-based闭区间[start, end] → 0-based [start-1, end-1]
             frame_file = labels_dir / f"frame_{i:06d}.json"
             print(f"[固定框] 正在标注帧 {i}")
             old_trace_id = None
