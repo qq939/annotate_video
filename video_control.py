@@ -8,7 +8,7 @@ import app_utils
 
 CONF_THRESHOLD_DEFAULT = 0.5
 ALPHA_DEFAULT = 0.5
-CATEGORY_DEFAULT = ""
+CATEGORY_DEFAULT = "Detect"
 FENCE_COLORS = [(0, 255, 0), (255, 165, 0), (255, 0, 255)]
 MASK_COLORS = [
     (255, 0, 0), (0, 255, 0), (0, 0, 255),
