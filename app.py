@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """视频标注工具 - 统一控制面板，控制逻辑委托给 video_control.VideoController"""
 
+import os
 import sys
 import random
 import shutil
@@ -8,6 +9,9 @@ import cv2
 import numpy as np
 import json
 import subprocess
+
+# CUDA内存分配器配置 - 减少显存碎片，防止OOM（必须在import torch之前设置）
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 # 全局修复：让 json.dump/dumps 默认 ensure_ascii=False（中文不转义）
 # Python 3.11+ json.load/loads 已默认 UTF-8，无需额外处理
@@ -2347,6 +2351,12 @@ class UnifiedPanel(QMainWindow):
         self.train_batch_input.setFixedWidth(40)
         self.train_batch_input.setFixedHeight(22)
         train_params_layout.addWidget(self.train_batch_input)
+        train_params_layout.addWidget(QLabel("显存:"))
+        self.cuda_alloc_input = QLineEdit("expandable_segments:True")
+        self.cuda_alloc_input.setFixedWidth(145)
+        self.cuda_alloc_input.setFixedHeight(22)
+        self.cuda_alloc_input.setToolTip("PYTORCH_CUDA_ALLOC_CONF，减少显存碎片防OOM，需重启生效")
+        train_params_layout.addWidget(self.cuda_alloc_input)
         self.train_resume_check = QCheckBox("继续训练")
         self.train_resume_check.setChecked(False)
         self.train_resume_check.setStyleSheet("QCheckBox { font-size: 11px; }")
