@@ -1537,7 +1537,7 @@ class UnifiedPanel(QMainWindow):
         self.iou_input.setFixedHeight(22)
         iou_layout.addWidget(self.iou_input)
         iou_layout.addWidget(QLabel("物品:"))
-        self.items_input = QLineEdit()
+        self.items_input = QLineEdit("visual")
         self.items_input.setMinimumWidth(100)
         self.items_input.setFixedHeight(22)
         iou_layout.addWidget(self.items_input)
@@ -3734,7 +3734,7 @@ class UnifiedPanel(QMainWindow):
             label = QLabel(f"{tid}:")
             label.setFixedWidth(80)
             row.addWidget(label)
-            inp = QLineEdit("visual")
+            inp = QLineEdit("Detect")
             inp.setFixedHeight(20)
             row.addWidget(inp)
             self.category_labels.append(label)
@@ -4446,13 +4446,13 @@ class UnifiedPanel(QMainWindow):
             if track_id in self.category_tids:
                 idx = self.category_tids.index(track_id)
                 if idx < len(self.category_inputs):
-                    name = self.category_inputs[idx].text() or ""
+                    name = self.category_inputs[idx].text() or "Detect"
                     return (idx, name)
         # 回退：按 tid-1000000 计算索引（旧逻辑兼容）
         if track_id >= 1000000:
             idx = track_id - 1000000
             if idx < len(self.category_inputs):
-                name = self.category_inputs[idx].text() or ""
+                name = self.category_inputs[idx].text() or "Detect"
                 return (idx, name)
         return (0, self.ctrl.category_name)
     
