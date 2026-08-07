@@ -4,7 +4,7 @@
 INPUT_DIR = "temp_data_post"
 OUTPUT_PATH = "1dst/1dst.mp4"
 DEFAULT_ALPHA = 0.5
-DEFAULT_CATEGORY = "Detect"
+DEFAULT_CATEGORY = "visual"
 
 import cv2
 import numpy as np
