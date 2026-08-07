@@ -34,6 +34,7 @@ from PyQt5.Qt import QDragEnterEvent, QDropEvent
 # BASE_DIR: 项目根目录（app.py 所在目录），所有相对路径以此为准，避免 CWD 不一致导致路径错误
 BASE_DIR = Path(__file__).resolve().parent
 
+import torch
 import app_utils
 
 class TrimSlider(QSlider):
@@ -3022,6 +3023,8 @@ class UnifiedPanel(QMainWindow):
                             out.write(frame)
                     out.release()
                     print(f"[纯语义{direction}] 使用文本={items_text}")
+                    # 清理GPU显存碎片，防止OOM
+                    torch.cuda.empty_cache()
                     results = list(predictor_local(source=clip_path, stream=True, text=items_text))
                     for idx, r in enumerate(results):
                         orig_idx = start_frame + idx if forward else end_frame - 1 - idx
@@ -3085,16 +3088,21 @@ class UnifiedPanel(QMainWindow):
                         with open(label_file, 'w', encoding='utf-8') as f:
                             json.dump(merged, f, ensure_ascii=False)
                     print(f"[纯语义{direction}] 完成: {len(results)} 帧")
+                    # 释放GPU显存
+                    del results
+                    torch.cuda.empty_cache()
                 
                 # 前向语义分割
                 if self.forward_cb.isChecked():
                     print(f"[纯语义前向] 帧 {prompt_idx} → {total-1}")
                     do_pure_semantic_clip(prompt_idx, total, True)
+                    torch.cuda.empty_cache()
                 
                 # 后向语义分割
                 if self.backward_cb.isChecked():
                     print(f"[纯语义后向] 帧 0 → {prompt_idx}")
                     do_pure_semantic_clip(0, prompt_idx, False)
+                    torch.cuda.empty_cache()
                 
                 self.reset_prompt_btn()
                 self.viewer.update_display()
