@@ -18,6 +18,20 @@ DST_VIDEO_DIR = Path("1dst")
 
 WARM_COLORS = [(180, 130, 255), (200, 100, 220), (255, 50, 200), (255, 0, 180), (220, 0, 150), (180, 0, 120), (139, 0, 100), (100, 0, 80)]
 COLD_COLORS = [(100, 150, 255), (100, 200, 255), (150, 200, 255), (100, 255, 200), (150, 100, 255), (100, 200, 200), (150, 150, 255), (100, 180, 255)]
+DARK_PURPLE = (180, 130, 255)  # 关灯模式下当前ID使用的紫色
+
+# 关灯模式全局标志
+_dark_mode = False
+_dark_mode_current_id = 0
+
+def set_dark_mode(enabled, current_id=0):
+    """设置关灯/开灯模式"""
+    global _dark_mode, _dark_mode_current_id
+    _dark_mode = enabled
+    _dark_mode_current_id = current_id
+
+def is_dark_mode():
+    return _dark_mode
 APP_PALETTE_COLORS = [
     (0, 0, 255),
     (0, 165, 255),
@@ -77,7 +91,10 @@ def encode_frame_jpeg(frame, quality=85):
 
 
 def get_viewer_color_for_track_id(track_id):
-    """复刻video_control/video_viewer预览窗口的track_id配色。"""
+    """复刻video_control/video_viewer预览窗口的track_id配色。
+    关灯模式下：当前ID显示为紫色，>=1000000的不渲染（由调用方过滤）"""
+    if _dark_mode and track_id == _dark_mode_current_id:
+        return DARK_PURPLE
     if track_id >= 1000000:
         return WARM_COLORS[track_id % len(WARM_COLORS)]
     return COLD_COLORS[track_id % len(COLD_COLORS)]
@@ -108,6 +125,9 @@ def render_frame_with_annotations(frame, annotations, color_func=None, conf_thre
             continue
         track_id = ann.get('track_id', ann.get('id', 0))
         if track_id in deleted:
+            continue
+        # 关灯模式：跳过>=1000000的track_id
+        if _dark_mode and track_id >= 1000000 and track_id != _dark_mode_current_id:
             continue
         bbox = ann.get('bbox')
         if not bbox:

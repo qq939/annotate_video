@@ -34,6 +34,8 @@ from PyQt5.Qt import QDragEnterEvent, QDropEvent
 # BASE_DIR: 项目根目录（app.py 所在目录），所有相对路径以此为准，避免 CWD 不一致导致路径错误
 BASE_DIR = Path(__file__).resolve().parent
 
+import app_utils
+
 class TrimSlider(QSlider):
     """带A-B区间高亮和竖线指示器的自定义进度条"""
     def __init__(self, parent=None):
@@ -2214,6 +2216,14 @@ class UnifiedPanel(QMainWindow):
         inc_btn.setStyleSheet("QPushButton { background-color: #28a745; color: white; border: none; border-radius: 4px; font-size: 16px; font-weight: bold; } QPushButton:hover { background-color: #218838; }")
         inc_btn.clicked.connect(self.increment_trace_id)
         assign_layout.addWidget(inc_btn)
+        
+        self.dark_mode = False
+        self.dark_mode_btn = QPushButton("关灯")
+        self.dark_mode_btn.setFixedWidth(45)
+        self.dark_mode_btn.setFixedHeight(24)
+        self.dark_mode_btn.setStyleSheet("QPushButton { background-color: #2c3e50; color: #ecf0f1; border: none; border-radius: 3px; font-size: 10px; } QPushButton:hover { background-color: #1a252f; }")
+        self.dark_mode_btn.clicked.connect(self.toggle_dark_mode)
+        assign_layout.addWidget(self.dark_mode_btn)
         assign_layout.addStretch()
         layout.addLayout(assign_layout)
 
@@ -3988,6 +3998,23 @@ class UnifiedPanel(QMainWindow):
         self.ctrl.next_track_id += 1
         self.trace_id_input.setText(str(self.ctrl.next_track_id))
 
+    def toggle_dark_mode(self):
+        """切换关灯/开灯模式"""
+        self.dark_mode = not self.dark_mode
+        current_id = self.ctrl.next_track_id
+        if self.dark_mode:
+            self.dark_mode_btn.setText("开灯")
+            self.dark_mode_btn.setStyleSheet("QPushButton { background-color: #f39c12; color: white; border: none; border-radius: 3px; font-size: 10px; } QPushButton:hover { background-color: #e67e22; }")
+            app_utils.set_dark_mode(True, current_id)
+            print(f"[关灯] >=1000000的不渲染，当前ID {current_id} 显示为紫色")
+        else:
+            self.dark_mode_btn.setText("关灯")
+            self.dark_mode_btn.setStyleSheet("QPushButton { background-color: #2c3e50; color: #ecf0f1; border: none; border-radius: 3px; font-size: 10px; } QPushButton:hover { background-color: #1a252f; }")
+            app_utils.set_dark_mode(False)
+            print("[开灯] 恢复默认渲染")
+        if self.viewer:
+            self.viewer.update_display()
+
     def modify_selected_trace_mapping(self):
         item = self.trace_id_list.currentItem()
         if item:
@@ -5053,8 +5080,16 @@ names: {class_names}
                     cat_name = ann.get('category', 'Unknown')
                     conf = ann.get('confidence', 1.0)
                     track_id = ann.get('track_id', 0)
+                    
+                    # 关灯模式：跳过>=1000000的track_id（当前ID除外）
+                    if app_utils.is_dark_mode() and track_id >= 1000000 and track_id != app_utils._dark_mode_current_id:
+                        continue
+                    
                     safe_idx = self.selected_color_index if self.selected_color_index < len(self.palette_colors) else 0
                     color = color_assignments.get(track_id, self.palette_colors[safe_idx])
+                    # 关灯模式：当前ID用紫色
+                    if app_utils.is_dark_mode() and track_id == app_utils._dark_mode_current_id:
+                        color = app_utils.DARK_PURPLE
 
                     if polygon and not self.render_segment_check.isChecked():
                         pts = np.array(polygon[0], dtype=np.int32).reshape(-1, 2)

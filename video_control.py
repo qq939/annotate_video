@@ -4,6 +4,7 @@
 import json
 import cv2
 import numpy as np
+import app_utils
 
 CONF_THRESHOLD_DEFAULT = 0.5
 ALPHA_DEFAULT = 0.5
@@ -91,7 +92,17 @@ class VideoController:
                 continue
 
             track_id = ann.get('track_id', 0)
+            
+            # 关灯模式：跳过>=1000000的track_id（当前ID除外）
+            if app_utils.is_dark_mode() and track_id >= 1000000 and track_id != app_utils._dark_mode_current_id:
+                continue
+            
             color = get_color_for_track_id(track_id)
+            # 关灯模式：当前ID用紫色
+            if app_utils.is_dark_mode() and track_id == app_utils._dark_mode_current_id:
+                import video_viewer
+                color = video_viewer.WARM_COLORS[0]
+            
             category = ann.get('category', ann.get('category_id', 0))
             conf = ann.get('confidence', 1.0)
 
