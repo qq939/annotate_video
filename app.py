@@ -2357,6 +2357,12 @@ class UnifiedPanel(QMainWindow):
         self.cuda_alloc_input.setFixedHeight(22)
         self.cuda_alloc_input.setToolTip("PYTORCH_CUDA_ALLOC_CONF，减少显存碎片防OOM，需重启生效")
         train_params_layout.addWidget(self.cuda_alloc_input)
+        train_params_layout.addWidget(QLabel("分块:"))
+        self.cuda_chunk_input = QLineEdit("100")
+        self.cuda_chunk_input.setFixedWidth(40)
+        self.cuda_chunk_input.setFixedHeight(22)
+        self.cuda_chunk_input.setToolTip("纯语义分割每块处理的帧数，越小越省显存")
+        train_params_layout.addWidget(self.cuda_chunk_input)
         self.train_resume_check = QCheckBox("继续训练")
         self.train_resume_check.setChecked(False)
         self.train_resume_check.setStyleSheet("QCheckBox { font-size: 11px; }")
@@ -3002,11 +3008,6 @@ class UnifiedPanel(QMainWindow):
                 print(f"[纯语义] FIRST_ID={FIRST_ID}")
 
                 def do_pure_semantic_clip(start_frame, end_frame, forward):
-                    # 每个方向用独立的 predictor 实例，避免 inference_state 冲突导致 IndexError
-                    predictor_local = SAM3VideoSemanticPredictor(overrides=overrides)
-                    # TrackManager 追踪不同实例，分配不同 track_id（同一语义类别下不同物体）
-                    manager = TrackManager(iou_threshold=float(self.iou_input.text() or "0.02"))
-                    manager.next_track_id = FIRST_ID  # 遵循1000档层级规范
                     direction = "向前" if forward else "向后"
                     if start_frame >= end_frame:
                         return
@@ -3015,92 +3016,114 @@ class UnifiedPanel(QMainWindow):
                     frame_list = list(range(start_frame, end_frame))
                     if not forward:
                         frame_list = list(range(end_frame - 1, start_frame - 1, -1))
-                    for idx, i in enumerate(frame_list):
-                        src = mid_frames_dir / f"frame_{i:06d}.jpg"
-                        dst = temp_frames / f"frame_{idx:06d}.jpg"
-                        if src.exists():
-                            shutil.copy2(src, dst)
-                    clip_path = str(temp_frames / "clip.mp4")
-                    sample = cv2.imread(str(temp_frames / "frame_000000.jpg"))
-                    if sample is None:
-                        return
-                    height, width = sample.shape[:2]
-                    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                    out = cv2.VideoWriter(clip_path, fourcc, 30, (width, height))
-                    for idx in range(len(frame_list)):
-                        frame = cv2.imread(str(temp_frames / f"frame_{idx:06d}.jpg"))
-                        if frame is not None:
-                            out.write(frame)
-                    out.release()
-                    print(f"[纯语义{direction}] 使用文本={items_text}")
-                    # 清理GPU显存碎片，防止OOM
-                    torch.cuda.empty_cache()
-                    results = list(predictor_local(source=clip_path, stream=True, text=items_text))
-                    for idx, r in enumerate(results):
-                        orig_idx = start_frame + idx if forward else end_frame - 1 - idx
-                        label_file = src_labels_dir / f"frame_{orig_idx:06d}.json"
-                        existing = []
-                        if label_file.exists():
-                            with open(label_file, encoding='utf-8') as f:
-                                existing = json.load(f)
-                        frame_anns = []
-                        if r.masks is not None:
-                            masks_np = r.masks.data.cpu().numpy() if hasattr(r.masks, 'data') else r.masks
-                            bboxes_np = None
-                            if hasattr(r, 'boxes') and r.boxes is not None:
-                                boxes_data = r.boxes.data.cpu().numpy() if hasattr(r.boxes.data, 'cpu') else r.boxes.data
-                                bboxes_np = boxes_data
-                            # 用 TrackManager 给每个 mask 分配不同 track_id
-                            cur_masks = [m for m in masks_np]
-                            cur_bboxes = []
-                            for mi in range(len(cur_masks)):
-                                mask = cur_masks[mi]
-                                mask_binary = (mask > 0.5).astype(np.uint8)
-                                contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                                cnt_area = 0
-                                x1, y1, w, h = 0, 0, 0, 0
-                                for cnt in contours:
-                                    if len(cnt) >= 3:
-                                        a = cv2.contourArea(cnt)
-                                        if a > cnt_area:
-                                            cnt_area = a
+                    # 分块大小：避免SAM3视频模型memory累积导致OOM
+                    try:
+                        chunk_size = int(self.cuda_chunk_input.text() or "100")
+                    except Exception:
+                        chunk_size = 100
+                    chunk_size = max(1, chunk_size)
+                    # TrackManager 跨块共享，保持track_id连续性
+                    manager = TrackManager(iou_threshold=float(self.iou_input.text() or "0.02"))
+                    manager.next_track_id = FIRST_ID  # 遵循1000档层级规范
+                    total_frames = len(frame_list)
+                    n_blocks = (total_frames + chunk_size - 1) // chunk_size
+                    for bi in range(n_blocks):
+                        block_frames = frame_list[bi * chunk_size:(bi + 1) * chunk_size]
+                        # 清空旧帧，避免残留
+                        for old in temp_frames.glob("frame_*.jpg"):
+                            try:
+                                old.unlink()
+                            except OSError:
+                                pass
+                        # 拷贝当前块的帧（从0重新编号）
+                        for idx, i in enumerate(block_frames):
+                            src = mid_frames_dir / f"frame_{i:06d}.jpg"
+                            dst = temp_frames / f"frame_{idx:06d}.jpg"
+                            if src.exists():
+                                shutil.copy2(src, dst)
+                        clip_path = str(temp_frames / "clip.mp4")
+                        sample = cv2.imread(str(temp_frames / "frame_000000.jpg"))
+                        if sample is None:
+                            continue
+                        height, width = sample.shape[:2]
+                        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                        out = cv2.VideoWriter(clip_path, fourcc, 30, (width, height))
+                        for idx in range(len(block_frames)):
+                            frame = cv2.imread(str(temp_frames / f"frame_{idx:06d}.jpg"))
+                            if frame is not None:
+                                out.write(frame)
+                        out.release()
+                        # 每个块用独立 predictor 实例，避免 inference_state 冲突和显存累积
+                        predictor_local = SAM3VideoSemanticPredictor(overrides=overrides)
+                        torch.cuda.empty_cache()
+                        print(f"[纯语义{direction}] 块{bi+1}/{n_blocks} 帧 {block_frames[0]}→{block_frames[-1]} 文本={items_text}")
+                        results = list(predictor_local(source=clip_path, stream=True, text=items_text))
+                        for idx, r in enumerate(results):
+                            orig_idx = block_frames[idx]
+                            label_file = src_labels_dir / f"frame_{orig_idx:06d}.json"
+                            existing = []
+                            if label_file.exists():
+                                with open(label_file, encoding='utf-8') as f:
+                                    existing = json.load(f)
+                            frame_anns = []
+                            if r.masks is not None:
+                                masks_np = r.masks.data.cpu().numpy() if hasattr(r.masks, 'data') else r.masks
+                                bboxes_np = None
+                                if hasattr(r, 'boxes') and r.boxes is not None:
+                                    boxes_data = r.boxes.data.cpu().numpy() if hasattr(r.boxes.data, 'cpu') else r.boxes.data
+                                    bboxes_np = boxes_data
+                                # 用 TrackManager 给每个 mask 分配不同 track_id
+                                cur_masks = [m for m in masks_np]
+                                cur_bboxes = []
+                                for mi in range(len(cur_masks)):
+                                    mask = cur_masks[mi]
+                                    mask_binary = (mask > 0.5).astype(np.uint8)
+                                    contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                                    cnt_area = 0
+                                    x1, y1, w, h = 0, 0, 0, 0
+                                    for cnt in contours:
+                                        if len(cnt) >= 3:
+                                            a = cv2.contourArea(cnt)
+                                            if a > cnt_area:
+                                                cnt_area = a
+                                                poly = cnt.squeeze().flatten().tolist()
+                                                xs = poly[0::2]
+                                                ys = poly[1::2]
+                                                x1, x2 = min(xs), max(xs)
+                                                y1, y2 = min(ys), max(ys)
+                                                w, h = x2 - x1, y2 - y1
+                                    cur_bboxes.append([float(x1), float(y1), float(w), float(h)])
+                                track_ids = manager.update(cur_masks, cur_bboxes, orig_idx)
+                                for mi, mask in enumerate(masks_np):
+                                    mask_binary = (mask > 0.5).astype(np.uint8)
+                                    contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                                    for cnt in contours:
+                                        if len(cnt) >= 3:
                                             poly = cnt.squeeze().flatten().tolist()
-                                            xs = poly[0::2]
-                                            ys = poly[1::2]
-                                            x1, x2 = min(xs), max(xs)
-                                            y1, y2 = min(ys), max(ys)
-                                            w, h = x2 - x1, y2 - y1
-                                cur_bboxes.append([float(x1), float(y1), float(w), float(h)])
-                            track_ids = manager.update(cur_masks, cur_bboxes, idx)
-                            for mi, mask in enumerate(masks_np):
-                                mask_binary = (mask > 0.5).astype(np.uint8)
-                                contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                                for cnt in contours:
-                                    if len(cnt) >= 3:
-                                        poly = cnt.squeeze().flatten().tolist()
-                                        area = cv2.contourArea(cnt)
-                                        if area > 0:
-                                            tid = track_ids[mi] if mi < len(track_ids) else manager.next_track_id
-                                            xs = poly[0::2]
-                                            ys = poly[1::2]
-                                            x1, x2 = min(xs), max(xs)
-                                            y1, y2 = min(ys), max(ys)
-                                            frame_anns.append({
-                                                'track_id': tid,
-                                                'bbox': [float(x1), float(y1), float(x2 - x1), float(y2 - y1)],
-                                                'area': float(area),
-                                                'segmentation': [poly],
-                                                'iscrowd': 0,
-                                                'category': items_text,
-                                                'trace_id_list': [tid]
-                                            })
-                        merged = existing + frame_anns
-                        with open(label_file, 'w', encoding='utf-8') as f:
-                            json.dump(merged, f, ensure_ascii=False)
-                    print(f"[纯语义{direction}] 完成: {len(results)} 帧")
-                    # 释放GPU显存
-                    del results
-                    torch.cuda.empty_cache()
+                                            area = cv2.contourArea(cnt)
+                                            if area > 0:
+                                                tid = track_ids[mi] if mi < len(track_ids) else manager.next_track_id
+                                                xs = poly[0::2]
+                                                ys = poly[1::2]
+                                                x1, x2 = min(xs), max(xs)
+                                                y1, y2 = min(ys), max(ys)
+                                                frame_anns.append({
+                                                    'track_id': tid,
+                                                    'bbox': [float(x1), float(y1), float(x2 - x1), float(y2 - y1)],
+                                                    'area': float(area),
+                                                    'segmentation': [poly],
+                                                    'iscrowd': 0,
+                                                    'category': items_text,
+                                                    'trace_id_list': [tid]
+                                                })
+                            merged = existing + frame_anns
+                            with open(label_file, 'w', encoding='utf-8') as f:
+                                json.dump(merged, f, ensure_ascii=False)
+                        # 释放GPU显存
+                        del results
+                        del predictor_local
+                        torch.cuda.empty_cache()
+                    print(f"[纯语义{direction}] 完成: {total_frames} 帧")
                 
                 # 前向语义分割
                 if self.forward_cb.isChecked():
