@@ -1428,30 +1428,18 @@ class UnifiedPanel(QMainWindow):
         return group
     
     def open_trim_dialog(self):
-        """打开视频裁剪对话框"""
-        file_path, _ = QFileDialog.getOpenFileName(self, "选择视频", "", "视频文件 (*.mp4 *.avi *.mov *.mkv)")
-        if not file_path:
-            return
-        
-        self.trim_video_input.setText(file_path)
-        
-        # 创建并显示对话框
-        dialog = TrimDialog(file_path, self)
-        dialog.exec_()
-    
-    def add_trim_video(self):
-        """添加视频到裁剪对话框（支持多选）"""
-        file_paths, _ = QFileDialog.getOpenFileNames(self, "选择视频(支持多选)", "", "视频文件 (*.mp4 *.avi *.mov *.mkv)")
+        """打开视频裁剪对话框（支持多选合成）"""
+        file_paths, _ = QFileDialog.getOpenFileNames(self, "选择视频(可多选合成)", "", "视频文件 (*.mp4 *.avi *.mov *.mkv)")
         if not file_paths:
             return
         
-        current = self.trim_video_input.text().strip()
-        if current:
-            # 追加到现有路径后面
-            new_paths = current + "|" + "|".join(file_paths)
-        else:
-            new_paths = "|".join(file_paths)
-        self.trim_video_input.setText(new_paths)
+        # 多个视频用 | 分隔，TrimDialog 内部会按顺序合并预览
+        video_path = "|".join(file_paths)
+        self.trim_video_input.setText(video_path)
+        
+        # 创建并显示对话框
+        dialog = TrimDialog(video_path, self)
+        dialog.exec_()
     
     def open_trim_mid_dialog(self):
         """打开temp_data_mid帧删除对话框"""
