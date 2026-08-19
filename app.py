@@ -2675,8 +2675,6 @@ class UnifiedPanel(QMainWindow):
             self.viewer.clear_prompt_points()
             if self.viewer.prompt_type == 'point':
                 print(f"提示帧模式：在帧 {self.prompt_frame_idx + 1} 上点击添加点")
-            elif self.viewer.prompt_type == 'box_select':
-                print(f"提示帧模式：拖拽框选区域，所有帧中与框有交集的bbox将被赋当前trace_id")
             else:
                 print(f"提示帧模式：在帧 {self.prompt_frame_idx + 1} 上绘制 Bbox")
         else:

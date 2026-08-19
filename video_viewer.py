@@ -284,15 +284,19 @@ class VideoViewer(QMainWindow):
         layout = QVBoxLayout()
         central.setLayout(layout)
 
-        # 单帧/多帧选择
+        # 修改模式：单帧/多帧/框选
         mode_layout = QHBoxLayout()
         mode_layout.addWidget(QLabel("修改模式:"))
         self.single_frame_radio = QRadioButton("单帧")
         self.single_frame_radio.setChecked(False)  # 默认多帧
         self.multi_frame_radio = QRadioButton("多帧")
         self.multi_frame_radio.setChecked(True)  # 默认多帧
+        self.box_select_radio = QRadioButton("框选")
+        self.box_select_radio.setChecked(False)
+        self.box_select_radio.toggled.connect(self._on_box_select_toggled)
         mode_layout.addWidget(self.single_frame_radio)
         mode_layout.addWidget(self.multi_frame_radio)
+        mode_layout.addWidget(self.box_select_radio)
         # A/B 模式切换
         mode_layout.addWidget(QLabel("点击:"))
         self.mode_ab_btn = QPushButton("A")
@@ -405,22 +409,29 @@ class VideoViewer(QMainWindow):
             self.select_start = None
     
     def toggle_prompt_type(self):
-        """切换点/bbox/框选模式"""
+        """切换点/Bbox模式"""
         if self.prompt_type == 'bbox':
             self.prompt_type = 'point'
             self.prompt_type_btn.setText("点")
             self.prompt_type_btn.setStyleSheet("QPushButton { background-color: #e74c3c; color: white; border: none; border-radius: 3px; font-size: 10px; }")
             print("提示帧模式：点击添加点")
-        elif self.prompt_type == 'point':
-            self.prompt_type = 'box_select'
-            self.prompt_type_btn.setText("框选")
-            self.prompt_type_btn.setStyleSheet("QPushButton { background-color: #9b59b6; color: white; border: none; border-radius: 3px; font-size: 10px; }")
-            print("提示帧模式：拖拽框选区域，框内所有帧的bbox赋当前ID")
         else:
             self.prompt_type = 'bbox'
             self.prompt_type_btn.setText("Bbox")
             self.prompt_type_btn.setStyleSheet("QPushButton { background-color: #3498db; color: white; border: none; border-radius: 3px; font-size: 10px; }")
             print("提示帧模式：绘制矩形框")
+
+    def _on_box_select_toggled(self, checked):
+        """框选模式切换：启用/禁用框选拖拽"""
+        if checked:
+            self.enable_bbox_drawing(True)
+        else:
+            # 仅在非提示帧/非固定框模式下关闭拖拽，避免打断其他绘制流程
+            panel = self.panel
+            in_prompt = getattr(panel, 'prompt_drawing_mode', False)
+            in_fixed = getattr(panel, 'fixed_bbox_mode', False)
+            if not in_prompt and not in_fixed:
+                self.enable_bbox_drawing(False)
 
     def toggle_mode_ab(self):
         """切换A/B模式"""
@@ -739,6 +750,10 @@ class VideoViewer(QMainWindow):
             self.timer.stop()
 
     def on_click(self, display_x, display_y):
+        # 框选模式需要拖拽框选，若拖拽被外部关闭则重新启用
+        if self.box_select_radio.isChecked():
+            self.enable_bbox_drawing(True)
+            return
         scaled_w = int(self.video_width * self.zoom_factor)
         scaled_h = int(self.video_height * self.zoom_factor)
         label_w = self.image_label.width()
@@ -856,7 +871,7 @@ class VideoViewer(QMainWindow):
             video_y1, video_y2 = video_y2, video_y1
 
         # 框选模式：从第一帧到最后一帧，bbox与框选区域有交集的赋当前trace_id
-        if getattr(self, 'prompt_type', 'bbox') == 'box_select':
+        if self.box_select_radio.isChecked():
             self._assign_trace_id_by_region((video_x1, video_y1, video_x2, video_y2))
             return
 
