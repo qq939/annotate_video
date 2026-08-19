@@ -405,12 +405,17 @@ class VideoViewer(QMainWindow):
             self.select_start = None
     
     def toggle_prompt_type(self):
-        """切换点/bbox模式"""
+        """切换点/bbox/框选模式"""
         if self.prompt_type == 'bbox':
             self.prompt_type = 'point'
             self.prompt_type_btn.setText("点")
             self.prompt_type_btn.setStyleSheet("QPushButton { background-color: #e74c3c; color: white; border: none; border-radius: 3px; font-size: 10px; }")
             print("提示帧模式：点击添加点")
+        elif self.prompt_type == 'point':
+            self.prompt_type = 'box_select'
+            self.prompt_type_btn.setText("框选")
+            self.prompt_type_btn.setStyleSheet("QPushButton { background-color: #9b59b6; color: white; border: none; border-radius: 3px; font-size: 10px; }")
+            print("提示帧模式：拖拽框选区域，框内所有帧的bbox赋当前ID")
         else:
             self.prompt_type = 'bbox'
             self.prompt_type_btn.setText("Bbox")
@@ -850,6 +855,11 @@ class VideoViewer(QMainWindow):
         if video_y1 > video_y2:
             video_y1, video_y2 = video_y2, video_y1
 
+        # 框选模式：从第一帧到最后一帧，bbox与框选区域有交集的赋当前trace_id
+        if getattr(self, 'prompt_type', 'bbox') == 'box_select':
+            self._assign_trace_id_by_region((video_x1, video_y1, video_x2, video_y2))
+            return
+
         self.prompt_bboxes.append([video_x1, video_y1, video_x2, video_y2])
         self.update_display()
     
@@ -945,6 +955,58 @@ class VideoViewer(QMainWindow):
             self.panel.refresh_trace_id_list()
         self.update_display()
         print(f"[多帧修改] 共修改 {len(undo_changes)} 帧")
+    
+    def _assign_trace_id_by_region(self, region):
+        """框选模式：从第一帧到最后一帧，凡bbox与框选区域有交集的，赋当前trace_id"""
+        panel = self.panel
+        if not panel or not hasattr(panel, 'trace_id_input'):
+            QMessageBox.warning(self, "提示", "无法获取当前trace_id")
+            return
+        current_tid = int(panel.trace_id_input.text()) if panel.trace_id_input.text() else 1000000
+        
+        rx1, ry1, rx2, ry2 = region
+        undo_changes = []
+        changed_ann_count = 0
+        
+        for frame_file in sorted(self.labels_dir.glob("frame_*.json")):
+            try:
+                with open(frame_file, encoding='utf-8') as f:
+                    annotations = json.load(f)
+                frame_idx = int(frame_file.stem.split('_')[1])
+                for ann in annotations:
+                    bbox = ann.get('bbox', [])
+                    if len(bbox) < 4:
+                        continue
+                    x, y, w, h = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+                    ax1, ay1, ax2, ay2 = x, y, x + w, y + h
+                    # bbox与框选区域有正面积交集
+                    if rx1 < ax2 and rx2 > ax1 and ry1 < ay2 and ry2 > ay1:
+                        old_tid = ann.get('track_id', 0)
+                        if old_tid != current_tid:
+                            bbox_key = self._get_bbox_key(bbox)
+                            undo_changes.append({
+                                'frame_idx': frame_idx,
+                                'bbox_key': bbox_key,
+                                'old_trace_id': old_tid,
+                                'new_trace_id': current_tid
+                            })
+                            ann['track_id'] = current_tid
+                            changed_ann_count += 1
+                with open(frame_file, 'w', encoding='utf-8') as f:
+                    json.dump(annotations, f)
+            except Exception:
+                continue
+        
+        if undo_changes and panel and hasattr(panel, 'push_undo'):
+            panel.push_undo(undo_changes)
+        if panel and hasattr(panel, 'refresh_trace_id_list'):
+            panel.refresh_trace_id_list()
+        self.update_display()
+        
+        frame_count = len({c['frame_idx'] for c in undo_changes})
+        print(f"[框选] 区域({rx1},{ry1},{rx2},{ry2}) 赋 trace_id={current_tid}，修改 {changed_ann_count} 个bbox / {frame_count} 帧")
+        QMessageBox.information(self, "框选完成",
+                                f"框选区域赋 trace_id={current_tid}\n共修改 {changed_ann_count} 个bbox，涉及 {frame_count} 帧")
     
     def _get_bbox_key(self, bbox):
         """生成bbox的唯一键"""
