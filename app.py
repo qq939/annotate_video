@@ -5455,10 +5455,6 @@ names: {class_names}
         raw_video_path = temp_dataset_dir / f"{train_id}_raw.mp4"
         
         # 尝试从coco_data获取原始视频列表，合并保存
-        raw_frames = []
-        raw_fps = None
-        raw_width = None
-        raw_height = None
         videos = coco_data.get('info', {}).get('videos', [])
         # 如果videos为空，直接使用temp/temp.mp4
         if not videos:
@@ -5466,47 +5462,47 @@ names: {class_names}
             if temp_video.exists():
                 videos = [str(temp_video)]
         
+        # 流式写入原视频，避免将所有帧缓存到内存导致OOM
+        raw_fps = None
+        raw_width = None
+        raw_height = None
+        out_raw = None
+        written_raw = 0
+        
         if videos:
+            # 先打开第一个可用的视频确定fps/尺寸
             for vp in videos:
                 cap = cv2.VideoCapture(vp)
                 if not cap.isOpened():
                     continue
-                if raw_fps is None:
-                    raw_fps = cap.get(cv2.CAP_PROP_FPS)
-                    raw_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                    raw_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                raw_fps = cap.get(cv2.CAP_PROP_FPS)
+                raw_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                raw_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                cap.release()
+                break
+            
+            if raw_fps is not None:
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                out_raw = cv2.VideoWriter(str(raw_video_path), fourcc, raw_fps, (raw_width, raw_height))
+            
+            # 逐个视频读取并直接写入，边读边写不缓存
+            for vp in videos:
+                cap = cv2.VideoCapture(vp)
+                if not cap.isOpened():
+                    continue
                 while True:
                     ret, frame = cap.read()
                     if not ret:
                         break
-                    raw_frames.append(frame.copy())
+                    if out_raw is not None:
+                        out_raw.write(frame)
+                        written_raw += 1
                 cap.release()
         
-        # 兜底：如果上述都失败了，直接强制用 temp/temp.mp4
-        if not raw_frames:
-            temp_video = BASE_DIR / "temp" / "temp.mp4"
-            if temp_video.exists():
-                print(f"[保存] 原视频列表未获取到有效视频，兜底使用: {temp_video}")
-                cap = cv2.VideoCapture(str(temp_video))
-                if cap.isOpened():
-                    raw_fps = cap.get(cv2.CAP_PROP_FPS)
-                    raw_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                    raw_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                    while True:
-                        ret, frame = cap.read()
-                        if not ret:
-                            break
-                        raw_frames.append(frame.copy())
-                    cap.release()
-                else:
-                    print(f"[保存] 兜底视频无法打开: {temp_video}")
-        
-        if raw_frames and raw_fps is not None:
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            out_raw = cv2.VideoWriter(str(raw_video_path), fourcc, raw_fps, (raw_width, raw_height))
-            for frame in raw_frames:
-                out_raw.write(frame)
+        if out_raw is not None:
             out_raw.release()
+        
+        if written_raw > 0:
             print(f"[保存] 原视频已保存到: {raw_video_path}")
             
             # 上传原视频到OBS（mp4格式）
