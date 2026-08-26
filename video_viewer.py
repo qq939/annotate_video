@@ -381,9 +381,14 @@ class VideoViewer(QMainWindow):
     def keyPressEvent(self, event):
         key = event.key()
         if key == Qt.Key_C:
-            # 取消点/分割标注
-            self.cancel_point_annotation()
-            print("[C键] 已取消点和分割")
+            # 固定框编辑模式：C键撤销最后一个固定框
+            if self.panel and getattr(self.panel, 'fixed_bbox_mode', False):
+                self.undo_last_bbox()
+                print("[C键] 已撤销一个固定框")
+            else:
+                # 取消点/分割标注
+                self.cancel_point_annotation()
+                print("[C键] 已取消点和分割")
         elif key == Qt.Key_Escape:
             self.close()
     

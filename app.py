@@ -4519,7 +4519,6 @@ class UnifiedPanel(QMainWindow):
         if not prompt_bboxes:
             QMessageBox.warning(self, "错误", "请先在预览中画框")
             return
-        bbox = prompt_bboxes[0]  # 使用第一个框
         trace_id = int(self.trace_id_input.text())
         
         # 获取起始帧和终止帧
@@ -4537,69 +4536,70 @@ class UnifiedPanel(QMainWindow):
         if end_frame == -1 or end_frame >= total_frames:
             end_frame = total_frames  # 保持1-based闭区间，range(start-1, end)自然覆盖到最后一帧
         
-        print(f"[固定框] 用户输入: {start_frame} - {end_frame} (1-based闭区间), 总帧数: {total_frames}")
-        
-        # 转换为coco格式: [x, y, w, h]
-        coco_bbox = [min(bbox[0], bbox[2]), min(bbox[1], bbox[3]), 
-                     abs(bbox[2] - bbox[0]), abs(bbox[3] - bbox[1])]
-        bbox_key = f"{int(coco_bbox[0])},{int(coco_bbox[1])},{int(coco_bbox[2])},{int(coco_bbox[3])}"
+        print(f"[固定框] 用户输入: {start_frame} - {end_frame} (1-based闭区间), 总帧数: {total_frames}, 固定框数量: {len(prompt_bboxes)}")
         
         # 记录回退信息（用户输入是1-indexed，frame文件是0-indexed）
         undo_changes = []
         added = 0
         print(f"[固定框] 实际标注帧范围: {start_frame} 到 {end_frame} (0-indexed: {start_frame-1} 到 {end_frame-1})")
-        for i in range(start_frame - 1, end_frame):  # 1-based闭区间[start, end] → 0-based [start-1, end-1]
-            frame_file = labels_dir / f"frame_{i:06d}.json"
-            print(f"[固定框] 正在标注帧 {i}")
-            old_trace_id = None
-            if frame_file.exists():
-                with open(frame_file, encoding='utf-8') as fp:
-                    anns = json.load(fp)
-                # 检查是否已有相同的bbox
-                for ann in anns:
-                    ann_bbox = ann.get('bbox', [])
-                    if len(ann_bbox) >= 4 and ann_bbox == coco_bbox:
-                        old_trace_id = ann.get('track_id', 0)
-                        break
-            else:
-                anns = []
+        # 遍历所有固定框，同时标注多个框
+        for bbox in prompt_bboxes:
+            # 转换为coco格式: [x, y, w, h]
+            coco_bbox = [min(bbox[0], bbox[2]), min(bbox[1], bbox[3]), 
+                         abs(bbox[2] - bbox[0]), abs(bbox[3] - bbox[1])]
+            bbox_key = f"{int(coco_bbox[0])},{int(coco_bbox[1])},{int(coco_bbox[2])},{int(coco_bbox[3])}"
             
-            if old_trace_id is not None:
-                # 已有bbox，更新trace_id
-                for ann in anns:
-                    if ann.get('bbox') == coco_bbox:
-                        ann['track_id'] = trace_id
-                        undo_changes.append({
-                            'frame_idx': i,
-                            'bbox_key': bbox_key,
-                            'old_trace_id': old_trace_id,
-                            'new_trace_id': trace_id
-                        })
-                        break
-            else:
-                # 新增bbox
-                undo_changes.append({
-                    'frame_idx': i,
-                    'bbox_key': bbox_key,
-                    'old_trace_id': -1,  # -1表示新增
-                    'new_trace_id': trace_id
-                })
-                anns.append({
-                    'bbox': coco_bbox,
-                    'track_id': trace_id,
-                    'segmentation': [[
-                        coco_bbox[0], coco_bbox[1],
-                        coco_bbox[0] + coco_bbox[2], coco_bbox[1],
-                        coco_bbox[0] + coco_bbox[2], coco_bbox[1] + coco_bbox[3],
-                        coco_bbox[0], coco_bbox[1] + coco_bbox[3]
-                    ]],
-                    'category': 'Fixed',
-                    'confidence': 1.0
-                })
-                added += 1
-            
-            with open(frame_file, 'w', encoding='utf-8') as fp:
-                json.dump(anns, fp, ensure_ascii=False)
+            for i in range(start_frame - 1, end_frame):  # 1-based闭区间[start, end] → 0-based [start-1, end-1]
+                frame_file = labels_dir / f"frame_{i:06d}.json"
+                old_trace_id = None
+                if frame_file.exists():
+                    with open(frame_file, encoding='utf-8') as fp:
+                        anns = json.load(fp)
+                    # 检查是否已有相同的bbox
+                    for ann in anns:
+                        ann_bbox = ann.get('bbox', [])
+                        if len(ann_bbox) >= 4 and ann_bbox == coco_bbox:
+                            old_trace_id = ann.get('track_id', 0)
+                            break
+                else:
+                    anns = []
+                
+                if old_trace_id is not None:
+                    # 已有bbox，更新trace_id
+                    for ann in anns:
+                        if ann.get('bbox') == coco_bbox:
+                            ann['track_id'] = trace_id
+                            undo_changes.append({
+                                'frame_idx': i,
+                                'bbox_key': bbox_key,
+                                'old_trace_id': old_trace_id,
+                                'new_trace_id': trace_id
+                            })
+                            break
+                else:
+                    # 新增bbox
+                    undo_changes.append({
+                        'frame_idx': i,
+                        'bbox_key': bbox_key,
+                        'old_trace_id': -1,  # -1表示新增
+                        'new_trace_id': trace_id
+                    })
+                    anns.append({
+                        'bbox': coco_bbox,
+                        'track_id': trace_id,
+                        'segmentation': [[
+                            coco_bbox[0], coco_bbox[1],
+                            coco_bbox[0] + coco_bbox[2], coco_bbox[1],
+                            coco_bbox[0] + coco_bbox[2], coco_bbox[1] + coco_bbox[3],
+                            coco_bbox[0], coco_bbox[1] + coco_bbox[3]
+                        ]],
+                        'category': 'Fixed',
+                        'confidence': 1.0
+                    })
+                    added += 1
+                
+                with open(frame_file, 'w', encoding='utf-8') as fp:
+                    json.dump(anns, fp, ensure_ascii=False)
         
         # 记录到回退栈
         if undo_changes:
