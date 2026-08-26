@@ -284,7 +284,7 @@ class VideoViewer(QMainWindow):
         layout = QVBoxLayout()
         central.setLayout(layout)
 
-        # 修改模式：单帧/多帧/框选
+        # 修改模式：单帧/多帧/框选/框删
         mode_layout = QHBoxLayout()
         mode_layout.addWidget(QLabel("修改模式:"))
         self.single_frame_radio = QRadioButton("单帧")
@@ -294,9 +294,13 @@ class VideoViewer(QMainWindow):
         self.box_select_radio = QRadioButton("框选")
         self.box_select_radio.setChecked(False)
         self.box_select_radio.toggled.connect(self._on_box_select_toggled)
+        self.box_delete_radio = QRadioButton("框删")
+        self.box_delete_radio.setChecked(False)
+        self.box_delete_radio.toggled.connect(self._on_box_select_toggled)
         mode_layout.addWidget(self.single_frame_radio)
         mode_layout.addWidget(self.multi_frame_radio)
         mode_layout.addWidget(self.box_select_radio)
+        mode_layout.addWidget(self.box_delete_radio)
         # A/B 模式切换
         mode_layout.addWidget(QLabel("点击:"))
         self.mode_ab_btn = QPushButton("A")
@@ -427,8 +431,8 @@ class VideoViewer(QMainWindow):
             print("提示帧模式：绘制矩形框")
 
     def _on_box_select_toggled(self, checked):
-        """框选模式切换：启用/禁用框选拖拽"""
-        if checked:
+        """框选/框删模式切换：启用/禁用拖拽"""
+        if self.box_select_radio.isChecked() or self.box_delete_radio.isChecked():
             self.enable_bbox_drawing(True)
         else:
             # 仅在非提示帧/非固定框模式下关闭拖拽，避免打断其他绘制流程
@@ -755,8 +759,8 @@ class VideoViewer(QMainWindow):
             self.timer.stop()
 
     def on_click(self, display_x, display_y):
-        # 框选模式需要拖拽框选，若拖拽被外部关闭则重新启用
-        if self.box_select_radio.isChecked():
+        # 框选/框删模式需要拖拽，若拖拽被外部关闭则重新启用
+        if self.box_select_radio.isChecked() or self.box_delete_radio.isChecked():
             self.enable_bbox_drawing(True)
             return
         scaled_w = int(self.video_width * self.zoom_factor)
@@ -875,9 +879,14 @@ class VideoViewer(QMainWindow):
         if video_y1 > video_y2:
             video_y1, video_y2 = video_y2, video_y1
 
-        # 框选模式：从第一帧到最后一帧，bbox与框选区域有交集的赋当前trace_id
+        # 框选模式：区域内的bbox赋当前trace_id（作用帧范围为app面板起始-终止闭区间）
         if self.box_select_radio.isChecked():
             self._assign_trace_id_by_region((video_x1, video_y1, video_x2, video_y2))
+            return
+
+        # 框删模式：删除区域内的所有annotations和box（作用帧范围为app面板起始-终止闭区间）
+        if self.box_delete_radio.isChecked():
+            self._delete_annotations_by_region((video_x1, video_y1, video_x2, video_y2))
             return
 
         self.prompt_bboxes.append([video_x1, video_y1, video_x2, video_y2])
@@ -977,7 +986,7 @@ class VideoViewer(QMainWindow):
         print(f"[多帧修改] 共修改 {len(undo_changes)} 帧")
     
     def _assign_trace_id_by_region(self, region):
-        """框选模式：从第一帧到最后一帧，凡bbox与框选区域有交集的，赋当前trace_id"""
+        """框选模式：在app面板起始-终止闭区间内，凡bbox与框选区域有交集的，赋当前trace_id"""
         panel = self.panel
         if not panel or not hasattr(panel, 'trace_id_input'):
             QMessageBox.warning(self, "提示", "无法获取当前trace_id")
@@ -985,14 +994,18 @@ class VideoViewer(QMainWindow):
         current_tid = int(panel.trace_id_input.text()) if panel.trace_id_input.text() else 1000000
         
         rx1, ry1, rx2, ry2 = region
+        start_frame, end_frame = self._get_fixed_frame_range()
         undo_changes = []
         changed_ann_count = 0
         
-        for frame_file in sorted(self.labels_dir.glob("frame_*.json")):
+        for i in range(start_frame - 1, end_frame):  # 1-based闭区间[start, end] → 0-based [start-1, end-1]
+            frame_file = self.labels_dir / f"frame_{i:06d}.json"
+            if not frame_file.exists():
+                continue
             try:
                 with open(frame_file, encoding='utf-8') as f:
                     annotations = json.load(f)
-                frame_idx = int(frame_file.stem.split('_')[1])
+                frame_idx = i
                 for ann in annotations:
                     bbox = ann.get('bbox', [])
                     if len(bbox) < 4:
@@ -1024,9 +1037,80 @@ class VideoViewer(QMainWindow):
         self.update_display()
         
         frame_count = len({c['frame_idx'] for c in undo_changes})
-        print(f"[框选] 区域({rx1},{ry1},{rx2},{ry2}) 赋 trace_id={current_tid}，修改 {changed_ann_count} 个bbox / {frame_count} 帧")
+        print(f"[框选] 区域({rx1},{ry1},{rx2},{ry2}) 帧范围[{start_frame},{end_frame}] 赋 trace_id={current_tid}，修改 {changed_ann_count} 个bbox / {frame_count} 帧")
         QMessageBox.information(self, "框选完成",
-                                f"框选区域赋 trace_id={current_tid}\n共修改 {changed_ann_count} 个bbox，涉及 {frame_count} 帧")
+                                f"框选区域赋 trace_id={current_tid}\n帧范围 [{start_frame},{end_frame}]\n共修改 {changed_ann_count} 个bbox，涉及 {frame_count} 帧")
+
+    def _delete_annotations_by_region(self, region):
+        """框删模式：删除app面板起始-终止闭区间内、与框选区域有交集的所有annotations和box"""
+        panel = self.panel
+        rx1, ry1, rx2, ry2 = region
+        start_frame, end_frame = self._get_fixed_frame_range()
+        undo_changes = []
+        deleted_count = 0
+        
+        for i in range(start_frame - 1, end_frame):  # 1-based闭区间[start, end] → 0-based [start-1, end-1]
+            frame_file = self.labels_dir / f"frame_{i:06d}.json"
+            if not frame_file.exists():
+                continue
+            try:
+                with open(frame_file, encoding='utf-8') as f:
+                    annotations = json.load(f)
+                new_anns = []
+                for ann in annotations:
+                    bbox = ann.get('bbox', [])
+                    if len(bbox) >= 4:
+                        x, y, w, h = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+                        ax1, ay1, ax2, ay2 = x, y, x + w, y + h
+                        # bbox与框删区域有正面积交集则删除
+                        if rx1 < ax2 and rx2 > ax1 and ry1 < ay2 and ry2 > ay1:
+                            bbox_key = self._get_bbox_key(bbox)
+                            undo_changes.append({
+                                'frame_idx': i,
+                                'bbox_key': bbox_key,
+                                'old_trace_id': -2,  # -2表示框删
+                                'new_trace_id': -2,
+                                'deleted_ann': ann
+                            })
+                            deleted_count += 1
+                            continue
+                    new_anns.append(ann)
+                with open(frame_file, 'w', encoding='utf-8') as f:
+                    json.dump(new_anns, f)
+            except Exception:
+                continue
+        
+        if undo_changes and panel and hasattr(panel, 'push_undo'):
+            panel.push_undo(undo_changes)
+        if panel and hasattr(panel, 'refresh_trace_id_list'):
+            panel.refresh_trace_id_list()
+        self.update_display()
+        
+        frame_count = len({c['frame_idx'] for c in undo_changes})
+        print(f"[框删] 区域({rx1},{ry1},{rx2},{ry2}) 帧范围[{start_frame},{end_frame}] 删除 {deleted_count} 个annotation / {frame_count} 帧")
+        QMessageBox.information(self, "框删完成",
+                                f"框删区域删除 {deleted_count} 个annotation\n帧范围 [{start_frame},{end_frame}]，涉及 {frame_count} 帧")
+
+    def _get_fixed_frame_range(self):
+        """读取app面板固定框的起始/终止帧（1-based闭区间），返回(start_frame, end_frame)"""
+        panel = self.panel
+        start_frame = 1
+        end_frame = self.total_frames
+        if panel and hasattr(panel, 'fixed_start_input'):
+            try:
+                start_frame = int(panel.fixed_start_input.text() or "0")
+            except ValueError:
+                start_frame = 1
+        if panel and hasattr(panel, 'fixed_end_input'):
+            try:
+                end_frame = int(panel.fixed_end_input.text() if panel.fixed_end_input.text() != "-1" else "-1")
+            except ValueError:
+                end_frame = self.total_frames
+        if start_frame < 1:
+            start_frame = 1
+        if end_frame == -1 or end_frame > self.total_frames:
+            end_frame = self.total_frames
+        return start_frame, end_frame
     
     def _get_bbox_key(self, bbox):
         """生成bbox的唯一键"""

@@ -3574,13 +3574,18 @@ class UnifiedPanel(QMainWindow):
             frame_idx = change.get('frame_idx')
             bbox_key = change.get('bbox_key')
             old_tid = change.get('old_trace_id')
+            deleted_ann = change.get('deleted_ann')
             frame_file = labels_dir / f"frame_{frame_idx:06d}.json"
             if not frame_file.exists():
                 continue
             try:
                 with open(frame_file, encoding='utf-8') as f:
                         anns = json.load(f)
-                if old_tid == -1:
+                if deleted_ann is not None:
+                    # 框删恢复：重新插入被删除的annotation
+                    anns.append(deleted_ann)
+                    restored += 1
+                elif old_tid == -1:
                     # 新增的bbox，删除它
                     new_anns = []
                     for ann in anns:
