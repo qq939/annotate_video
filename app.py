@@ -9,6 +9,10 @@ import cv2
 import numpy as np
 import json
 import subprocess
+import msvcrt
+
+# ESC早停标志：训练过程中监听ESC键
+_esc_pressed = False
 
 # CUDA内存分配器配置 - 减少显存碎片，防止OOM（必须在import torch之前设置）
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
@@ -6019,8 +6023,26 @@ names: {class_names}
         batch_input = self.train_batch_input.text() if hasattr(self, 'train_batch_input') else "16"
         batch_size = int(batch_input) if batch_input else 16
         print(f"[YOLO] 开始训练... epochs={epochs}, batch={batch_size}")
+        print(f"[YOLO] 按 ESC 键可随时中断训练（早停），中断后继续导出和保存模型")
         from ultralytics import YOLO
-        
+
+        # ESC监听：后台线程检测ESC键，按下则设置 _esc_pressed = True
+        def _listen_esc():
+            global _esc_pressed
+            while not _esc_pressed:
+                if msvcrt.kbhit():
+                    ch = msvcrt.getch()
+                    if ch == b'\x1b':  # ESC 键
+                        _esc_pressed = True
+                        print("\n[YOLO] 检测到 ESC 键，训练即将中断...")
+                        break
+                import time
+                time.sleep(0.1)
+
+        import threading
+        esc_thread = threading.Thread(target=_listen_esc, daemon=True)
+        esc_thread.start()
+
         if resume:
             # 从已有权重加载作为预训练权重，生成新的train-N文件夹
             print("[YOLO] 从已有权重加载...")
@@ -6028,92 +6050,116 @@ names: {class_names}
             best_pt = train_dir / "weights" / "best.pt"
             last_pt = train_dir / "weights" / "last.pt"
             best_onnx = train_dir / "weights" / "best.onnx"
-            
+
+            def _esc_stop_callback(trainer):
+                if _esc_pressed:
+                    raise StopIteration("[YOLO] ESC中断训练")
+
             if best_pt.exists():
                 # 有best.pt，加载作为预训练权重
                 model = YOLO(str(best_pt))
-                result = model.train(
-                    data=yaml_path.as_posix(),
-                    epochs=epochs,
-                    imgsz=640,
-                    batch=batch_size,
-                    device=0,
-                    workers=0,
-                    project=yolo_project.as_posix(),
-                    name=train_dir.name,
-                    patience=20,
-                    resume=False
-                )
-                if hasattr(result, 'save_dir'):
-                    actual = Path(result.save_dir)
-                    if actual.exists():
-                        train_dir = actual
-                        print(f"[YOLO] 继续训练，新路径: {train_dir}")
+                try:
+                    result = model.train(
+                        data=yaml_path.as_posix(),
+                        epochs=epochs,
+                        imgsz=640,
+                        batch=batch_size,
+                        device=0,
+                        workers=0,
+                        project=yolo_project.as_posix(),
+                        name=train_dir.name,
+                        patience=20,
+                        resume=False,
+                        callbacks={"on_train_epoch": [_esc_stop_callback]}
+                    )
+                    if hasattr(result, 'save_dir'):
+                        actual = Path(result.save_dir)
+                        if actual.exists():
+                            train_dir = actual
+                            print(f"[YOLO] 继续训练，新路径: {train_dir}")
+                except (StopIteration, KeyboardInterrupt):
+                    print("[YOLO] ESC中断训练，保存当前权重并继续导出...")
             elif last_pt.exists():
                 # 有last.pt，加载作为预训练权重
                 model = YOLO(str(last_pt))
-                result = model.train(
-                    data=yaml_path.as_posix(),
-                    epochs=epochs,
-                    imgsz=640,
-                    batch=batch_size,
-                    device=0,
-                    workers=0,
-                    project=yolo_project.as_posix(),
-                    name=train_dir.name,
-                    patience=20,
-                    resume=False
-                )
-                if hasattr(result, 'save_dir'):
-                    actual = Path(result.save_dir)
-                    if actual.exists():
-                        train_dir = actual
-                        print(f"[YOLO] 继续训练，新路径: {train_dir}")
+                try:
+                    result = model.train(
+                        data=yaml_path.as_posix(),
+                        epochs=epochs,
+                        imgsz=640,
+                        batch=batch_size,
+                        device=0,
+                        workers=0,
+                        project=yolo_project.as_posix(),
+                        name=train_dir.name,
+                        patience=20,
+                        resume=False,
+                        callbacks={"on_train_epoch": [_esc_stop_callback]}
+                    )
+                    if hasattr(result, 'save_dir'):
+                        actual = Path(result.save_dir)
+                        if actual.exists():
+                            train_dir = actual
+                            print(f"[YOLO] 继续训练，新路径: {train_dir}")
+                except (StopIteration, KeyboardInterrupt):
+                    print("[YOLO] ESC中断训练，保存当前权重并继续导出...")
             elif best_onnx.exists():
                 # 只有onnx，从onnx加载
                 print("[YOLO] 只有best.onnx，从ONNX加载...")
                 model = YOLO(str(best_onnx))
-                result = model.train(
-                    data=yaml_path.as_posix(),
-                    epochs=epochs,
-                    imgsz=640,
-                    batch=batch_size,
-                    device=0,
-                    workers=0,
-                    project=yolo_project.as_posix(),
-                    name=train_dir.name,
-                    patience=20,
-                    resume=False
-                )
-                if hasattr(result, 'save_dir'):
-                    actual = Path(result.save_dir)
-                    if actual.exists():
-                        train_dir = actual
-                        print(f"[YOLO] 继续训练(ONNX)，新路径: {train_dir}")
+                try:
+                    result = model.train(
+                        data=yaml_path.as_posix(),
+                        epochs=epochs,
+                        imgsz=640,
+                        batch=batch_size,
+                        device=0,
+                        workers=0,
+                        project=yolo_project.as_posix(),
+                        name=train_dir.name,
+                        patience=20,
+                        resume=False,
+                        callbacks={"on_train_epoch": [_esc_stop_callback]}
+                    )
+                    if hasattr(result, 'save_dir'):
+                        actual = Path(result.save_dir)
+                        if actual.exists():
+                            train_dir = actual
+                            print(f"[YOLO] 继续训练(ONNX)，新路径: {train_dir}")
+                except (StopIteration, KeyboardInterrupt):
+                    print("[YOLO] ESC中断训练，保存当前权重并继续导出...")
             else:
                 print("[YOLO] 未找到best.pt、last.pt或best.onnx")
                 return
         else:
             # 全新训练
+            def _esc_stop_callback(trainer):
+                if _esc_pressed:
+                    raise StopIteration("[YOLO] ESC中断训练")
+
             model = YOLO("yolo11m.pt")
-            result = model.train(
-                data=yaml_path.as_posix(),
-                epochs=epochs,
-                imgsz=640,
-                batch=batch_size,
-                device=0,
-                workers=0,
-                project=yolo_project.as_posix(),
-                name=train_dir.name,
-                patience=20,
-                cache="ram"
-            )
-            # 从训练结果中获取实际输出路径
-            if hasattr(result, 'save_dir'):
-                actual_save_dir = Path(result.save_dir)
-                if actual_save_dir.exists():
-                    train_dir = actual_save_dir
-                    print(f"[YOLO] 从训练结果获取实际路径: {train_dir}")
+            try:
+                result = model.train(
+                    data=yaml_path.as_posix(),
+                    epochs=epochs,
+                    imgsz=640,
+                    batch=batch_size,
+                    device=0,
+                    workers=0,
+                    project=yolo_project.as_posix(),
+                    name=train_dir.name,
+                    patience=20,
+                    cache="ram",
+                    callbacks={"on_train_epoch": [_esc_stop_callback]}
+                )
+                # 从训练结果中获取实际输出路径
+                if hasattr(result, 'save_dir'):
+                    actual_save_dir = Path(result.save_dir)
+                    if actual_save_dir.exists():
+                        train_dir = actual_save_dir
+                        print(f"[YOLO] 从训练结果获取实际路径: {train_dir}")
+            except (StopIteration, KeyboardInterrupt):
+                print("[YOLO] ESC中断训练，保存当前权重并继续导出...")
         
         # 导出ONNX
         # 直接使用训练时的train_dir
