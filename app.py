@@ -6070,6 +6070,9 @@ names: {class_names}
                         name=train_dir.name,
                         patience=20,
                         resume=False,
+                        hsv_h=0.0,
+                        hsv_s=0.0,
+                        hsv_v=0.0,
                         callbacks={"on_train_epoch": [_esc_stop_callback]}
                     )
                     if hasattr(result, 'save_dir'):
@@ -6094,6 +6097,9 @@ names: {class_names}
                         name=train_dir.name,
                         patience=20,
                         resume=False,
+                        hsv_h=0.0,
+                        hsv_s=0.0,
+                        hsv_v=0.0,
                         callbacks={"on_train_epoch": [_esc_stop_callback]}
                     )
                     if hasattr(result, 'save_dir'):
@@ -6119,6 +6125,9 @@ names: {class_names}
                         name=train_dir.name,
                         patience=20,
                         resume=False,
+                        hsv_h=0.0,
+                        hsv_s=0.0,
+                        hsv_v=0.0,
                         callbacks={"on_train_epoch": [_esc_stop_callback]}
                     )
                     if hasattr(result, 'save_dir'):
@@ -6150,6 +6159,9 @@ names: {class_names}
                     name=train_dir.name,
                     patience=20,
                     cache="ram",
+                    hsv_h=0.0,
+                    hsv_s=0.0,
+                    hsv_v=0.0,
                     callbacks={"on_train_epoch": [_esc_stop_callback]}
                 )
                 # 从训练结果中获取实际输出路径
