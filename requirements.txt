@@ -21,6 +21,7 @@ torchvision
 # Optional dependencies
 flask
 matplotlib
+rarfile
 scipy
 pyyaml
 tqdm

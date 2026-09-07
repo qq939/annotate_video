@@ -623,37 +623,49 @@ class VideoViewer(QMainWindow):
             QMessageBox.critical(self, "错误", f"添加视频帧失败:\n{e}")
 
     def import_coco_dataset(self):
-        """导入COCO格式数据集，支持zip压缩包和文件夹格式"""
+        """导入COCO格式数据集，支持zip、rar压缩包和文件夹格式"""
         from PyQt5.QtWidgets import QFileDialog, QMessageBox
         import json
         import shutil
-        import zipfile
         
         # 先尝试选择文件夹
         dir_path = QFileDialog.getExistingDirectory(self, "选择COCO数据集目录", "")
-        zip_path = None
+        archive_path = None  # 标记是否从压缩包解压
         
         if not dir_path:
-            # 如果没选文件夹，尝试选择zip文件
-            zip_file, _ = QFileDialog.getOpenFileName(
-                self, "选择ZIP压缩包", "",
-                "ZIP文件 (*.zip)"
+            # 如果没选文件夹，尝试选择压缩文件
+            archive_file, _ = QFileDialog.getOpenFileName(
+                self, "选择压缩包", "",
+                "压缩文件 (*.zip *.rar)"
             )
-            if not zip_file:
+            if not archive_file:
                 return
             
-            zip_path = Path(zip_file)
-            # 解压zip到项目根目录的temp_import目录
+            archive_path = Path(archive_file)
+            suffix = archive_path.suffix.lower()
+            
+            # 解压到项目根目录的temp_import目录
             temp_import_dir = Path("temp_import")
             if temp_import_dir.exists():
                 shutil.rmtree(temp_import_dir)
             temp_import_dir.mkdir(exist_ok=True)
             
-            print(f"[VideoViewer] 解压 {zip_path.name}...")
-            with zipfile.ZipFile(zip_path, 'r') as zf:
-                zf.extractall(temp_import_dir)
+            print(f"[VideoViewer] 解压 {archive_path.name}...")
             
-            # 查找解压后的根目录（zip里可能有嵌套）
+            if suffix == '.zip':
+                import zipfile
+                with zipfile.ZipFile(archive_path, 'r') as zf:
+                    zf.extractall(temp_import_dir)
+            elif suffix == '.rar':
+                try:
+                    import rarfile
+                    with rarfile.RarFile(archive_path, 'r') as rf:
+                        rf.extractall(temp_import_dir)
+                except Exception as e:
+                    QMessageBox.warning(self, "错误", f"RAR解压失败，请确保已安装 rarfile 库:\n{e}")
+                    return
+            
+            # 查找解压后的根目录（压缩包里可能有嵌套）
             items = list(temp_import_dir.iterdir())
             if len(items) == 1 and items[0].is_dir():
                 dir_path = items[0]
@@ -745,8 +757,8 @@ class VideoViewer(QMainWindow):
         except Exception as e:
             QMessageBox.warning(self, "错误", f"导入失败: {e}")
         finally:
-            # 清理临时目录（如果是从zip解压的）
-            if zip_path:
+            # 清理临时目录（如果是从压缩包解压的）
+            if archive_path:
                 temp_import_dir = Path("temp_import")
                 if temp_import_dir.exists():
                     shutil.rmtree(temp_import_dir)

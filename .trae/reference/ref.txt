@@ -22,3 +22,13 @@ https://docs.ultralytics.com/de/models/sam-3/
 
 # SAM3推理代码示例
 https://github.com/RizwanMunawar/sam3-inference
+
+# Python rarfile库（RAR压缩包解压）
+https://github.com/markokr/rarfile
+https://rarfile.readthedocs.io/
+
+# Python zipfile标准库文档
+https://docs.python.org/3/library/zipfile.html
+
+# pyunpack（可选：多格式压缩包统一接口，含7z/rar/zip）
+https://github.com/ponty/pyunpack
