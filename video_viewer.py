@@ -742,6 +742,20 @@ class VideoViewer(QMainWindow):
             # 更新总数
             self.total_frames = len(list(self.frames_dir.glob("frame_*.jpg")))
             
+            # 复制源 dataset.yaml 到目标文件夹（如果存在）
+            src_yaml = dir_path / "dataset.yaml"
+            if src_yaml.exists():
+                dst_yaml = self.temp_data_path / "dataset.yaml"
+                shutil.copy2(src_yaml, dst_yaml)
+                print(f"[VideoViewer] 已复制 dataset.yaml 到 {self.temp_data_path}")
+            
+            # 复制源 annotations.json 到目标文件夹作为完整备份（导入前备份）
+            src_ann = dir_path / "annotations.json"
+            if src_ann.exists():
+                dst_ann_backup = self.temp_data_path / "annotations_source.json"
+                shutil.copy2(src_ann, dst_ann_backup)
+                print(f"[VideoViewer] 已备份源 annotations.json 为 annotations_source.json")
+            
             # 更新coco_data
             self.coco_data['images'] = [
                 {'id': i, 'file_name': f"frame_{i:06d}.jpg", 'width': self.video_width, 'height': self.video_height, 'frame_count': i}

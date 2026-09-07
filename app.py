@@ -4485,6 +4485,27 @@ class UnifiedPanel(QMainWindow):
             QMessageBox.warning(self, "错误", "选择的文件夹不存在")
             return
         
+        src_has_ann = (src / "annotations.json").exists()
+        src_has_yaml = (src / "dataset.yaml").exists()
+        if not src_has_ann:
+            QMessageBox.warning(self, "错误", "源文件夹缺少 annotations.json")
+            return
+        
+        def _copy_with_extra(src_dir, dst_dir, label):
+            if dst_dir.exists():
+                shutil.rmtree(dst_dir)
+            shutil.copytree(src_dir, dst_dir)
+            dst_ann = dst_dir / "annotations.json"
+            dst_yaml = dst_dir / "dataset.yaml"
+            if not dst_ann.exists() and src_has_ann:
+                shutil.copy2(src_dir / "annotations.json", dst_ann)
+            if src_has_yaml and not dst_yaml.exists():
+                shutil.copy2(src_dir / "dataset.yaml", dst_yaml)
+            copied_ann = dst_ann.exists()
+            copied_yaml = dst_yaml.exists()
+            print(f"[redo_copy] {label}: annotations.json={'YES' if copied_ann else 'NO'}, dataset.yaml={'YES' if copied_yaml else 'NO'}")
+            return copied_ann, copied_yaml
+        
         # 判断来源类型
         is_temp_data = src.resolve() == (BASE_DIR / "temp_data").resolve()
         is_mid = src.resolve() == (BASE_DIR / TEMP_DATA_MID_DIR).resolve()
@@ -4492,29 +4513,21 @@ class UnifiedPanel(QMainWindow):
         if is_mid:
             # 选的是mid → 用mid直接覆盖temp_data
             dst_temp = BASE_DIR / "temp_data"
-            if dst_temp.exists():
-                shutil.rmtree(dst_temp)
-            shutil.copytree(src, dst_temp)
-            QMessageBox.information(self, "完成", f"已用 {src.name} 覆盖 temp_data")
+            _copy_with_extra(src, dst_temp, f"{src.name}->temp_data")
+            QMessageBox.information(self, "完成", f"已用 {src.name} 覆盖 temp_data\n(已复制 annotations.json 和 dataset.yaml)")
         elif is_temp_data:
             # 选的是temp_data → 覆盖temp_data_mid
             dst_mid = BASE_DIR / TEMP_DATA_MID_DIR
-            if dst_mid.exists():
-                shutil.rmtree(dst_mid)
-            shutil.copytree(src, dst_mid)
-            QMessageBox.information(self, "完成", f"已复制 {src.name} 到 temp_data_mid")
+            _copy_with_extra(src, dst_mid, f"{src.name}->temp_data_mid")
+            QMessageBox.information(self, "完成", f"已复制 {src.name} 到 temp_data_mid\n(已复制 annotations.json 和 dataset.yaml)")
         else:
             # 其他文件夹 → 覆盖两者
             dst_mid = BASE_DIR / TEMP_DATA_MID_DIR
-            if dst_mid.exists():
-                shutil.rmtree(dst_mid)
-            shutil.copytree(src, dst_mid)
+            _copy_with_extra(src, dst_mid, f"{src.name}->temp_data_mid")
             
             dst_temp = BASE_DIR / "temp_data"
-            if dst_temp.exists():
-                shutil.rmtree(dst_temp)
-            shutil.copytree(src, dst_temp)
-            QMessageBox.information(self, "完成", f"已复制 {src.name} 到 temp_data 和 temp_data_mid")
+            _copy_with_extra(src, dst_temp, f"{src.name}->temp_data")
+            QMessageBox.information(self, "完成", f"已复制 {src.name} 到 temp_data 和 temp_data_mid\n(已复制 annotations.json 和 dataset.yaml)")
         
         if self.viewer:
             self.viewer.update_display()
