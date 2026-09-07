@@ -6071,6 +6071,7 @@ names: {class_names}
             if best_pt.exists():
                 # 有best.pt，加载作为预训练权重
                 model = YOLO(str(best_pt))
+                model.add_callback("on_train_epoch", _esc_stop_callback)
                 try:
                     result = model.train(
                         data=yaml_path.as_posix(),
@@ -6085,8 +6086,7 @@ names: {class_names}
                         resume=False,
                         hsv_h=0.0,
                         hsv_s=0.0,
-                        hsv_v=0.0,
-                        callbacks={"on_train_epoch": [_esc_stop_callback]}
+                        hsv_v=0.0
                     )
                     if hasattr(result, 'save_dir'):
                         actual = Path(result.save_dir)
@@ -6098,6 +6098,7 @@ names: {class_names}
             elif last_pt.exists():
                 # 有last.pt，加载作为预训练权重
                 model = YOLO(str(last_pt))
+                model.add_callback("on_train_epoch", _esc_stop_callback)
                 try:
                     result = model.train(
                         data=yaml_path.as_posix(),
@@ -6112,8 +6113,7 @@ names: {class_names}
                         resume=False,
                         hsv_h=0.0,
                         hsv_s=0.0,
-                        hsv_v=0.0,
-                        callbacks={"on_train_epoch": [_esc_stop_callback]}
+                        hsv_v=0.0
                     )
                     if hasattr(result, 'save_dir'):
                         actual = Path(result.save_dir)
@@ -6126,6 +6126,7 @@ names: {class_names}
                 # 只有onnx，从onnx加载
                 print("[YOLO] 只有best.onnx，从ONNX加载...")
                 model = YOLO(str(best_onnx))
+                model.add_callback("on_train_epoch", _esc_stop_callback)
                 try:
                     result = model.train(
                         data=yaml_path.as_posix(),
@@ -6140,8 +6141,7 @@ names: {class_names}
                         resume=False,
                         hsv_h=0.0,
                         hsv_s=0.0,
-                        hsv_v=0.0,
-                        callbacks={"on_train_epoch": [_esc_stop_callback]}
+                        hsv_v=0.0
                     )
                     if hasattr(result, 'save_dir'):
                         actual = Path(result.save_dir)
@@ -6160,6 +6160,7 @@ names: {class_names}
                     raise StopIteration("[YOLO] ESC中断训练")
 
             model = YOLO("yolo11m.pt")
+            model.add_callback("on_train_epoch", _esc_stop_callback)
             try:
                 result = model.train(
                     data=yaml_path.as_posix(),
@@ -6174,8 +6175,7 @@ names: {class_names}
                     cache="ram",
                     hsv_h=0.0,
                     hsv_s=0.0,
-                    hsv_v=0.0,
-                    callbacks={"on_train_epoch": [_esc_stop_callback]}
+                    hsv_v=0.0
                 )
                 # 从训练结果中获取实际输出路径
                 if hasattr(result, 'save_dir'):
