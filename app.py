@@ -10,6 +10,9 @@ import numpy as np
 import json
 import subprocess
 import msvcrt
+import tempfile     # 用于redo_copy创建临时解压目录 L4514
+import zipfile      # 用于redo_copy解压zip重做包 L4518
+import rarfile      # 用于redo_copy解压rar重做包 L4522
 
 # ESC早停标志：训练过程中监听ESC键
 _esc_pressed = False
@@ -4476,61 +4479,142 @@ class UnifiedPanel(QMainWindow):
         return (0, self.ctrl.category_name)
     
     def redo_copy(self):
-        """从选择的文件夹复制覆盖temp_data和temp_data_mid"""
-        folder = QFileDialog.getExistingDirectory(self, "选择文件夹", ".")
-        if not folder:
+        """从选择的文件夹 或 zip/rar 压缩包 复制覆盖 temp_data 和 temp_data_mid"""
+        choose_dlg = QMessageBox(self)
+        choose_dlg.setWindowTitle("重做")
+        choose_dlg.setText("请选择重做数据的来源类型：")
+        btn_folder = choose_dlg.addButton("选择文件夹", QMessageBox.AcceptRole)
+        btn_archive = choose_dlg.addButton("选择压缩包 (zip/rar)", QMessageBox.ActionRole)
+        btn_cancel = choose_dlg.addButton("取消", QMessageBox.RejectRole)
+        choose_dlg.exec_()
+        clicked = choose_dlg.clickedButton()
+        if clicked == btn_cancel or clicked is None:
             return
-        src = Path(folder)
-        if not src.exists():
-            QMessageBox.warning(self, "错误", "选择的文件夹不存在")
-            return
-        
-        src_has_ann = (src / "annotations.json").exists()
-        src_has_yaml = (src / "dataset.yaml").exists()
-        if not src_has_ann:
-            QMessageBox.warning(self, "错误", "源文件夹缺少 annotations.json")
-            return
-        
-        def _copy_with_extra(src_dir, dst_dir, label):
-            if dst_dir.exists():
-                shutil.rmtree(dst_dir)
-            shutil.copytree(src_dir, dst_dir)
-            dst_ann = dst_dir / "annotations.json"
-            dst_yaml = dst_dir / "dataset.yaml"
-            if not dst_ann.exists() and src_has_ann:
-                shutil.copy2(src_dir / "annotations.json", dst_ann)
-            if src_has_yaml and not dst_yaml.exists():
-                shutil.copy2(src_dir / "dataset.yaml", dst_yaml)
-            copied_ann = dst_ann.exists()
-            copied_yaml = dst_yaml.exists()
-            print(f"[redo_copy] {label}: annotations.json={'YES' if copied_ann else 'NO'}, dataset.yaml={'YES' if copied_yaml else 'NO'}")
-            return copied_ann, copied_yaml
-        
-        # 判断来源类型
-        is_temp_data = src.resolve() == (BASE_DIR / "temp_data").resolve()
-        is_mid = src.resolve() == (BASE_DIR / TEMP_DATA_MID_DIR).resolve()
-        
-        if is_mid:
-            # 选的是mid → 用mid直接覆盖temp_data
-            dst_temp = BASE_DIR / "temp_data"
-            _copy_with_extra(src, dst_temp, f"{src.name}->temp_data")
-            QMessageBox.information(self, "完成", f"已用 {src.name} 覆盖 temp_data\n(已复制 annotations.json 和 dataset.yaml)")
-        elif is_temp_data:
-            # 选的是temp_data → 覆盖temp_data_mid
-            dst_mid = BASE_DIR / TEMP_DATA_MID_DIR
-            _copy_with_extra(src, dst_mid, f"{src.name}->temp_data_mid")
-            QMessageBox.information(self, "完成", f"已复制 {src.name} 到 temp_data_mid\n(已复制 annotations.json 和 dataset.yaml)")
+
+        src_is_archive = False
+        archive_path = None
+        temp_extract_dir = None
+
+        if clicked == btn_archive:
+            archive_filter = "压缩包 (*.zip *.rar);;ZIP文件 (*.zip);;RAR文件 (*.rar);;所有文件 (*.*)"
+            archive_file, _ = QFileDialog.getOpenFileName(self, "选择重做压缩包", ".", archive_filter)
+            if not archive_file:
+                return
+            archive_path = Path(archive_file)
+            if not archive_path.exists():
+                QMessageBox.warning(self, "错误", f"选择的压缩包不存在:\n{archive_path}")
+                return
+            archive_suffix = archive_path.suffix.lower()
+            if archive_suffix not in (".zip", ".rar"):
+                QMessageBox.warning(self, "错误", "只支持 .zip 或 .rar 格式的压缩包")
+                return
+            src_is_archive = True
+
+            suffix = archive_path.suffix.lower()
+            temp_extract_dir = Path(tempfile.mkdtemp(prefix="annotate_redo_"))
+            try:
+                print(f"[redo_copy] 解压 {suffix[1:].upper()} 压缩包到临时目录: {temp_extract_dir}")
+                if suffix == ".zip":
+                    with zipfile.ZipFile(archive_path, "r") as zf:
+                        zf.extractall(temp_extract_dir)
+                else:
+                    try:
+                        with rarfile.RarFile(archive_path, "r") as rf:
+                            rf.extractall(temp_extract_dir)
+                    except rarfile.BadRarFile as e:
+                        QMessageBox.warning(self, "错误", f"RAR文件损坏或格式不兼容：\n{e}")
+                        shutil.rmtree(temp_extract_dir, ignore_errors=True)
+                        return
+                    except Exception as e:
+                        QMessageBox.warning(
+                            self, "RAR支持缺失",
+                            f"无法解压RAR文件：{e}\n\n请先运行:\n  pip install rarfile\n并安装 unrar 或 bsdtar 到 PATH"
+                        )
+                        shutil.rmtree(temp_extract_dir, ignore_errors=True)
+                        return
+            except Exception as e:
+                QMessageBox.warning(self, "解压失败", f"{suffix.upper()}解压出错: {e}")
+                shutil.rmtree(temp_extract_dir, ignore_errors=True)
+                return
+
+            if (temp_extract_dir / "annotations.json").exists():
+                src = temp_extract_dir
+            else:
+                subdirs = [d for d in temp_extract_dir.iterdir() if d.is_dir()]
+                single_sub_with_ann = None
+                for d in subdirs:
+                    if (d / "annotations.json").exists():
+                        single_sub_with_ann = d
+                        break
+                if single_sub_with_ann is not None and len(subdirs) == 1:
+                    src = single_sub_with_ann
+                else:
+                    candidates = [d for d in subdirs if (d / "annotations.json").exists()]
+                    if len(candidates) == 1:
+                        src = candidates[0]
+                    else:
+                        src = temp_extract_dir
         else:
-            # 其他文件夹 → 覆盖两者
-            dst_mid = BASE_DIR / TEMP_DATA_MID_DIR
-            _copy_with_extra(src, dst_mid, f"{src.name}->temp_data_mid")
-            
-            dst_temp = BASE_DIR / "temp_data"
-            _copy_with_extra(src, dst_temp, f"{src.name}->temp_data")
-            QMessageBox.information(self, "完成", f"已复制 {src.name} 到 temp_data 和 temp_data_mid\n(已复制 annotations.json 和 dataset.yaml)")
-        
-        if self.viewer:
-            self.viewer.update_display()
+            folder = QFileDialog.getExistingDirectory(self, "选择文件夹", ".")
+            if not folder:
+                return
+            src = Path(folder)
+            if not src.exists():
+                QMessageBox.warning(self, "错误", "选择的文件夹不存在")
+                return
+
+        try:
+            src_has_ann = (src / "annotations.json").exists()
+            src_has_yaml = (src / "dataset.yaml").exists()
+            if not src_has_ann:
+                QMessageBox.warning(self, "错误", "源（文件夹或压缩包根）缺少 annotations.json")
+                return
+
+            def _copy_with_extra(src_dir, dst_dir, label):
+                if dst_dir.exists():
+                    shutil.rmtree(dst_dir)
+                shutil.copytree(src_dir, dst_dir)
+                dst_ann = dst_dir / "annotations.json"
+                dst_yaml = dst_dir / "dataset.yaml"
+                if not dst_ann.exists() and src_has_ann:
+                    shutil.copy2(src_dir / "annotations.json", dst_ann)
+                if src_has_yaml and not dst_yaml.exists():
+                    shutil.copy2(src_dir / "dataset.yaml", dst_yaml)
+                copied_ann = dst_ann.exists()
+                copied_yaml = dst_yaml.exists()
+                print(f"[redo_copy] {label}: annotations.json={'YES' if copied_ann else 'NO'}, dataset.yaml={'YES' if copied_yaml else 'NO'}")
+                return copied_ann, copied_yaml
+
+            is_temp_data = src.resolve() == (BASE_DIR / "temp_data").resolve()
+            is_mid = src.resolve() == (BASE_DIR / TEMP_DATA_MID_DIR).resolve()
+
+            src_display = archive_path.name if archive_path else src.name
+            if is_mid and not src_is_archive:
+                dst_temp = BASE_DIR / "temp_data"
+                _copy_with_extra(src, dst_temp, f"{src.name}->temp_data")
+                QMessageBox.information(self, "完成", f"已用 {src.name} 覆盖 temp_data\n(已复制 annotations.json 和 dataset.yaml)")
+            elif is_temp_data and not src_is_archive:
+                dst_mid = BASE_DIR / TEMP_DATA_MID_DIR
+                _copy_with_extra(src, dst_mid, f"{src.name}->temp_data_mid")
+                QMessageBox.information(self, "完成", f"已复制 {src.name} 到 temp_data_mid\n(已复制 annotations.json 和 dataset.yaml)")
+            else:
+                dst_mid = BASE_DIR / TEMP_DATA_MID_DIR
+                _copy_with_extra(src, dst_mid, f"{src_display}->temp_data_mid")
+
+                dst_temp = BASE_DIR / "temp_data"
+                _copy_with_extra(src, dst_temp, f"{src_display}->temp_data")
+                source_kind = "压缩包" if src_is_archive else "文件夹"
+                QMessageBox.information(self, "完成", f"已从{source_kind} {src_display} 复制到 temp_data 和 temp_data_mid\n(已复制 annotations.json 和 dataset.yaml)")
+
+            if self.viewer:
+                self.viewer.update_display()
+        finally:
+            if temp_extract_dir is not None and temp_extract_dir.exists():
+                try:
+                    shutil.rmtree(temp_extract_dir, ignore_errors=True)
+                    print(f"[redo_copy] 已清理临时解压目录: {temp_extract_dir}")
+                except Exception as e:
+                    print(f"[redo_copy] 清理临时目录失败（忽略）: {e}")
     
     def apply_fixed_bbox(self):
         """在指定帧范围添加固定框"""
