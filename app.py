@@ -10,9 +10,8 @@ import numpy as np
 import json
 import subprocess
 import msvcrt
-import tempfile     # 用于redo_copy创建临时解压目录 L4514
-import zipfile      # 用于redo_copy解压zip重做包 L4518
-import rarfile      # 用于redo_copy解压rar重做包 L4522
+import tempfile     # 用于redo_copy创建临时解压目录 L4514/4552
+import zipfile      # 用于redo_copy解压zip重做包 L4518/4557
 
 # ESC早停标志：训练过程中监听ESC键
 _esc_pressed = False
@@ -4519,9 +4518,10 @@ class UnifiedPanel(QMainWindow):
                         zf.extractall(temp_extract_dir)
                 else:
                     try:
+                        import rarfile
                         with rarfile.RarFile(archive_path, "r") as rf:
                             rf.extractall(temp_extract_dir)
-                    except rarfile.BadRarFile as e:
+                    except Exception as e:
                         QMessageBox.warning(self, "错误", f"RAR文件损坏或格式不兼容：\n{e}")
                         shutil.rmtree(temp_extract_dir, ignore_errors=True)
                         return
