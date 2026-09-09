@@ -36,6 +36,45 @@ json.dump = _utf8_dump
 json.dumps = _utf8_dumps
 from pathlib import Path
 
+# ========== GPU显存监控工具（用于OOM预防和调试）L36 ==========
+def _gpu_memory_info():
+    """返回当前GPU显存使用情况字符串，无GPU时返回空字符串"""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            used = torch.cuda.memory_allocated(0) / 1024**3
+            reserved = torch.cuda.memory_reserved(0) / 1024**3
+            total = torch.cuda.get_device_properties(0).total_memory / 1024**3
+            free = total - used
+            return f"GPU显存: {used:.2f}GB/{total:.1f}GB (可用{free:.1f}GB, reserved={reserved:.2f}GB)"
+    except Exception:
+        pass
+    return ""
+
+
+def _check_oom_risk(threshold_gb=2.0):
+    """检查GPU显存是否不足（可用<threshold_gb），返回True表示有OOM风险"""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            total = torch.cuda.get_device_properties(0).total_memory / 1024**3
+            used = torch.cuda.memory_allocated(0) / 1024**3
+            free = total - used
+            return free < threshold_gb
+    except Exception:
+        pass
+    return False
+
+
+def _safe_empty_cache():
+    """安全地清理GPU缓存，忽略所有异常"""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
+
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QSlider, QLabel, QLineEdit, QFileDialog, QGroupBox, QTextEdit, QMessageBox, QListWidget, QSizePolicy, QDialog, QInputDialog, QCheckBox, QToolButton, QMenu)
 from PyQt5.QtCore import Qt, QTimer, QPoint, QRect, pyqtSignal
 from PyQt5.QtGui import QPainter, QPen, QColor
@@ -2887,11 +2926,22 @@ class UnifiedPanel(QMainWindow):
                 labels_np = np.ones(len(prompt_points), dtype=np.int32)  # 1表示前景
                 
                 def do_point_seg_clip(start_frame, end_frame, forward):
-                    # 每个方向用独立的 predictor 实例，避免 inference_state 冲突导致 IndexError
-                    predictor_local = SAM3VideoSemanticPredictor(overrides=overrides)
                     direction = "向前" if forward else "向后"
                     if start_frame >= end_frame:
                         return
+                    total = end_frame - start_frame
+                    mem_info = _gpu_memory_info()
+                    if _check_oom_risk(2.0):
+                        print(f"[点分割{direction}] ⚠️ GPU显存不足({mem_info})，先清理...")
+                        _safe_empty_cache()
+                    print(f"[点分割{direction}] 开始: 帧{start_frame}→{end_frame-1}共{total}帧, 点={len(prompt_points)} {_gpu_memory_info()}")
+
+                    try:
+                        predictor_local = SAM3VideoSemanticPredictor(overrides=overrides)
+                    except Exception as e:
+                        QMessageBox.warning(self, "模型加载失败", f"SAM模型加载失败:\n{e}")
+                        return
+
                     temp_frames = BASE_DIR / "temp_inject" / ("forward" if forward else "backward")
                     temp_frames.mkdir(parents=True, exist_ok=True)
                     frame_list = list(range(start_frame, end_frame))
@@ -2914,17 +2964,34 @@ class UnifiedPanel(QMainWindow):
                         if frame is not None:
                             out.write(frame)
                     out.release()
-                    print(f"[点分割{direction}] 点={len(prompt_points)}, 文本={items_text}")
-                    results = list(predictor_local(source=clip_path, stream=True, points=points_np, labels=labels_np, text=items_text if items_text else None))
-                    for idx, r in enumerate(results):
-                        orig_idx = start_frame + idx if forward else end_frame - 1 - idx
-                        label_file = src_labels_dir / f"frame_{orig_idx:06d}.json"
-                        existing = []
-                        if label_file.exists():
-                            with open(label_file, encoding='utf-8') as f:
-                                existing = json.load(f)
-                        frame_anns = []
-                        if r.masks is not None:
+                    _safe_empty_cache()
+                    print(f"[点分割{direction}] SAM推理中: {len(frame_list)}帧... {_gpu_memory_info()}")
+
+                    processed = 0
+                    try:
+                        for result_item in predictor_local(source=clip_path, stream=True, points=points_np, labels=labels_np, text=items_text if items_text else None):
+                            r = result_item
+                            if hasattr(result_item, '__iter__') and not isinstance(result_item, (np.ndarray, bytes, str)):
+                                try:
+                                    r = next(iter(result_item))
+                                except (StopIteration, TypeError, AttributeError):
+                                    r = result_item
+                            if not hasattr(r, 'masks') or r is None or r.masks is None:
+                                continue
+
+                            idx = processed
+                            orig_idx = start_frame + idx if forward else end_frame - 1 - idx
+
+                            if processed % 100 == 0 or processed == total - 1 or processed == 0:
+                                print(f"[点分割{direction}] 进度: {processed}/{total}帧 ({processed*100//total if total > 0 else 0}%) {_gpu_memory_info()}")
+
+                            label_file = src_labels_dir / f"frame_{orig_idx:06d}.json"
+                            existing = []
+                            if label_file.exists():
+                                with open(label_file, encoding='utf-8') as f:
+                                    existing = json.load(f)
+
+                            frame_anns = []
                             masks_np = r.masks.data.cpu().numpy() if hasattr(r.masks, 'data') else r.masks
                             for mask in masks_np:
                                 mask_binary = (mask > 0.5).astype(np.uint8)
@@ -2934,8 +3001,7 @@ class UnifiedPanel(QMainWindow):
                                         poly = cnt.squeeze().flatten().tolist()
                                         area = cv2.contourArea(cnt)
                                         if area > 0:
-                                            xs = poly[0::2]
-                                            ys = poly[1::2]
+                                            xs, ys = poly[0::2], poly[1::2]
                                             x1, x2 = min(xs), max(xs)
                                             y1, y2 = min(ys), max(ys)
                                             frame_anns.append({
@@ -2947,10 +3013,34 @@ class UnifiedPanel(QMainWindow):
                                                 'category': items_text or 'point',
                                                 'trace_id_list': [0]
                                             })
-                        merged = existing + frame_anns
-                        with open(label_file, 'w', encoding='utf-8') as f:
-                            json.dump(merged, f, ensure_ascii=False)
-                    print(f"[点分割{direction}] 完成: {len(results)} 帧")
+
+                            del masks_np
+                            if hasattr(r.masks, 'data'):
+                                del r.masks.data
+                            del r.masks
+
+                            merged = existing + frame_anns
+                            with open(label_file, 'w', encoding='utf-8') as f:
+                                json.dump(merged, f, ensure_ascii=False)
+                            del frame_anns, merged
+
+                            if processed % 200 == 0:
+                                _safe_empty_cache()
+                            if _check_oom_risk(1.5):
+                                print(f"[点分割{direction}] ⚠️ 显存接近不足({_gpu_memory_info()})，继续...")
+                                _safe_empty_cache()
+
+                            processed += 1
+
+                        print(f"[点分割{direction}] ✅ 完成: {processed}/{total}帧 {_gpu_memory_info()}")
+                    except Exception as e:
+                        print(f"[点分割{direction}] ❌ 推理出错({e})，已处理{processed}帧")
+                        import traceback
+                        traceback.print_exc()
+                    finally:
+                        del predictor_local
+                        _safe_empty_cache()
+                        print(f"[点分割{direction}] 清理完成 {_gpu_memory_info()}")
                 
                 if self.forward_cb.isChecked():
                     print(f"[点分割前向] 帧 {prompt_idx} → {total-1}")
@@ -3000,24 +3090,39 @@ class UnifiedPanel(QMainWindow):
                 print(f"[纯语义] FIRST_ID={FIRST_ID}")
 
                 def do_pure_semantic_clip(start_frame, end_frame, forward):
-                    # 每个方向用独立的 predictor 实例，避免 inference_state 冲突导致 IndexError
-                    predictor_local = SAM3VideoSemanticPredictor(overrides=overrides)
-                    # TrackManager 追踪不同实例，分配不同 track_id（同一语义类别下不同物体）
-                    manager = TrackManager(iou_threshold=float(self.iou_input.text() or "0.02"))
-                    manager.next_track_id = FIRST_ID  # 遵循1000档层级规范
                     direction = "向前" if forward else "向后"
                     if start_frame >= end_frame:
                         return
+                    total = end_frame - start_frame
+
+                    # OOM预检测
+                    mem_info = _gpu_memory_info()
+                    if _check_oom_risk(2.0):
+                        print(f"[纯语义{direction}] ⚠️ GPU显存不足({mem_info})，先清理...")
+                        _safe_empty_cache()
+                    print(f"[纯语义{direction}] 开始: 帧 {start_frame} → {end_frame-1} 共{total}帧, 文本={items_text} {mem_info}")
+
+                    try:
+                        predictor_local = SAM3VideoSemanticPredictor(overrides=overrides)
+                    except Exception as e:
+                        QMessageBox.warning(self, "模型加载失败", f"SAM模型加载失败:\n{e}")
+                        return
+
+                    manager = TrackManager(iou_threshold=float(self.iou_input.text() or "0.02"))
+                    manager.next_track_id = FIRST_ID
+
                     temp_frames = BASE_DIR / "temp_inject" / ("forward" if forward else "backward")
                     temp_frames.mkdir(parents=True, exist_ok=True)
                     frame_list = list(range(start_frame, end_frame))
                     if not forward:
                         frame_list = list(range(end_frame - 1, start_frame - 1, -1))
+
                     for idx, i in enumerate(frame_list):
                         src = mid_frames_dir / f"frame_{i:06d}.jpg"
                         dst = temp_frames / f"frame_{idx:06d}.jpg"
                         if src.exists():
                             shutil.copy2(src, dst)
+
                     clip_path = str(temp_frames / "clip.mp4")
                     sample = cv2.imread(str(temp_frames / "frame_000000.jpg"))
                     if sample is None:
@@ -3030,29 +3135,42 @@ class UnifiedPanel(QMainWindow):
                         if frame is not None:
                             out.write(frame)
                     out.release()
-                    print(f"[纯语义{direction}] 使用文本={items_text}")
-                    # 清理GPU显存碎片，防止OOM
-                    torch.cuda.empty_cache()
-                    results = list(predictor_local(source=clip_path, stream=True, text=items_text))
-                    for idx, r in enumerate(results):
-                        orig_idx = start_frame + idx if forward else end_frame - 1 - idx
-                        label_file = src_labels_dir / f"frame_{orig_idx:06d}.json"
-                        existing = []
-                        if label_file.exists():
-                            with open(label_file, encoding='utf-8') as f:
-                                existing = json.load(f)
-                        frame_anns = []
-                        if r.masks is not None:
+                    _safe_empty_cache()
+                    print(f"[纯语义{direction}] SAM推理中: {len(frame_list)}帧... {_gpu_memory_info()}")
+
+                    # 流式迭代：每处理完一帧立即保存并释放显存，不等待全部完成
+                    processed = 0
+                    try:
+                        for result_item in predictor_local(source=clip_path, stream=True, text=items_text):
+                            # 兼容不同版本ultralytics返回值格式
+                            r = result_item
+                            if hasattr(result_item, '__iter__') and not isinstance(result_item, (np.ndarray, bytes, str)):
+                                try:
+                                    r = next(iter(result_item))
+                                except (StopIteration, TypeError, AttributeError):
+                                    r = result_item
+
+                            if not hasattr(r, 'masks') or r is None or r.masks is None:
+                                continue
+
+                            idx = processed
+                            orig_idx = start_frame + idx if forward else end_frame - 1 - idx
+
+                            # 每100帧打印进度，避免刷屏
+                            if processed % 100 == 0 or processed == total - 1 or processed == 0:
+                                print(f"[纯语义{direction}] 进度: {processed}/{total}帧 ({processed*100//total if total > 0 else 0}%) {_gpu_memory_info()}")
+
+                            label_file = src_labels_dir / f"frame_{orig_idx:06d}.json"
+                            existing = []
+                            if label_file.exists():
+                                with open(label_file, encoding='utf-8') as f:
+                                    existing = json.load(f)
+
+                            frame_anns = []
                             masks_np = r.masks.data.cpu().numpy() if hasattr(r.masks, 'data') else r.masks
-                            bboxes_np = None
-                            if hasattr(r, 'boxes') and r.boxes is not None:
-                                boxes_data = r.boxes.data.cpu().numpy() if hasattr(r.boxes.data, 'cpu') else r.boxes.data
-                                bboxes_np = boxes_data
-                            # 用 TrackManager 给每个 mask 分配不同 track_id
                             cur_masks = [m for m in masks_np]
                             cur_bboxes = []
-                            for mi in range(len(cur_masks)):
-                                mask = cur_masks[mi]
+                            for mask in cur_masks:
                                 mask_binary = (mask > 0.5).astype(np.uint8)
                                 contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                                 cnt_area = 0
@@ -3063,12 +3181,12 @@ class UnifiedPanel(QMainWindow):
                                         if a > cnt_area:
                                             cnt_area = a
                                             poly = cnt.squeeze().flatten().tolist()
-                                            xs = poly[0::2]
-                                            ys = poly[1::2]
+                                            xs, ys = poly[0::2], poly[1::2]
                                             x1, x2 = min(xs), max(xs)
                                             y1, y2 = min(ys), max(ys)
                                             w, h = x2 - x1, y2 - y1
                                 cur_bboxes.append([float(x1), float(y1), float(w), float(h)])
+
                             track_ids = manager.update(cur_masks, cur_bboxes, idx)
                             for mi, mask in enumerate(masks_np):
                                 mask_binary = (mask > 0.5).astype(np.uint8)
@@ -3079,8 +3197,7 @@ class UnifiedPanel(QMainWindow):
                                         area = cv2.contourArea(cnt)
                                         if area > 0:
                                             tid = track_ids[mi] if mi < len(track_ids) else manager.next_track_id
-                                            xs = poly[0::2]
-                                            ys = poly[1::2]
+                                            xs, ys = poly[0::2], poly[1::2]
                                             x1, x2 = min(xs), max(xs)
                                             y1, y2 = min(ys), max(ys)
                                             frame_anns.append({
@@ -3092,13 +3209,38 @@ class UnifiedPanel(QMainWindow):
                                                 'category': items_text,
                                                 'trace_id_list': [tid]
                                             })
-                        merged = existing + frame_anns
-                        with open(label_file, 'w', encoding='utf-8') as f:
-                            json.dump(merged, f, ensure_ascii=False)
-                    print(f"[纯语义{direction}] 完成: {len(results)} 帧")
-                    # 释放GPU显存
-                    del results
-                    torch.cuda.empty_cache()
+
+                            # 立即释放mask显存（核心OOM优化）
+                            del masks_np, cur_masks
+                            if hasattr(r.masks, 'data'):
+                                del r.masks.data
+                            del r.masks
+
+                            merged = existing + frame_anns
+                            with open(label_file, 'w', encoding='utf-8') as f:
+                                json.dump(merged, f, ensure_ascii=False)
+                            del frame_anns, merged
+
+                            # 每200帧主动清理显存
+                            if processed % 200 == 0:
+                                _safe_empty_cache()
+
+                            # OOM预防检测
+                            if _check_oom_risk(1.5):
+                                print(f"[纯语义{direction}] ⚠️ 显存接近不足({_gpu_memory_info()})，继续处理...")
+                                _safe_empty_cache()
+
+                            processed += 1
+
+                        print(f"[纯语义{direction}] ✅ 完成: {processed}/{total}帧 {_gpu_memory_info()}")
+                    except Exception as e:
+                        print(f"[纯语义{direction}] ❌ 推理出错({e})，已处理{processed}帧")
+                        import traceback
+                        traceback.print_exc()
+                    finally:
+                        del predictor_local
+                        _safe_empty_cache()
+                        print(f"[纯语义{direction}] 清理完成 {_gpu_memory_info()}")
                 
                 # 前向语义分割
                 if self.forward_cb.isChecked():
