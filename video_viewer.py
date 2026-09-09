@@ -985,10 +985,13 @@ class VideoViewer(QMainWindow):
             self.panel.refresh_trace_id_list()
     
     def _change_trace_id_in_all_frames(self, old_tid, new_tid):
-        """多帧修改：所有帧中 track_id==old_tid 的 bbox，都改为 new_tid，并同步更新 trace_id_list"""
+        """多帧修改：起始帧~终止帧闭区间内，track_id==old_tid 的 bbox，都改为 new_tid，并同步更新 trace_id_list"""
+        start_frame, end_frame = self._get_fixed_frame_range()
         undo_changes = []
         for frame_file in sorted(self.labels_dir.glob("frame_*.json")):
             frame_idx = int(frame_file.stem.split('_')[1])
+            if not (start_frame <= frame_idx <= end_frame):
+                continue
             try:
                 with open(frame_file, encoding='utf-8') as f:
                     annotations = json.load(f)
@@ -1017,7 +1020,8 @@ class VideoViewer(QMainWindow):
         if self.panel and hasattr(self.panel, 'refresh_trace_id_list'):
             self.panel.refresh_trace_id_list()
         self.update_display()
-        print(f"[多帧修改] 共修改 {len(undo_changes)} 个bbox分布在 {len(set(c['frame_idx'] for c in undo_changes))} 帧")
+        frame_count = len(set(c['frame_idx'] for c in undo_changes))
+        print(f"[多帧修改] 帧范围[{start_frame},{end_frame}] 共修改 {len(undo_changes)} 个bbox分布在 {frame_count} 帧")
     
     def _assign_trace_id_by_region(self, region):
         """框选模式：在app面板起始-终止闭区间内，凡bbox与框选区域有交集的，赋当前trace_id"""
