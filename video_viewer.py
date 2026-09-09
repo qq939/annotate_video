@@ -855,11 +855,13 @@ class VideoViewer(QMainWindow):
                     # 只有一个，直接修改
                     ann = clicked_anns[0]
                     old_tid = ann.get('track_id', 0)
-                    if old_tid != current_tid:
-                        if is_single:
+                    if is_single:
+                        # 单帧模式：只有trace_id不同时才修改
+                        if old_tid != current_tid:
                             self._change_trace_id_single_frame(old_tid, current_tid, video_x, video_y)
-                        else:
-                            self._change_trace_id_in_all_frames(old_tid, current_tid)
+                    else:
+                        # 多帧模式：始终执行，由函数内部判断是否需要修改
+                        self._change_trace_id_in_all_frames(old_tid, current_tid)
                     return
                 
                 # 多个annotation重叠，弹出选择对话框
