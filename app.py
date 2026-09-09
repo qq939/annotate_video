@@ -4725,9 +4725,65 @@ class UnifiedPanel(QMainWindow):
 
                 suffix = ".ZIP" if is_zip else ".RAR"
                 print(f"[redo_copy] 解压 {suffix} 压缩包到临时目录: {temp_extract_dir}")
+                extract_ok = False
+                error_msgs = []
+
                 if is_zip:
-                    with zipfile.ZipFile(archive_path, "r") as zf:
-                        zf.extractall(temp_extract_dir)
+                    # 策略1：标准 zipfile（支持 Deflate/Store/Deflate64）
+                    try:
+                        if zipfile.is_zipfile(archive_path):
+                            with zipfile.ZipFile(archive_path, "r") as zf:
+                                zf.extractall(temp_extract_dir)
+                            extract_ok = True
+                            print(f"[redo_copy] 标准zipfile解压成功")
+                        else:
+                            error_msgs.append("zipfile.is_zipfile() 返回 False（可能是使用了不支持的压缩算法，如 Zstd/LZMA）")
+                    except Exception as e:
+                        error_msgs.append(f"标准zipfile失败: {e}")
+
+                    # 策略2：zipfile_deflate64（支持 Deflate64 压缩）
+                    if not extract_ok:
+                        try:
+                            import zipfile_deflate64
+                            with zipfile_deflate64.ZipFile(archive_path, "r") as zf:
+                                zf.extractall(temp_extract_dir)
+                            extract_ok = True
+                            print(f"[redo_copy] zipfile_deflate64解压成功")
+                        except ImportError:
+                            error_msgs.append("zipfile_deflate64 未安装（Deflate64压缩格式需要）")
+                        except Exception as e:
+                            error_msgs.append(f"zipfile_deflate64失败: {e}")
+
+                    # 策略3：7z 命令行（支持几乎所有格式）
+                    if not extract_ok:
+                        import shutil as _shutil
+                        sevenz = _shutil.which("7z") or _shutil.which("7za")
+                        if sevenz:
+                            import subprocess
+                            result = subprocess.run(
+                                [sevenz, "x", str(archive_path), f"-o{temp_extract_dir}", "-y"],
+                                capture_output=True, text=True, timeout=60
+                            )
+                            if result.returncode == 0:
+                                extract_ok = True
+                                print(f"[redo_copy] 7z解压成功")
+                            else:
+                                error_msgs.append(f"7z失败: {result.stderr or result.stdout}")
+                        else:
+                            error_msgs.append("7z 未安装（可从 https://www.7-zip.org/ 下载安装）")
+
+                    if not extract_ok:
+                        QMessageBox.warning(
+                            self, "解压失败",
+                            f"无法解压此 ZIP 文件（后缀: {archive_path.suffix}）。\n\n"
+                            f"原因：{error_msgs[0]}\n\n"
+                            f"解决方案：\n"
+                            f"1. 用 7-Zip 重新压缩为标准 ZIP（推荐）\n"
+                            f"   或 pip install zipfile-deflate64\n"
+                            f"2. 安装 7z: https://www.7-zip.org/"
+                        )
+                        shutil.rmtree(temp_extract_dir, ignore_errors=True)
+                        return
                 else:
                     import rarfile
                     with rarfile.RarFile(archive_path, "r") as rf:

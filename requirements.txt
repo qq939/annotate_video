@@ -22,6 +22,7 @@ torchvision
 flask
 matplotlib
 rarfile
+zipfile_deflate64
 scipy
 pyyaml
 tqdm
