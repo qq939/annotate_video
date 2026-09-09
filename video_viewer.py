@@ -860,8 +860,9 @@ class VideoViewer(QMainWindow):
                         if old_tid != current_tid:
                             self._change_trace_id_single_frame(old_tid, current_tid, video_x, video_y)
                     else:
-                        # 多帧模式：始终执行，由函数内部判断是否需要修改
-                        self._change_trace_id_in_all_frames(old_tid, current_tid)
+                        # 多帧模式：始终执行
+                        src_bbox = tuple(ann.get('bbox', [])[:4])
+                        self._change_trace_id_in_all_frames(old_tid, current_tid, src_bbox)
                     return
                 
                 # 多个annotation重叠，弹出选择对话框
@@ -883,10 +884,12 @@ class VideoViewer(QMainWindow):
                 item, ok = QInputDialog.getItem(self, "选择 Trace ID", "检测到多个目标重叠，请选择要修改的 Trace ID:", items, 0, False)
                 if ok and item:
                     selected_tid = int(item.split(": ")[1].split(" ")[0])
+                    sel_ann = next((a for a in clicked_anns if a.get('track_id', 0) == selected_tid), clicked_anns[0])
                     if is_single:
                         self._change_trace_id_single_frame(selected_tid, current_tid, video_x, video_y)
                     else:
-                        self._change_trace_id_in_all_frames(selected_tid, current_tid)
+                        src_bbox = tuple(sel_ann.get('bbox', [])[:4])
+                        self._change_trace_id_in_all_frames(selected_tid, current_tid, src_bbox)
 
     def on_bbox_drawn(self, display_x1, display_y1, display_x2, display_y2):
         scaled_w = int(self.video_width * self.zoom_factor)
@@ -986,10 +989,14 @@ class VideoViewer(QMainWindow):
         if self.controller and hasattr(self.controller, 'refresh_trace_id_list'):
             self.panel.refresh_trace_id_list()
     
-    def _change_trace_id_in_all_frames(self, old_tid, new_tid):
-        """多帧修改：起始帧~终止帧闭区间内，track_id==old_tid 的 bbox，都改为 new_tid，并同步更新 trace_id_list"""
+    def _change_trace_id_in_all_frames(self, old_tid, new_tid, source_bbox):
+        """多帧修改：起始帧~终止帧闭区间内，
+        - 若 old_tid != new_tid：所有 track_id==old_tid 的 annotation 改为 new_tid
+        - 若 old_tid == new_tid：按 bbox_key 匹配（用于操作帧已是目标值、但其他帧还是旧值的情况）"""
         start_frame, end_frame = self._get_fixed_frame_range()
         undo_changes = []
+        source_bbox_key = self._get_bbox_key(source_bbox)
+
         for frame_file in sorted(self.labels_dir.glob("frame_*.json")):
             frame_idx = int(frame_file.stem.split('_')[1])
             if not (start_frame <= frame_idx <= end_frame):
@@ -999,17 +1006,32 @@ class VideoViewer(QMainWindow):
                     annotations = json.load(f)
                 changed_this_frame = 0
                 for i, ann in enumerate(annotations):
-                    if ann.get('track_id', 0) != old_tid:
-                        continue
+                    if old_tid != new_tid:
+                        # 正常模式：按 track_id 匹配
+                        if ann.get('track_id', 0) != old_tid:
+                            continue
+                    else:
+                        # old_tid == new_tid：按 bbox_key 匹配（找同一物体）
+                        bbox_key = self._get_bbox_key(ann.get('bbox', []))
+                        if bbox_key != source_bbox_key:
+                            continue
                     bbox_key = self._get_bbox_key(ann.get('bbox', []))
+                    this_old_tid = ann.get('track_id', 0)
                     undo_changes.append({
                         'frame_idx': frame_idx,
                         'ann_index': i,
                         'bbox_key': bbox_key,
-                        'old_trace_id': old_tid,
+                        'old_trace_id': this_old_tid,
                         'new_trace_id': new_tid
                     })
-                    self._build_trace_id_list(ann, new_tid)  # 同步更新 trace_id_list
+                    ann['track_id'] = new_tid
+                    # 同步更新 trace_id_list
+                    trace_list = ann.get('trace_id_list', [])
+                    if not isinstance(trace_list, list):
+                        trace_list = []
+                    if not trace_list or trace_list[-1] != new_tid:
+                        trace_list.append(new_tid)
+                    ann['trace_id_list'] = trace_list
                     changed_this_frame += 1
                 if changed_this_frame > 0:
                     with open(frame_file, 'w', encoding='utf-8') as f:
