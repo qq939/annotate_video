@@ -4706,31 +4706,34 @@ class UnifiedPanel(QMainWindow):
                 return
             src_is_archive = True
 
-            suffix = archive_path.suffix.lower()
             temp_extract_dir = Path(tempfile.mkdtemp(prefix="annotate_redo_"))
             try:
-                print(f"[redo_copy] 解压 {suffix[1:].upper()} 压缩包到临时目录: {temp_extract_dir}")
-                if suffix == ".zip":
+                # 通过魔数自动判断压缩格式，而非依赖后缀
+                with open(archive_path, "rb") as f:
+                    magic = f.read(8)
+                is_zip = magic[:2] == b"PK"           # ZIP: PK\x03\x04 或 PK\x05\x06
+                is_rar = magic[:7] == b"Rar!\x1a\x07"  # RAR: Rar!\x1a\x07\x00
+
+                if not is_zip and not is_rar:
+                    QMessageBox.warning(
+                        self, "错误",
+                        f"不支持的压缩包格式或文件已损坏。\n后缀: {archive_path.suffix}\n"
+                        f"文件头: {magic[:8].hex()}\n\n请确认文件是有效的 ZIP 或 RAR 格式。"
+                    )
+                    shutil.rmtree(temp_extract_dir, ignore_errors=True)
+                    return
+
+                suffix = ".ZIP" if is_zip else ".RAR"
+                print(f"[redo_copy] 解压 {suffix} 压缩包到临时目录: {temp_extract_dir}")
+                if is_zip:
                     with zipfile.ZipFile(archive_path, "r") as zf:
                         zf.extractall(temp_extract_dir)
                 else:
-                    try:
-                        import rarfile
-                        with rarfile.RarFile(archive_path, "r") as rf:
-                            rf.extractall(temp_extract_dir)
-                    except Exception as e:
-                        QMessageBox.warning(self, "错误", f"RAR文件损坏或格式不兼容：\n{e}")
-                        shutil.rmtree(temp_extract_dir, ignore_errors=True)
-                        return
-                    except Exception as e:
-                        QMessageBox.warning(
-                            self, "RAR支持缺失",
-                            f"无法解压RAR文件：{e}\n\n请先运行:\n  pip install rarfile\n并安装 unrar 或 bsdtar 到 PATH"
-                        )
-                        shutil.rmtree(temp_extract_dir, ignore_errors=True)
-                        return
+                    import rarfile
+                    with rarfile.RarFile(archive_path, "r") as rf:
+                        rf.extractall(temp_extract_dir)
             except Exception as e:
-                QMessageBox.warning(self, "解压失败", f"{suffix.upper()}解压出错: {e}")
+                QMessageBox.warning(self, "解压失败", f"无法解压此压缩包：\n{e}")
                 shutil.rmtree(temp_extract_dir, ignore_errors=True)
                 return
 
