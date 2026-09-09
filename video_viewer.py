@@ -834,7 +834,7 @@ class VideoViewer(QMainWindow):
             if panel and hasattr(panel, 'trace_id_input'):
                 current_tid = int(panel.trace_id_input.text()) if panel.trace_id_input.text() else 1000000
                 is_single = self.single_frame_radio.isChecked()
-                print(f"[DEBUG] 单帧={is_single}, current_tid={current_tid}")
+                print(f"[多帧操作] 单帧={is_single}, current_tid={current_tid}, 操作帧={self.current_frame_idx+1}")
                 frame_annotations = self._get_current_annotations()
                 
                 # 找出所有被点击的annotation
@@ -994,10 +994,15 @@ class VideoViewer(QMainWindow):
         - 若 old_tid != new_tid：所有 track_id==old_tid 的 annotation 改为 new_tid
         - 若 old_tid == new_tid：按 bbox_key 匹配（用于操作帧已是目标值、但其他帧还是旧值的情况）"""
         start_frame, end_frame = self._get_fixed_frame_range()
+        print(f"[多帧修改] 区间 start={start_frame} end={end_frame} old_tid={old_tid} new_tid={new_tid}")
         undo_changes = []
         source_bbox_key = self._get_bbox_key(source_bbox)
+        print(f"[多帧修改] source_bbox_key={source_bbox_key}")
 
-        for frame_file in sorted(self.labels_dir.glob("frame_*.json")):
+        frame_files = sorted(self.labels_dir.glob("frame_*.json"))
+        print(f"[多帧修改] 共有 {len(frame_files)} 个帧文件")
+
+        for frame_file in frame_files:
             frame_idx = int(frame_file.stem.split('_')[1])
             if not (start_frame <= frame_idx <= end_frame):
                 continue
@@ -1005,13 +1010,14 @@ class VideoViewer(QMainWindow):
                 with open(frame_file, encoding='utf-8') as f:
                     annotations = json.load(f)
                 changed_this_frame = 0
+                old_tid_count = 0
                 for i, ann in enumerate(annotations):
+                    if ann.get('track_id', 0) == old_tid:
+                        old_tid_count += 1
                     if old_tid != new_tid:
-                        # 正常模式：按 track_id 匹配
                         if ann.get('track_id', 0) != old_tid:
                             continue
                     else:
-                        # old_tid == new_tid：按 bbox_key 匹配（找同一物体）
                         bbox_key = self._get_bbox_key(ann.get('bbox', []))
                         if bbox_key != source_bbox_key:
                             continue
@@ -1033,6 +1039,8 @@ class VideoViewer(QMainWindow):
                         trace_list.append(new_tid)
                     ann['trace_id_list'] = trace_list
                     changed_this_frame += 1
+                if old_tid_count > 0 or changed_this_frame > 0:
+                    print(f"[多帧修改] 帧{frame_idx}: track_id={old_tid}的annotation有{old_tid_count}个, 本次修改{changed_this_frame}个")
                 if changed_this_frame > 0:
                     with open(frame_file, 'w', encoding='utf-8') as f:
                         json.dump(annotations, f)
@@ -1045,7 +1053,7 @@ class VideoViewer(QMainWindow):
             self.panel.refresh_trace_id_list()
         self.update_display()
         frame_count = len(set(c['frame_idx'] for c in undo_changes))
-        print(f"[多帧修改] 帧范围[{start_frame},{end_frame}] 共修改 {len(undo_changes)} 个bbox分布在 {frame_count} 帧")
+        print(f"[多帧修改] 共修改 {len(undo_changes)} 个bbox分布在 {frame_count} 帧")
     
     def _assign_trace_id_by_region(self, region):
         """框选模式：在app面板起始-终止闭区间内，凡bbox与框选区域有交集的，赋当前trace_id"""
@@ -1172,6 +1180,7 @@ class VideoViewer(QMainWindow):
             start_frame = 1
         if end_frame == -1 or end_frame > self.total_frames:
             end_frame = self.total_frames
+        print(f"[帧区间] start={start_frame} end={end_frame} total={self.total_frames} fixed_start_input={getattr(getattr(panel,'fixed_start_input',None),'text',lambda:'N/A')()} fixed_end_input={getattr(getattr(panel,'fixed_end_input',None),'text',lambda:'N/A')()}")
         return start_frame, end_frame
     
     def _get_bbox_key(self, bbox):
