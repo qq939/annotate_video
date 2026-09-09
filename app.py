@@ -6337,6 +6337,29 @@ names: {class_names}
         esc_thread = threading.Thread(target=_listen_esc, daemon=True)
         esc_thread.start()
 
+        # mAP早停回调：准确率>0.97且5轮无提升则早停
+        def _map_early_stop_callback(trainer):
+            global _esc_pressed
+            if _esc_pressed:
+                raise StopIteration("[YOLO] ESC中断训练")
+            metrics = trainer.metrics
+            if metrics is None:
+                return
+            v80 = getattr(metrics, 'map50', None)
+            v50 = getattr(metrics, 'map75', None)
+            if v80 is None and v50 is None:
+                return
+            best_map = max(v80 or 0, v50 or 0)
+            epoch = trainer.epoch
+            if not hasattr(trainer, '_map_stop_epoch'):
+                trainer._map_stop_epoch = -1
+                trainer._map_stop_best = 0.0
+            if best_map > trainer._map_stop_best:
+                trainer._map_stop_best = best_map
+                trainer._map_stop_epoch = epoch
+            elif best_map > 0.97 and (epoch - trainer._map_stop_epoch) >= 5:
+                raise StopIteration(f"[YOLO] mAP={best_map:.4f}>0.97，5轮无提升，提前停止训练")
+
         if resume:
             # 从已有权重加载作为预训练权重，生成新的train-N文件夹
             print("[YOLO] 从已有权重加载...")
@@ -6353,6 +6376,7 @@ names: {class_names}
                 # 有best.pt，加载作为预训练权重
                 model = YOLO(str(best_pt))
                 model.add_callback("on_train_epoch", _esc_stop_callback)
+                model.add_callback("on_train_epoch", _map_early_stop_callback)
                 try:
                     result = model.train(
                         data=yaml_path.as_posix(),
@@ -6363,7 +6387,7 @@ names: {class_names}
                         workers=0,
                         project=yolo_project.as_posix(),
                         name=train_dir.name,
-                        patience=20,
+                        patience=5,
                         resume=False,
                         hsv_h=0.0,
                         hsv_s=0.0,
@@ -6380,6 +6404,7 @@ names: {class_names}
                 # 有last.pt，加载作为预训练权重
                 model = YOLO(str(last_pt))
                 model.add_callback("on_train_epoch", _esc_stop_callback)
+                model.add_callback("on_train_epoch", _map_early_stop_callback)
                 try:
                     result = model.train(
                         data=yaml_path.as_posix(),
@@ -6390,7 +6415,7 @@ names: {class_names}
                         workers=0,
                         project=yolo_project.as_posix(),
                         name=train_dir.name,
-                        patience=20,
+                        patience=5,
                         resume=False,
                         hsv_h=0.0,
                         hsv_s=0.0,
@@ -6408,6 +6433,7 @@ names: {class_names}
                 print("[YOLO] 只有best.onnx，从ONNX加载...")
                 model = YOLO(str(best_onnx))
                 model.add_callback("on_train_epoch", _esc_stop_callback)
+                model.add_callback("on_train_epoch", _map_early_stop_callback)
                 try:
                     result = model.train(
                         data=yaml_path.as_posix(),
@@ -6418,7 +6444,7 @@ names: {class_names}
                         workers=0,
                         project=yolo_project.as_posix(),
                         name=train_dir.name,
-                        patience=20,
+                        patience=5,
                         resume=False,
                         hsv_h=0.0,
                         hsv_s=0.0,
@@ -6442,6 +6468,7 @@ names: {class_names}
 
             model = YOLO("yolo11m.pt")
             model.add_callback("on_train_epoch", _esc_stop_callback)
+            model.add_callback("on_train_epoch", _map_early_stop_callback)
             try:
                 result = model.train(
                     data=yaml_path.as_posix(),
@@ -6452,7 +6479,7 @@ names: {class_names}
                     workers=0,
                     project=yolo_project.as_posix(),
                     name=train_dir.name,
-                    patience=20,
+                    patience=5,
                     cache="ram",
                     hsv_h=0.0,
                     hsv_s=0.0,
