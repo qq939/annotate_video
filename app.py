@@ -3093,6 +3093,23 @@ class UnifiedPanel(QMainWindow):
                     direction = "向前" if forward else "向后"
                     if start_frame >= end_frame:
                         return
+                    # 新增：获取当前类别映射，用于新建annotation时设置正确的category字段
+                    def _get_cat_for_tid(tid, fallback=""):
+                        """按trace_id查model.json类别，找不到用fallback或'Detect'"""
+                        if hasattr(self, 'category_tids') and self.category_tids:
+                            if tid in self.category_tids:
+                                idx = self.category_tids.index(tid)
+                                if hasattr(self, 'category_inputs') and idx < len(self.category_inputs):
+                                    name = self.category_inputs[idx].text().strip()
+                                    if name:
+                                        return name
+                        if tid >= 1000000:
+                            idx = tid - 1000000
+                            if hasattr(self, 'category_inputs') and idx < len(self.category_inputs):
+                                name = self.category_inputs[idx].text().strip()
+                                if name:
+                                    return name
+                        return fallback if fallback else 'Detect'
                     total = end_frame - start_frame
 
                     # OOM预检测
@@ -3206,7 +3223,7 @@ class UnifiedPanel(QMainWindow):
                                                 'area': float(area),
                                                 'segmentation': [poly],
                                                 'iscrowd': 0,
-                                                'category': items_text,
+                                                'category': _get_cat_for_tid(tid, items_text),
                                                 'trace_id_list': [tid]
                                             })
 
@@ -3322,6 +3339,23 @@ class UnifiedPanel(QMainWindow):
                 else:
                     predictor_local = SAM3VideoPredictor(overrides=overrides)
                 direction = "向前" if forward else "向后"
+                # 新增：获取当前类别映射，用于新建annotation时设置正确的category字段
+                def _get_cat_for_tid(tid, fallback="Detect"):
+                    """按trace_id查model.json类别，找不到用fallback或'Detect'"""
+                    if hasattr(self, 'category_tids') and self.category_tids:
+                        if tid in self.category_tids:
+                            idx = self.category_tids.index(tid)
+                            if hasattr(self, 'category_inputs') and idx < len(self.category_inputs):
+                                name = self.category_inputs[idx].text().strip()
+                                if name:
+                                    return name
+                    if tid >= 1000000:
+                        idx = tid - 1000000
+                        if hasattr(self, 'category_inputs') and idx < len(self.category_inputs):
+                            name = self.category_inputs[idx].text().strip()
+                            if name:
+                                return name
+                    return fallback
                 print(f"\n[DEBUG {direction}] === 进入 process_clip ===")
                 print(f"[DEBUG {direction}] start_frame={start_frame}, end_frame={end_frame}, 总帧数={end_frame - start_frame}, 设备=[{device_str}]")
 
@@ -3489,7 +3523,8 @@ class UnifiedPanel(QMainWindow):
                                                 'id': ann_id, 'track_id': tid, 'image_id': img_id,
                                                 'category_id': tid, 'bbox': bb, 'area': float(area2),
                                                 'segmentation': [poly2], 'iscrowd': 0, 'confidence': conf,
-                                                'category': 'Detect', 'trace_id_list': [tid]
+                                                'category': _get_cat_for_tid(tid, 'Detect'),
+                                                'trace_id_list': [tid]
                                             }
                                             result_anns.append(ann)
                                             frame_anns.append(ann)
@@ -4618,6 +4653,26 @@ class UnifiedPanel(QMainWindow):
                 name = self.category_inputs[idx].text() or "Detect"
                 return (idx, name)
         return (0, self.ctrl.category_name)
+    
+    def _resolve_category_for_tid(self, track_id, fallback_name=None):
+        """根据track_id查询model.json类别名称，找不到时使用fallback_name或'Detect'。
+        用于新建annotation时自动设置正确的category字段。
+        优先级：category_tids → 1000000+idx → fallback_name → 'Detect'
+        """
+        if hasattr(self, 'category_tids') and self.category_tids:
+            if track_id in self.category_tids:
+                idx = self.category_tids.index(track_id)
+                if hasattr(self, 'category_inputs') and idx < len(self.category_inputs):
+                    name = self.category_inputs[idx].text().strip()
+                    if name:
+                        return name
+        if track_id >= 1000000:
+            idx = track_id - 1000000
+            if hasattr(self, 'category_inputs') and idx < len(self.category_inputs):
+                name = self.category_inputs[idx].text().strip()
+                if name:
+                    return name
+        return fallback_name if fallback_name else 'Detect'
     
     def redo_copy(self):
         """从选择的文件夹 或 zip/rar 压缩包 复制覆盖 temp_data 和 temp_data_mid"""

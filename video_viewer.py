@@ -1188,12 +1188,33 @@ class VideoViewer(QMainWindow):
             return f"{int(bbox[0])},{int(bbox[1])},{int(bbox[2])},{int(bbox[3])}"
         return ""
 
+    def _get_category_for_tid(self, track_id):
+        """根据track_id查询model.json中对应的类别名称。
+        优先级：category_tids（实际tid）→ 1000000+idx（兼容旧数据）。
+        若找不到对应类别，返回 None（由调用方决定使用默认值）。
+        """
+        panel = self.panel
+        if panel and hasattr(panel, 'category_tids') and panel.category_tids:
+            if track_id in panel.category_tids:
+                idx = panel.category_tids.index(track_id)
+                if hasattr(panel, 'category_inputs') and idx < len(panel.category_inputs):
+                    name = panel.category_inputs[idx].text().strip()
+                    if name:
+                        return name
+        if track_id >= 1000000:
+            idx = track_id - 1000000
+            if hasattr(panel, 'category_inputs') and idx < len(panel.category_inputs):
+                name = panel.category_inputs[idx].text().strip()
+                if name:
+                    return name
+        return None  # 找不到，返回None让调用方决定
+
     def _build_trace_id_list(self, ann, new_tid):
         """修改annotation的track_id并同步trace_id_list（历史追加语义）
         Bug修复：之前只改track_id不更新trace_id_list，导致历史丢失。
         逻辑：若new_tid已是最后一项则跳过，否则追加（避免连续重复追加）。
+        新增：同时根据model.json将category字段更新为new_tid对应的类别名称。
         """
-        old_tid = ann.get('track_id', 0)
         ann['track_id'] = new_tid
         trace_list = ann.get('trace_id_list', [])
         if not isinstance(trace_list, list):
@@ -1201,6 +1222,10 @@ class VideoViewer(QMainWindow):
         if not trace_list or trace_list[-1] != new_tid:
             trace_list.append(new_tid)
         ann['trace_id_list'] = trace_list
+        # 按trace_id查model.json更新category字段
+        cat = self._get_category_for_tid(new_tid)
+        if cat:
+            ann['category'] = cat
     
     def _change_trace_id_single_frame(self, old_tid, new_tid, click_x, click_y):
         """Bug修复版：修改当前帧中被点击的那个bbox的trace_id，同时更新trace_id_list。
