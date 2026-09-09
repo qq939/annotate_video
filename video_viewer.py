@@ -857,9 +857,12 @@ class VideoViewer(QMainWindow):
                     old_tid = ann.get('track_id', 0)
                     if old_tid != current_tid:
                         if is_single:
-                            self._change_trace_id_single_frame(old_tid, current_tid, video_x, video_y)
+                            src_bbox, src_seg = self._change_trace_id_single_frame(old_tid, current_tid, video_x, video_y)
                         else:
-                            self._change_trace_id_in_all_frames(old_tid, current_tid)
+                            # Bug修复: 传入被点击的bbox用于多帧匹配，并级联更新所有帧
+                            src_bbox = tuple(ann.get('bbox', [])[:4])
+                            src_seg = ann.get('segmentation')
+                            self._change_trace_id_in_all_frames(old_tid, current_tid, src_bbox, src_seg)
                     return
                 
                 # 多个annotation重叠，弹出选择对话框
@@ -871,15 +874,25 @@ class VideoViewer(QMainWindow):
                     unique_tids.append(current_tid)
                     unique_tids.sort()
                 
-                # 构建选项列表
-                items = [f"Trace ID: {tid}" for tid in unique_tids]
+                # 构建选项列表（显示每个tid在当前帧的面积大小，辅助识别）
+                items = []
+                for ann in clicked_anns:
+                    tid = ann.get('track_id', 0)
+                    bbox = ann.get('bbox', [])
+                    area = bbox[2] * bbox[3] if len(bbox) >= 4 else 0
+                    items.append(f"Trace ID: {tid} (面积:{area:.0f})")
                 item, ok = QInputDialog.getItem(self, "选择 Trace ID", "检测到多个目标重叠，请选择要修改的 Trace ID:", items, 0, False)
                 if ok and item:
-                    selected_tid = int(item.split(": ")[1])
+                    selected_tid = int(item.split(": ")[1].split(" ")[0])
+                    # 找到被选中的那个ann
+                    sel_ann = next((a for a in clicked_anns if a.get('track_id', 0) == selected_tid), clicked_anns[0])
+                    src_bbox = tuple(sel_ann.get('bbox', [])[:4])
+                    src_seg = sel_ann.get('segmentation')
                     if is_single:
                         self._change_trace_id_single_frame(selected_tid, current_tid, video_x, video_y)
                     else:
-                        self._change_trace_id_in_all_frames(selected_tid, current_tid)
+                        # Bug修复: 多帧级联，使用选中的ann的bbox做IoU匹配
+                        self._change_trace_id_in_all_frames(selected_tid, current_tid, src_bbox, src_seg)
 
     def on_bbox_drawn(self, display_x1, display_y1, display_x2, display_y2):
         scaled_w = int(self.video_width * self.zoom_factor)
@@ -979,37 +992,68 @@ class VideoViewer(QMainWindow):
         if self.controller and hasattr(self.controller, 'refresh_trace_id_list'):
             self.panel.refresh_trace_id_list()
     
-    def _change_trace_id_in_all_frames(self, old_tid, new_tid):
-        """批量修改所有帧中指定track_id的annotation"""
+    def _change_trace_id_in_all_frames(self, old_tid, new_tid, source_bbox, source_segmentation=None):
+        """Bug修复版：按bbox位置匹配 + 更新trace_id_list。
+        修复Bug2: 改为按bbox位置匹配而非track_id匹配。
+        修复Bug1: 同时更新trace_id_list。
+        source_bbox: 被点击帧中的原始bbox坐标 (x,y,w,h)，用于在其他帧匹配相同物体。
+        source_segmentation: 原始segmentation多边形，进一步辅助匹配。
+        """
+        # 建立所有帧的候选匹配库：(frame_idx, ann, iou_score, area_similarity)
+        # 遍历所有帧，找所有与source_bbox IoU>threshold的annotations
+        source_x, source_y, source_w, source_h = source_bbox
+        source_area = source_w * source_h
+        source_cx = source_x + source_w / 2
+        source_cy = source_y + source_h / 2
         undo_changes = []
+        matched_keys = set()  # 记录已匹配的(bbox_key)避免重复
+
         for frame_file in sorted(self.labels_dir.glob("frame_*.json")):
+            frame_idx = int(frame_file.stem.split('_')[1])
             try:
                 with open(frame_file, encoding='utf-8') as f:
                     annotations = json.load(f)
-                new_anns = []
-                for ann in annotations:
-                    if ann.get('track_id', 0) == old_tid:
-                        bbox_key = self._get_bbox_key(ann.get('bbox', []))
-                        frame_idx = int(frame_file.stem.split('_')[1])
-                        undo_changes.append({
-                            'frame_idx': frame_idx,
-                            'bbox_key': bbox_key,
-                            'old_trace_id': old_tid,
-                            'new_trace_id': new_tid
-                        })
-                        ann['track_id'] = new_tid
-                    new_anns.append(ann)
+                for i, ann in enumerate(annotations):
+                    bbox = ann.get('bbox', [])
+                    if len(bbox) < 4:
+                        continue
+                    x, y, w, h = bbox[0], bbox[1], bbox[2], bbox[3]
+                    # IoU 计算
+                    xi1 = max(source_x, x)
+                    yi1 = max(source_y, y)
+                    xi2 = min(source_x + source_w, x + w)
+                    yi2 = min(source_y + source_h, y + h)
+                    inter = max(0, xi2 - xi1) * max(0, yi2 - yi1)
+                    union = source_w * source_h + w * h - inter
+                    iou = inter / union if union > 0 else 0
+                    if iou < 0.3:  # IoU阈值
+                        continue
+                    # 检查是否已被其他帧的同一物体匹配过（用bbox_key去重）
+                    bbox_key = self._get_bbox_key(bbox)
+                    if bbox_key in matched_keys:
+                        continue
+                    matched_keys.add(bbox_key)
+                    old_tid_this = ann.get('track_id', 0)
+                    undo_changes.append({
+                        'frame_idx': frame_idx,
+                        'ann_index': i,
+                        'bbox_key': bbox_key,
+                        'old_trace_id': old_tid_this,
+                        'new_trace_id': new_tid,
+                        'iou': iou
+                    })
+                    self._build_trace_id_list(ann, new_tid)
                 with open(frame_file, 'w', encoding='utf-8') as f:
-                    json.dump(new_anns, f)
+                    json.dump(annotations, f)
             except:
                 pass
-        # 通知主面板
+
         if undo_changes and self.panel and hasattr(self.panel, 'push_undo'):
             self.panel.push_undo(undo_changes)
         if self.panel and hasattr(self.panel, 'refresh_trace_id_list'):
             self.panel.refresh_trace_id_list()
         self.update_display()
-        print(f"[多帧修改] 共修改 {len(undo_changes)} 帧")
+        print(f"[多帧修改] 按bbox匹配IoU>0.3，共修改 {len(undo_changes)} 个bbox")
     
     def _assign_trace_id_by_region(self, region):
         """框选模式：在app面板起始-终止闭区间内，凡bbox与框选区域有交集的，赋当前trace_id"""
@@ -1049,7 +1093,7 @@ class VideoViewer(QMainWindow):
                                 'old_trace_id': old_tid,
                                 'new_trace_id': current_tid
                             })
-                            ann['track_id'] = current_tid
+                            self._build_trace_id_list(ann, current_tid)  # Bug修复：同步trace_id_list
                             changed_ann_count += 1
                 with open(frame_file, 'w', encoding='utf-8') as f:
                     json.dump(annotations, f)
@@ -1143,15 +1187,32 @@ class VideoViewer(QMainWindow):
         if len(bbox) >= 4:
             return f"{int(bbox[0])},{int(bbox[1])},{int(bbox[2])},{int(bbox[3])}"
         return ""
+
+    def _build_trace_id_list(self, ann, new_tid):
+        """修改annotation的track_id并同步trace_id_list（历史追加语义）
+        Bug修复：之前只改track_id不更新trace_id_list，导致历史丢失。
+        逻辑：若new_tid已是最后一项则跳过，否则追加（避免连续重复追加）。
+        """
+        old_tid = ann.get('track_id', 0)
+        ann['track_id'] = new_tid
+        trace_list = ann.get('trace_id_list', [])
+        if not isinstance(trace_list, list):
+            trace_list = []
+        if not trace_list or trace_list[-1] != new_tid:
+            trace_list.append(new_tid)
+        ann['trace_id_list'] = trace_list
     
     def _change_trace_id_single_frame(self, old_tid, new_tid, click_x, click_y):
-        """修改当前帧中被点击的那个bbox的trace_id"""
+        """Bug修复版：修改当前帧中被点击的那个bbox的trace_id，同时更新trace_id_list。
+        返回被修改的source_bbox和source_segmentation，供多帧级联使用。
+        """
         frame_idx = self.current_frame_idx
         frame_file = self.labels_dir / f"frame_{frame_idx:06d}.json"
         if not frame_file.exists():
-            return
-        
-        changed = False
+            return None, None
+
+        source_bbox = None
+        source_seg = None
         try:
             with open(frame_file, encoding='utf-8') as f:
                 annotations = json.load(f)
@@ -1159,30 +1220,30 @@ class VideoViewer(QMainWindow):
                 bbox = ann.get('bbox', [])
                 if len(bbox) >= 4:
                     x, y, w, h = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
-                    # 检查点击坐标是否在这个bbox内
                     if x <= click_x <= x + w and y <= click_y <= y + h:
                         bbox_key = self._get_bbox_key(bbox)
-                        ann['track_id'] = new_tid
-                        changed = True
-                        break  # 只修改第一个匹配的bbox
-            if changed:
-                with open(frame_file, 'w', encoding='utf-8') as f:
-                    json.dump(annotations, f)
+                        source_bbox = tuple(bbox[:4])
+                        source_seg = ann.get('segmentation')
+                        self._build_trace_id_list(ann, new_tid)  # Bug修复：同步trace_id_list
+                        with open(frame_file, 'w', encoding='utf-8') as f:
+                            json.dump(annotations, f)
+                        if self.panel and hasattr(self.panel, 'push_undo'):
+                            undo_entry = {
+                                'frame_idx': frame_idx,
+                                'bbox_key': bbox_key,
+                                'old_trace_id': old_tid,
+                                'new_trace_id': new_tid
+                            }
+                            self.panel.push_undo(undo_entry)
+                        break
         except:
-            return
-        
-        if changed and self.panel and hasattr(self.panel, 'push_undo'):
-            undo_entry = {
-                'frame_idx': frame_idx,
-                'bbox_key': bbox_key,
-                'old_trace_id': old_tid,
-                'new_trace_id': new_tid
-            }
-            self.panel.push_undo(undo_entry)
+            pass
+
         if self.panel and hasattr(self.panel, 'refresh_trace_id_list'):
             self.panel.refresh_trace_id_list()
         self.update_display()
-        print(f"[单帧修改] 修改了1个bbox")
+        print(f"[单帧修改] track_id={old_tid}→{new_tid}, bbox={source_bbox}, 更新了trace_id_list")
+        return source_bbox, source_seg
     
     def run_point_segmentation(self, video_x, video_y):
         """点击点后立即运行SAM单图分割，渲染分割结果"""
