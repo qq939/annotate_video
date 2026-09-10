@@ -270,6 +270,8 @@ def _run_onnx_inference(
         classes = ["unknown"]
         model_input_size = (640, 640)
         if model_json_path:
+            # 复制原 model.json 到临时根目录，供最终输出使用
+            shutil.copy2(str(model_json_path), str(labels_dir.parent / "model.json"))
             with open(model_json_path, encoding="utf-8") as f:
                 mj = json.load(f)
             classes = mj.get("classes", classes)
@@ -290,7 +292,6 @@ def _run_onnx_inference(
         # 3. 遍历帧推理
         frame_files = sorted(frames_dir.glob("frame_*.jpg"))
         ann_meta = {}  # frame_idx -> list of annotations
-        ann_id = 1001
 
         for ff in frame_files:
             digits = "".join(c for c in ff.stem.split("_")[1] if c.isdigit())
@@ -325,17 +326,19 @@ def _run_onnx_inference(
                 x, y, w, h = float(x), float(y), float(w), float(h)
                 # segmentation: 4 corners
                 seg = [x, y, x + w, y, x + w, y + h, x, y + h]
+                class_id = int(box["class_id"])
+                # 每种 label 固定 trace id：按类别分配 1000 的倍数（1000/2000/...）
+                trace_id = 1000 * (class_id + 1)
                 ann = {
                     "bbox": [x, y, w, h],
-                    "track_id": ann_id,
+                    "track_id": trace_id,
                     "segmentation": [seg],
-                    "category": classes[int(box["class_id"])],
+                    "category": classes[class_id],
                     "confidence": float(box["confidence"]),
                     "category_id": 0,  # app 约定：类别由 category 字段存储，category_id 恒为 0
-                    "trace_id_list": [ann_id],
+                    "trace_id_list": [trace_id],
                 }
                 ann_list.append(ann)
-                ann_id += 1
 
             # 写入 label
             with open(labels_dir / f"frame_{frame_idx:06d}.json", "w", encoding="utf-8") as f:
@@ -519,6 +522,11 @@ def _merge_and_write(
 
     with open(output_dir / "annotations.json", "w", encoding="utf-8") as f:
         json.dump(ann_data, f, ensure_ascii=False)
+
+    # 复制原 model.json 到输出目录
+    model_json_src = frame_src_dir.parent / "model.json"
+    if model_json_src.exists():
+        shutil.copy2(str(model_json_src), str(output_dir / "model.json"))
 
     return output_dir
 
