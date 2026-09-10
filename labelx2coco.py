@@ -42,7 +42,6 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
         return False
 
     print(f"[INFO] Found {len(json_files)} JSON files")
-    print(f"[DEBUG] First JSON file: {json_files[0].name}")
 
     # 从第一个labelme JSON获取源图片尺寸
     first_json = json_files[0]
@@ -50,7 +49,6 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
         first_data = json.load(f)
     src_w = int(first_data.get("imageWidth", 0))
     src_h = int(first_data.get("imageHeight", 0))
-    print(f"[DEBUG] Source size from JSON: {src_w}x{src_h}")
 
     # 如果JSON中没有尺寸，从图片获取
     if src_w <= 0 or src_h <= 0:
@@ -205,7 +203,9 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
             "version": "1.0",
             "description": f"labelme converted {short_id}",
             "width": target_w,
-            "height": target_h
+            "height": target_h,
+            "fps": 30,
+            "fourcc": "mp4v"
         },
         "categories": categories,
         "images": [
