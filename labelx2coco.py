@@ -250,16 +250,46 @@ def main():
 
     src_path = Path(src_dir)
 
-    # 输入目标分辨率
-    height_str, ok = QInputDialog.getText(None, "Target Height", "Enter target image height (pixels):")
-    if not ok or not height_str.strip():
-        print("[INFO] Cancelled")
-        return
+    # 自动检测源图片分辨率并设为默认值
+    default_w, default_h = 2012, 1518
+    try:
+        first_json = src_path / [f for f in src_path.glob("*.json") if f.name != "annotations.json"][0].name if any(f.name != "annotations.json" for f in src_path.glob("*.json")) else None
+        json_files = [f for f in src_path.glob("*.json") if f.name != "annotations.json"]
+        if json_files:
+            with open(json_files[0], encoding='utf-8') as f:
+                d = json.load(f)
+            if d.get("imageWidth") and d.get("imageHeight"):
+                default_w = int(d["imageWidth"])
+                default_h = int(d["imageHeight"])
+    except Exception:
+        pass
 
-    width_str, ok = QInputDialog.getText(None, "Target Width", "Enter target image width (pixels):")
-    if not ok or not width_str.strip():
+    # 输入目标分辨率（使用默认值）
+    height_str, ok = QInputDialog.getText(None, "Target Height", f"Enter target image height\n(Default: {default_h}):")
+    if not ok:
         print("[INFO] Cancelled")
         return
+    if not height_str.strip():
+        target_h = default_h
+    else:
+        try:
+            target_h = int(height_str.strip())
+        except ValueError:
+            QMessageBox.critical(None, "Error", "Height must be an integer!")
+            return
+
+    width_str, ok = QInputDialog.getText(None, "Target Width", f"Enter target image width\n(Default: {default_w}):")
+    if not ok:
+        print("[INFO] Cancelled")
+        return
+    if not width_str.strip():
+        target_w = default_w
+    else:
+        try:
+            target_w = int(width_str.strip())
+        except ValueError:
+            QMessageBox.critical(None, "Error", "Width must be an integer!")
+            return
 
     try:
         target_h = int(height_str.strip())
