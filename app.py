@@ -3351,6 +3351,9 @@ class UnifiedPanel(QMainWindow):
             self.last_prompt_first_id = FIRST_ID
             device_str = "GPU" if device_type == 'cuda' else ("MPS" if device_type == 'mps' else "CPU")
             print(f"=== 双向标注开始 === 提示帧: {prompt_idx}, 总帧数: {total}, 设备: [{device_str}], 前向={self.forward_cb.isChecked()}, 后向={self.backward_cb.isChecked()}, FIRST_ID={FIRST_ID}")
+            print(f"[提示帧] prompt_frame_idx={prompt_idx}, 模式(box/point/text)="
+                  f"{'point' if self.viewer.prompt_type == 'point' else 'bbox'}, "
+                  f"prompt_bboxes={prompt_bboxes}, prompt_points={prompt_points}")
             forward_annotations = []
             backward_annotations = []
 
@@ -3476,6 +3479,32 @@ class UnifiedPanel(QMainWindow):
                         orig_img = cv2.cvtColor(orig_img, cv2.COLOR_GRAY2BGR)
                     elif orig_img.shape[2] == 4:
                         orig_img = cv2.cvtColor(orig_img, cv2.COLOR_BGRA2BGR)
+
+                    # 帧对齐校验：比较 predictor 返回帧与源帧内容，定位"领先/滞后"偏移（不改动任何逻辑）
+                    if frame_idx == 0:
+                        try:
+                            _fwd_check = frame_idx + start_frame if forward else end_frame - 1 - frame_idx
+                            _g = cv2.cvtColor(orig_img, cv2.COLOR_BGR2GRAY).astype(np.float32)
+                            _mads = []
+                            for _off in range(-3, 13):
+                                _cand = mid_frames_dir / f"frame_{_fwd_check + _off:06d}.jpg"
+                                if not _cand.exists():
+                                    _mads.append((_off, -1.0))
+                                    continue
+                                _c = cv2.imread(str(_cand))
+                                if _c is None:
+                                    _mads.append((_off, -1.0))
+                                    continue
+                                _cg = cv2.cvtColor(_c, cv2.COLOR_BGR2GRAY).astype(np.float32)
+                                _mads.append((_off, float(np.mean(np.abs(_g - _cg)))))
+                            _best = min((x for x in _mads if x[1] >= 0), key=lambda x: x[1])
+                            _mad0 = next((m for o, m in _mads if o == 0), -1.0)
+                            _flag = "" if _best[0] == 0 else "  ⚠️ 存在帧偏移!"
+                            print(f"[DEBUG {direction}] 帧对齐校验[首帧]: 期望原帧={_fwd_check}, "
+                                  f"与期望帧MAD={_mad0:.2f}, 最佳匹配偏移={_best[0]:+d}帧(MAD={_best[1]:.2f}){_flag}")
+                        except Exception as _e:
+                            print(f"[DEBUG {direction}] 帧对齐校验失败: {_e}")
+
                     cv2.imwrite(str(temp_frames / f"frame_{frame_idx:06d}.jpg"), orig_img)
 
                     frame_anns = []
