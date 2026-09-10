@@ -8,8 +8,6 @@ labelx2coco.py - 将labelme格式转换为COCO格式
 """
 import json
 import shutil
-import random
-import string
 from pathlib import Path
 from PyQt5.QtWidgets import QApplication, QFileDialog, QInputDialog, QMessageBox, QLineEdit
 import sys
@@ -98,17 +96,6 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
     print(f"[INFO] Ratio: x={ratio_x:.4f}, y={ratio_y:.4f}")
     print(f"[DEBUG] Processing first file: {sorted(json_files)[0].name}")
 
-    # 收集类别（保持首次出现的顺序）
-    cat_map = {}  # label -> category_id
-    categories = []  # 按首次出现顺序
-
-    def get_or_create_category(label):
-        if label not in cat_map:
-            cat_id = len(categories) + 1
-            cat_map[label] = cat_id
-            categories.append({"id": cat_id, "name": label, "supercategory": ""})
-        return cat_map[label]
-
     # 构建 frame_XXXXXX.json 文件，同时处理图片
     frame_jsons = {}  # frame_idx -> list of ann
     processed_frames = 0
@@ -140,9 +127,6 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
                 stype = shape.get("shape_type", "rectangle")
                 points = shape.get("points", [])
 
-                # 确保类别已注册（保持首次出现顺序）
-                get_or_create_category(label)
-
                 # 处理任意点数的 rectangle 或 polygon，统一用 min/max 计算 bbox
                 if len(points) >= 2:
                     xs = [p[0] for p in points]
@@ -164,13 +148,15 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
 
                     anns.append({
                         "id": len(anns) + 1,
-                        "category_id": cat_map[label],
-                        "track_id": 0,
-                        "trace_id_list": [0],
+                        "track_id": 1000,  # 默认track_id
+                        "image_id": frame_idx,
+                        "category_id": 0,  # 始终为0
                         "bbox": [x_scaled, y_scaled, w_scaled, h_scaled],
                         "area": w_scaled * h_scaled,
-                        "segmentation": [seg],
-                        "iscrowd": 0
+                        "segmentation": [seg],  # 4个角点展开的列表
+                        "iscrowd": 0,
+                        "confidence": 1.0,
+                        "category": label  # 类别名称
                     })
 
             frame_jsons[frame_idx] = anns
@@ -217,19 +203,18 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
         with open(labels_dir / f"frame_{frame_idx:06d}.json", 'w', encoding='utf-8') as f:
             json.dump(anns, f, ensure_ascii=False)
 
-    # 生成 annotations.json
-    short_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
+    # 生成 annotations.json（categories为空，由用户在UI中分配）
     ann_data = {
         "info": {
             "year": 2024,
             "version": "1.0",
-            "description": f"labelme converted {short_id}",
+            "description": "labelme converted",
             "width": target_w,
             "height": target_h,
             "fps": 30,
             "fourcc": "mp4v"
         },
-        "categories": categories,
+        "categories": [],  # 类别由用户在UI中分配
         "images": [
             {"id": i, "file_name": f"frame_{i:06d}.jpg", "width": target_w, "height": target_h}
             for i in sorted(frame_jsons.keys())
@@ -241,10 +226,7 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
         json.dump(ann_data, f, ensure_ascii=False)
 
     print(f"[DONE] Output: {dst_dir}")
-    print(f"[DONE] Frames: {len(frame_jsons)}, Images: {processed_frames}, Categories: {len(categories)}")
-    print(f"[DONE] Category mapping:")
-    for cat in categories:
-        print(f"       id={cat['id']}: {cat['name']}")
+    print(f"[DONE] Frames: {len(frame_jsons)}, Images: {processed_frames}")
     return True
 
 
