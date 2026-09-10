@@ -307,6 +307,13 @@ class VideoViewer(QMainWindow):
         self.trace_delete_btn.setFixedWidth(44)
         self.trace_delete_btn.setFixedHeight(22)
         self.trace_delete_btn.clicked.connect(self._delete_by_trace_id)
+        # 按帧删除模式：radio + 确认键（放到radiobox右侧）
+        self.frame_delete_radio = QRadioButton("按帧删除")
+        self.frame_delete_radio.setChecked(False)
+        self.frame_delete_btn = QPushButton("确认")
+        self.frame_delete_btn.setFixedWidth(44)
+        self.frame_delete_btn.setFixedHeight(22)
+        self.frame_delete_btn.clicked.connect(self._delete_frames_by_range)
         mode_layout.addWidget(self.single_frame_radio)
         mode_layout.addWidget(self.multi_frame_radio)
         mode_layout.addWidget(self.box_select_radio)
@@ -314,6 +321,8 @@ class VideoViewer(QMainWindow):
         mode_layout.addWidget(self.trace_delete_radio)
         mode_layout.addWidget(self.trace_delete_input)
         mode_layout.addWidget(self.trace_delete_btn)
+        mode_layout.addWidget(self.frame_delete_radio)
+        mode_layout.addWidget(self.frame_delete_btn)
         # A/B 模式切换
         mode_layout.addWidget(QLabel("点击:"))
         self.mode_ab_btn = QPushButton("A")
@@ -1224,6 +1233,59 @@ class VideoViewer(QMainWindow):
         print(f"[按traceid删除] trace_id={tid} 帧范围[{start_frame},{end_frame}] 删除 {deleted_count} 个annotation / {frame_count} 帧")
         QMessageBox.information(self, "完成",
                                 f"已删除 trace_id={tid} 的 {deleted_count} 个标注\n帧范围 [{start_frame},{end_frame}]，涉及 {frame_count} 帧")
+
+    def _delete_frames_by_range(self):
+        """按帧删除：删除app面板起始-终止闭区间内的所有帧、bbox和annotations"""
+        start_frame, end_frame = self._get_fixed_frame_range()
+        # 1-based闭区间[start, end] → 0-based [start-1, end-1]
+        delete_set = set(range(start_frame - 1, end_frame))
+        if not delete_set:
+            QMessageBox.information(self, "提示", "没有要删除的帧")
+            return
+
+        reply = QMessageBox.question(
+            self, "确认",
+            f"确定删除闭区间[{start_frame},{end_frame}]内的 {len(delete_set)} 帧及其标注吗？",
+            QMessageBox.Yes | QMessageBox.No)
+        if reply != QMessageBox.Yes:
+            return
+
+        deleted_count = 0
+        for frame_idx in sorted(delete_set, reverse=True):
+            frame_path = self.frames_dir / f"frame_{frame_idx:06d}.jpg"
+            label_path = self.labels_dir / f"frame_{frame_idx:06d}.json"
+            if frame_path.exists():
+                frame_path.unlink()
+                deleted_count += 1
+            if label_path.exists():
+                label_path.unlink()
+
+        # 重新编号：后面的帧前移，label文件同步重命名
+        all_frames = sorted(self.frames_dir.glob("frame_*.jpg"))
+        for new_idx, frame_path in enumerate(all_frames):
+            if frame_path.stem != f"frame_{new_idx:06d}":
+                new_path = self.frames_dir / f"frame_{new_idx:06d}.jpg"
+                old_label = self.labels_dir / (frame_path.stem + ".json")
+                new_label = self.labels_dir / f"frame_{new_idx:06d}.json"
+                frame_path.rename(new_path)
+                if old_label.exists():
+                    old_label.rename(new_label)
+
+        # 更新总数和coco_data
+        self.total_frames = len(list(self.frames_dir.glob("frame_*.jpg")))
+        self.coco_data['images'] = [
+            {'id': i, 'file_name': f"frame_{i:06d}.jpg", 'width': self.video_width, 'height': self.video_height, 'frame_count': i}
+            for i in range(self.total_frames)
+        ]
+        with open(self.temp_data_path / 'annotations.json', 'w', encoding='utf-8') as f:
+            json.dump(self.coco_data, f, ensure_ascii=False)
+
+        if self.current_frame_idx >= self.total_frames:
+            self.current_frame_idx = max(0, self.total_frames - 1)
+
+        self.update_display()
+        print(f"[按帧删除] 帧范围[{start_frame},{end_frame}] 删除 {deleted_count} 帧，当前总帧数: {self.total_frames}")
+        QMessageBox.information(self, "完成", f"已删除 {deleted_count} 帧\n当前总帧数: {self.total_frames}")
 
     def _get_fixed_frame_range(self):
         """读取app面板固定框的起始/终止帧（1-based闭区间），返回(start_frame, end_frame)"""
