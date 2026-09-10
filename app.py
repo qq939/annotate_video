@@ -2012,12 +2012,34 @@ class UnifiedPanel(QMainWindow):
             av_module.FIND = OrigFIND
 
     def create_viewer_section(self):
-        group = QGroupBox("2. 预览")
-        group.setStyleSheet("QGroupBox { font-weight: bold; }")
+        group = QWidget()
+        outer_layout = QVBoxLayout()
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(4)
+        group.setLayout(outer_layout)
+
+        # 可折叠标题栏
+        header = QWidget()
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(4)
+        self.viewer_toggle_btn = QToolButton()
+        self.viewer_toggle_btn.setText("2. 预览 ▼")
+        self.viewer_toggle_btn.setStyleSheet("QToolButton { font-weight: bold; background: #333; color: white; border: none; padding: 4px; }")
+        self.viewer_toggle_btn.setCheckable(True)
+        self.viewer_toggle_btn.setChecked(True)
+        self.viewer_toggle_btn.toggled.connect(lambda checked: self.viewer_content.setVisible(checked))
+        header_layout.addWidget(self.viewer_toggle_btn)
+        header.setLayout(header_layout)
+        outer_layout.addWidget(header)
+
+        # 可折叠内容
+        self.viewer_content = QWidget()
         layout = QVBoxLayout()
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
-        group.setLayout(layout)
+        self.viewer_content.setLayout(layout)
+        outer_layout.addWidget(self.viewer_content)
 
         path_layout = QHBoxLayout()
         path_layout.setSpacing(4)
