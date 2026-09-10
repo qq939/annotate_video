@@ -60,45 +60,13 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
 
     print(f"[INFO] Found {len(json_files)} JSON files")
 
-    # 优先从图片文件获取真实尺寸（JSON中的imageWidth/imageHeight可能不准确）
-    src_w, src_h = 0, 0
-    img_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.JPG', '.JPEG', '.PNG', '.BMP']
-    for ext in img_extensions:
-        img_files = sorted(list(src_dir.glob(f"*{ext}")))
-        if img_files:
-            try:
-                with Image.open(img_files[0]) as img:
-                    src_w, src_h = img.size
-                    print(f"[INFO] Got real size from image: {src_w}x{src_h}")
-                break
-            except Exception:
-                pass
-
-    # 如果图片获取失败，从JSON获取
-    if src_w <= 0 or src_h <= 0:
-        first_json = json_files[0]
-        with open(first_json, encoding='utf-8') as f:
-            first_data = json.load(f)
-        src_w = int(first_data.get("imageWidth", 0))
-        src_h = int(first_data.get("imageHeight", 0))
-        print(f"[INFO] Got size from JSON: {src_w}x{src_h}")
-
-    if src_w <= 0 or src_h <= 0:
-        src_w, src_h = target_w, target_h
-        print(f"[WARNING] Could not determine source size, using target size")
-
-    print(f"[INFO] Source size: {src_w}x{src_h}")
     print(f"[INFO] Target size: {target_w}x{target_h}")
-
-    # 计算缩放比例
-    ratio_x = target_w / src_w if src_w > 0 else 1.0
-    ratio_y = target_h / src_h if src_h > 0 else 1.0
-    print(f"[INFO] Ratio: x={ratio_x:.4f}, y={ratio_y:.4f}")
     print(f"[DEBUG] Processing first file: {sorted(json_files)[0].name}")
 
     # 构建 frame_XXXXXX.json 文件，同时处理图片
     frame_jsons = {}  # frame_idx -> list of ann
     processed_frames = 0
+    img_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.JPG', '.JPEG', '.PNG', '.BMP']
 
     for idx, jf in enumerate(sorted(json_files)):
         try:
@@ -121,11 +89,41 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
             if frame_idx is None:
                 frame_idx = idx
 
+            # 查找该帧对应图片，每帧独立读取真实尺寸（混合尺寸源不能用全局尺寸）
+            src_img = None
+            for ext in img_extensions:
+                potential_img = src_dir / f"{name}{ext}"
+                if potential_img.exists():
+                    src_img = potential_img
+                    break
+            if src_img is None:
+                for subdir in [src_dir / "images", src_dir / "img", src_dir / "pics"]:
+                    for ext in img_extensions:
+                        potential_img = subdir / f"{name}{ext}"
+                        if potential_img.exists():
+                            src_img = potential_img
+                            break
+                    if src_img:
+                        break
+
+            src_w, src_h = 0, 0
+            if src_img:
+                with Image.open(src_img) as img:
+                    src_w, src_h = img.size
+            if src_w <= 0 or src_h <= 0:
+                src_w = int(d.get("imageWidth", 0))
+                src_h = int(d.get("imageHeight", 0))
+            if src_w <= 0 or src_h <= 0:
+                src_w, src_h = target_w, target_h
+
+            # 每帧按自身真实尺寸计算缩放比例
+            ratio_x = target_w / src_w if src_w > 0 else 1.0
+            ratio_y = target_h / src_h if src_h > 0 else 1.0
+
             anns = []
             ann_id = 1001  # 每个shape一个唯一的track_id，从1001开始
             for shape in d.get("shapes", []):
                 label = shape.get("label", "unknown")
-                stype = shape.get("shape_type", "rectangle")
                 points = shape.get("points", [])
 
                 # 处理任意点数的 rectangle 或 polygon，统一用 min/max 计算 bbox
@@ -162,25 +160,7 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
 
             frame_jsons[frame_idx] = anns
 
-            # 处理图片文件
-            img_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.JPG', '.JPEG', '.PNG', '.BMP']
-            src_img = None
-            for ext in img_extensions:
-                potential_img = src_dir / f"{name}{ext}"
-                if potential_img.exists():
-                    src_img = potential_img
-                    break
-
-            if src_img is None:
-                for subdir in [src_dir / "images", src_dir / "img", src_dir / "pics"]:
-                    for ext in img_extensions:
-                        potential_img = subdir / f"{name}{ext}"
-                        if potential_img.exists():
-                            src_img = potential_img
-                            break
-                    if src_img:
-                        break
-
+            # 处理图片文件（resize 到目标尺寸）
             if src_img:
                 try:
                     with Image.open(src_img) as img:
