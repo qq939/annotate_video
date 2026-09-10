@@ -42,6 +42,7 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
         return False
 
     print(f"[INFO] Found {len(json_files)} JSON files")
+    print(f"[DEBUG] First JSON file: {json_files[0].name}")
 
     # 从第一个labelme JSON获取源图片尺寸
     first_json = json_files[0]
@@ -49,6 +50,7 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
         first_data = json.load(f)
     src_w = int(first_data.get("imageWidth", 0))
     src_h = int(first_data.get("imageHeight", 0))
+    print(f"[DEBUG] Source size from JSON: {src_w}x{src_h}")
 
     # 如果JSON中没有尺寸，从图片获取
     if src_w <= 0 or src_h <= 0:
@@ -121,11 +123,12 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
                 # 确保类别已注册（保持首次出现顺序）
                 get_or_create_category(label)
 
-                if stype == "rectangle" and len(points) >= 2:
-                    x1, y1 = points[0]
-                    x2, y2 = points[1]
-                    x, y = min(x1, x2), min(y1, y2)
-                    w, h = abs(x2 - x1), abs(y2 - y1)
+                # 处理任意点数的 rectangle 或 polygon，统一用 min/max 计算 bbox
+                if len(points) >= 2:
+                    xs = [p[0] for p in points]
+                    ys = [p[1] for p in points]
+                    x, y = min(xs), min(ys)
+                    w, h = max(xs) - x, max(ys) - y
 
                     # 缩放坐标
                     x_scaled = x * ratio_x
@@ -133,23 +136,7 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
                     w_scaled = w * ratio_x
                     h_scaled = h * ratio_y
 
-                    anns.append({
-                        "id": len(anns) + 1,
-                        "category_id": cat_map[label],
-                        "track_id": 0,
-                        "trace_id_list": [0],
-                        "bbox": [x_scaled, y_scaled, w_scaled, h_scaled],
-                        "area": w_scaled * h_scaled,
-                        "segmentation": [[x_scaled, y_scaled, x_scaled + w_scaled, y_scaled, x_scaled + w_scaled, y_scaled + h_scaled, x_scaled, y_scaled + h_scaled]],
-                        "iscrowd": 0
-                    })
-                elif stype == "polygon" and len(points) >= 3:
-                    xs = [p[0] for p in points]
-                    ys = [p[1] for p in points]
-                    x, y = min(xs), min(ys)
-                    w, h = max(xs) - x, max(ys) - y
-
-                    # 缩放segmentation坐标
+                    # 缩放segmentation坐标（所有点）
                     seg = []
                     for p in points:
                         seg.append(p[0] * ratio_x)
@@ -160,8 +147,8 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
                         "category_id": cat_map[label],
                         "track_id": 0,
                         "trace_id_list": [0],
-                        "bbox": [x * ratio_x, y * ratio_y, w * ratio_x, h * ratio_y],
-                        "area": w * h * ratio_x * ratio_y,
+                        "bbox": [x_scaled, y_scaled, w_scaled, h_scaled],
+                        "area": w_scaled * h_scaled,
                         "segmentation": [seg],
                         "iscrowd": 0
                     })
