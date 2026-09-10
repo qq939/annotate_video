@@ -52,7 +52,8 @@ def _extract_archive(archive_path: Path, dest_dir: Path):
     with open(archive_path, "rb") as f:
         magic = f.read(8)
     is_zip = magic[:2] == b"PK"
-    is_rar = magic[:7] == b"Rar!\x1a\x07"
+    # RAR: 魔数 "Rar!" + 0x1a 0x07 + archive_flag (0=RAR4, 1=RAR5)
+    is_rar = magic[:4] == b"Rar!" and len(magic) >= 6 and magic[4:6] == b"\x1a\x07"
 
     if is_zip:
         import zipfile
@@ -104,6 +105,12 @@ def _extract_archive(archive_path: Path, dest_dir: Path):
 
         # 策略2：7z 命令行
         sevenz = shutil.which("7z") or shutil.which("7za")
+        if not sevenz:
+            # 尝试常见安装路径
+            for p in [r"C:\Program Files\7-Zip\7z.exe", r"C:\Program Files (x86)\7-Zip\7z.exe"]:
+                if Path(p).exists():
+                    sevenz = p
+                    break
         if sevenz:
             result = subprocess.run(
                 [sevenz, "x", str(archive_path), f"-o{dest_dir}", "-y"],
@@ -122,7 +129,7 @@ def _extract_archive(archive_path: Path, dest_dir: Path):
         )
 
     else:
-        raise ValueError(f"不支持的压缩格式，magic: {magic[:8].hex()}")
+        raise ValueError("不支持的压缩格式（只支持 ZIP 和 RAR），magic: " + magic[:8].hex())
 
 
 def _find_model_annotation(model_dir: Path):
