@@ -35,4 +35,5 @@ seaborn
 pandas
 albumentations
 onnx
+onnxruntime
 git+https://github.com/ultralytics/CLIP.git

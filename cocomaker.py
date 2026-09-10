@@ -4,20 +4,22 @@
 cocomaker.py - 模型文件+视频文件 -> temp_data 格式 COCO 数据集
 
 功能：
-1. 从模型压缩包（.zip/.rar）提取 yolo_runs/.../annotations.json 和 labels/*.json
+1. 从模型压缩包（.zip/.rar）提取 ONNX 模型和配置
 2. 从视频文件（可多选）提取帧，按 frame_skip 跳帧采样，统一 resize 到目标尺寸
-3. 合并所有来源的帧，按字符串排序后递增编号（frame_000000.jpg 等）
+3. 用 ONNX 模型对每帧推理，生成 COCO 格式标注
 4. 输出符合 app 的 temp_data 格式：frames/、labels/、annotations.json
 
 用法（无 GUI，直接命令行调用）：
     from cocomaker import convert_to_coco_dataset
     result_dir = convert_to_coco_dataset(
         video_paths=["path/to/video1.mp4", "path/to/video2.mp4"],
-        model_archive="path/to/model.zip",
+        model_archive="path/to/model.rar",
         output_dir="path/to/output",
         target_w=2012,
         target_h=1518,
-        frame_skip=1
+        frame_skip=5,
+        conf_threshold=0.25,
+        iou_threshold=0.45
     )
 """
 import json
@@ -31,12 +33,18 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-# PIL 在 labelx2coco.py 中已使用，此处复用相同路径
-sys.path.insert(0, str(Path(__file__).parent))
 try:
     from PIL import Image
 except ImportError:
     Image = None
+
+# ONNX runtime，延迟导入（可选）
+onnx_available = False
+try:
+    import onnxruntime as ort
+    onnx_available = True
+except ImportError:
+    ort = None
 
 # ----------------------------------------------------------------------
 # 核心函数
@@ -211,115 +219,231 @@ def _extract_video_frames(
     return frame_meta
 
 
-def _extract_model_labels(
-    model_dir: Path, dest_dir: Path, target_w: int, target_h: int
+def _run_onnx_inference(
+    model_archive: Path,
+    frames_dir: Path,
+    labels_dir: Path,
+    target_w: int,
+    target_h: int,
+    conf_threshold: float = 0.25,
+    iou_threshold: float = 0.45,
 ) -> dict:
     """
-    从模型目录提取 labels/*.json，坐标缩放到目标尺寸。
+    从模型压缩包提取 ONNX，对视频帧运行推理，生成 COCO 格式标注。
 
-    SOP2MODEL 格式 label：
-    - src: 2012x1518, 640x640 混合
-    - dst: 统一 target_w x target_h
+    Args:
+        model_archive: 模型压缩包路径
+        frames_dir: 视频帧目录（frame_000000.jpg 等）
+        labels_dir: 标注输出目录
+        target_w, target_h: 目标分辨率
+        conf_threshold: 置信度阈值
+        iou_threshold: NMS IoU 阈值
 
     Returns:
         {frame_idx: [annotation, ...]}
     """
-    dest_dir = Path(dest_dir)
-    dest_dir.mkdir(parents=True, exist_ok=True)
+    if not onnx_available:
+        raise RuntimeError("onnxruntime 未安装，无法进行推理。请 pip install onnxruntime")
 
-    ann_meta = {}  # frame_idx -> list of annotations
+    labels_dir = Path(labels_dir)
+    labels_dir.mkdir(parents=True, exist_ok=True)
 
-    # 查找 yolo_runs/.../labels/ 下的所有 frame_*.json
-    labels_dir = None
-    for p in model_dir.rglob("labels"):
-        if p.is_dir():
-            files = list(p.glob("frame_*.json"))
-            if files:
-                labels_dir = p
-                break
+    # 1. 解压 ONNX 和 model.json
+    temp_model_dir = Path(tempfile.mkdtemp(prefix="cocomaker_model_"))
+    try:
+        _extract_archive(model_archive, temp_model_dir)
 
-    if labels_dir is None:
-        print("[WARN] 模型目录中未找到 labels/ 目录，跳过模型标注")
-        return ann_meta
+        # 查找 best.onnx
+        onnx_path = None
+        for p in temp_model_dir.rglob("best.onnx"):
+            onnx_path = p
+            break
+        if onnx_path is None:
+            raise FileNotFoundError("模型压缩包中未找到 best.onnx")
 
-    # 读取模型的 annotations.json 获取元信息（源尺寸等）
-    ann_json_path = None
-    for p in model_dir.rglob("annotations.json"):
-        ann_json_path = p
-        break
+        # 查找 model.json
+        model_json_path = None
+        for p in temp_model_dir.rglob("model.json"):
+            model_json_path = p
+            break
 
-    frame_annotations = {}  # 原 frame_idx -> list of ann
+        classes = ["unknown"]
+        model_input_size = (640, 640)
+        if model_json_path:
+            with open(model_json_path, encoding="utf-8") as f:
+                mj = json.load(f)
+            classes = mj.get("classes", classes)
+            input_size = mj.get("input_size", model_input_size)
+            if isinstance(input_size, list):
+                model_input_size = (int(input_size[0]), int(input_size[1]))
+            else:
+                model_input_size = (int(input_size), int(input_size))
 
-    for lf in sorted(labels_dir.glob("frame_*.json")):
-        with open(lf, encoding="utf-8") as f:
-            labels = json.load(f)
+        print("[INFO] 加载 ONNX: {} | classes: {} | input: {}".format(
+            onnx_path.name, len(classes), model_input_size))
 
-        frame_idx_str = lf.stem  # "frame_000000"
-        digits = "".join(c for c in frame_idx_str if c.isdigit())
-        if digits:
-            frame_idx = int(digits)
-        else:
-            frame_idx = list(frame_annotations.keys())[-1] + 1 if frame_annotations else 0
+        # 2. 加载 ONNX 模型
+        sess = ort.InferenceSession(str(onnx_path))
+        input_name = sess.get_inputs()[0].name
+        output_name = sess.get_outputs()[0].name
 
-        ann_list = []
+        # 3. 遍历帧推理
+        frame_files = sorted(frames_dir.glob("frame_*.jpg"))
+        ann_meta = {}  # frame_idx -> list of annotations
         ann_id = 1001
 
-        for label in labels:
-            bbox = label.get("bbox", [])
-            category = label.get("category", label.get("class", "unknown"))
-            seg = label.get("segmentation", [[]])[0] if label.get("segmentation") else []
-            track_id = label.get("track_id", label.get("id", ann_id))
-            trace_id_list = label.get(
-                "trace_id_list", label.get("trace_ids", [track_id])
-            )
-            confidence = label.get("confidence", 1.0)
-            category_id = label.get("category_id", 0)
+        for ff in frame_files:
+            digits = "".join(c for c in ff.stem.split("_")[1] if c.isdigit())
+            frame_idx = int(digits) if digits else 0
 
-            # 获取源尺寸
-            src_w = label.get("width", target_w)
-            src_h = label.get("height", target_h)
+            # 读取图片
+            img = cv2.imread(str(ff))
+            if img is None:
+                continue
 
-            # 计算缩放比例
-            ratio_x = target_w / src_w if src_w > 0 else 1.0
-            ratio_y = target_h / src_h if src_h > 0 else 1.0
+            orig_h, orig_w = img.shape[:2]
 
-            # 缩放 bbox
-            if len(bbox) == 4:
-                bx, by, bw, bh = bbox
-                bx_s = bx * ratio_x
-                by_s = by * ratio_y
-                bw_s = bw * ratio_x
-                bh_s = bh * ratio_y
-            else:
-                bx_s, by_s, bw_s, bh_s = 0, 0, 0, 0
+            # letterbox resize to model input
+            resized, ratio, pad = _letterbox(img, model_input_size)
 
-            # 缩放 segmentation
-            seg_scaled = [p * ratio_x if i % 2 == 0 else p * ratio_y
-                          for i, p in enumerate(seg)]
+            # normalize [0,1]
+            blob = resized.astype(np.float32) / 255.0
+            # HWC -> NCHW
+            blob = np.transpose(blob, (2, 0, 1))[None, ...]
 
-            ann_list.append({
-                "bbox": [bx_s, by_s, bw_s, bh_s],
-                "track_id": track_id,
-                "segmentation": [seg_scaled],
-                "category": category,
-                "confidence": confidence,
-                "category_id": category_id,
-                "trace_id_list": trace_id_list if isinstance(trace_id_list, list) else [trace_id_list],
-            })
-            ann_id += 1
+            # inference
+            outputs = sess.run([output_name], {input_name: blob})[0]  # (1, 11, 8400)
 
-        frame_annotations[frame_idx] = ann_list
+            # 后处理：YOLO 输出格式
+            boxes = _yolo_postprocess(outputs, orig_w, orig_h, model_input_size,
+                                      ratio, pad, conf_threshold, iou_threshold)
 
-    # 写入输出目录
-    for frame_idx, ann_list in sorted(frame_annotations.items()):
-        out_name = f"frame_{frame_idx:06d}.json"
-        out_path = dest_dir / out_name
-        with open(out_path, "w", encoding="utf-8") as f:
-            json.dump(ann_list, f, ensure_ascii=False)
-        ann_meta[frame_idx] = ann_list
+            ann_list = []
+            for box in boxes:
+                x, y, w, h = box["bbox"]
+                # 转原生 float，避免 numpy float32 无法 JSON 序列化
+                x, y, w, h = float(x), float(y), float(w), float(h)
+                # segmentation: 4 corners
+                seg = [x, y, x + w, y, x + w, y + h, x, y + h]
+                ann = {
+                    "bbox": [x, y, w, h],
+                    "track_id": ann_id,
+                    "segmentation": [seg],
+                    "category": classes[int(box["class_id"])],
+                    "confidence": float(box["confidence"]),
+                    "category_id": 0,  # app 约定：类别由 category 字段存储，category_id 恒为 0
+                    "trace_id_list": [ann_id],
+                }
+                ann_list.append(ann)
+                ann_id += 1
 
-    print(f"[INFO] 模型标注：写入 {len(ann_meta)} 个 label 文件")
-    return ann_meta
+            # 写入 label
+            with open(labels_dir / f"frame_{frame_idx:06d}.json", "w", encoding="utf-8") as f:
+                json.dump(ann_list, f, ensure_ascii=False)
+            ann_meta[frame_idx] = ann_list
+
+            if frame_idx % 30 == 0:
+                print("[INFO] 推理进度: frame_{:06d} (total {})".format(
+                    frame_idx, len(frame_files)))
+
+        print("[INFO] ONNX 推理完成: {}/{} 帧有标注".format(
+            sum(1 for v in ann_meta.values() if v), len(frame_files)))
+        return ann_meta
+
+    finally:
+        shutil.rmtree(temp_model_dir, ignore_errors=True)
+
+
+def _letterbox(img, target_size):
+    """Letterbox resize，保持宽高比，填充灰色边，返回(resized, ratio, pad_top_left)
+
+    Args:
+        img: BGR 图片 (H, W, 3)
+        target_size: (target_w, target_h)
+
+    Returns:
+        canvas: 填充后的图片 (target_h, target_w, 3)
+        scale: 缩放比例
+        pad_top_left: (pad_top, pad_left)
+    """
+    h, w = img.shape[:2]
+    tw, th = target_size
+    scale = min(tw / w, th / h)
+    nw, nh = int(w * scale), int(h * scale)
+    resized = cv2.resize(img, (nw, nh))
+    pad_top = (th - nh) // 2
+    pad_left = (tw - nw) // 2
+    canvas = np.full((th, tw, 3), 114, dtype=np.uint8)
+    canvas[pad_top:pad_top + nh, pad_left:pad_left + nw] = resized
+    return canvas, scale, (pad_top, pad_left)
+
+
+def _yolo_postprocess(output, orig_w, orig_h, input_size, ratio, pad, conf_thresh, iou_thresh):
+    """YOLO (1, 11, 8400) -> [{bbox, class_id, confidence}]"""
+    # output: (1, num_classes+4, num_anchors)
+    pred = output[0]  # (11, 8400)
+    # 前 num_classes 列是类别置信度，最后4列是 (cx, cy, w, h) 在 input_size 坐标
+    num_classes = pred.shape[0] - 4
+    boxes_all = []
+
+    for i in range(pred.shape[1]):  # 8400 anchors
+        cx, cy, bw, bh = pred[0, i], pred[1, i], pred[2, i], pred[3, i]
+        scores = pred[4:, i]  # num_classes
+        max_score = float(scores.max())
+        if max_score < conf_thresh:
+            continue
+        class_id = int(scores.argmax())
+
+        # 转回原图坐标（先去除 pad，再除以 scale）
+        pad_top, pad_left = pad
+        lx = (cx - bw / 2 - pad_left) / ratio
+        ly = (cy - bh / 2 - pad_top) / ratio
+        lw = bw / ratio
+        lh = bh / ratio
+
+        # clamp to image bounds
+        lx = max(0, lx)
+        ly = max(0, ly)
+        lw = min(orig_w - lx, lw)
+        lh = min(orig_h - ly, lh)
+
+        if lw <= 0 or lh <= 0:
+            continue
+
+        boxes_all.append({
+            "bbox": [lx, ly, lw, lh],
+            "class_id": class_id,
+            "confidence": max_score,
+        })
+
+    # NMS
+    if not boxes_all:
+        return []
+    boxes_all.sort(key=lambda x: x["confidence"], reverse=True)
+    keep = []
+    for b in boxes_all:
+        overlap = False
+        for k in keep:
+            iou = _box_iou(b["bbox"], k["bbox"])
+            if iou > iou_thresh:
+                overlap = True
+                break
+        if not overlap:
+            keep.append(b)
+    return keep
+
+
+def _box_iou(a, b):
+    """计算两个 [x,y,w,h] bbox 的 IoU"""
+    ax, ay, aw, ah = a
+    bx, by, bw, bh = b
+    x1 = max(ax, bx)
+    y1 = max(ay, by)
+    x2 = min(ax + aw, bx + bw)
+    y2 = min(ay + ah, by + bh)
+    inter = max(0, x2 - x1) * max(0, y2 - y1)
+    union = aw * ah + bw * bh - inter
+    return inter / (union + 1e-9)
 
 
 def _merge_and_write(
@@ -411,17 +535,20 @@ def convert_to_coco_dataset(
     target_w: int = 2012,
     target_h: int = 1518,
     frame_skip: int = 1,
+    conf_threshold: float = 0.25,
+    iou_threshold: float = 0.45,
 ) -> Path:
     """
     从视频文件和模型压缩包生成 temp_data 格式 COCO 数据集。
 
     Args:
         video_paths: 视频文件路径列表（支持 mp4/avi/mov 等 cv2 支持的格式）
-        model_archive: 模型压缩包路径（.zip 或 .rar，
-                       内含 yolo_runs/{id}/weights/annotations.json 和 labels/）
+        model_archive: 模型压缩包路径（.zip 或 .rar，内含 best.onnx 和 model.json）
         output_dir: 输出目录
         target_w, target_h: 目标分辨率（默认 2012x1518）
         frame_skip: 跳帧采样间隔（默认 1=全取）
+        conf_threshold: ONNX 推理置信度阈值（默认 0.25）
+        iou_threshold: NMS IoU 阈值（默认 0.45）
 
     Returns:
         输出目录 Path
@@ -430,10 +557,11 @@ def convert_to_coco_dataset(
     temp_root = Path(tempfile.mkdtemp(prefix="cocomaker_"))
 
     try:
-        print(f"[INFO] 目标尺寸: {target_w}x{target_h}")
-        print(f"[INFO] 视频数量: {len(video_paths)}")
-        print(f"[INFO] 模型文件: {model_archive}")
-        print(f"[INFO] 跳帧采样: 每 {frame_skip} 帧取 1 帧")
+        print("[INFO] 目标尺寸: {}x{}".format(target_w, target_h))
+        print("[INFO] 视频数量: {}".format(len(video_paths)))
+        print("[INFO] 模型文件: {}".format(model_archive))
+        print("[INFO] 跳帧采样: 每 {} 帧取 1 帧".format(frame_skip))
+        print("[INFO] 推理阈值: conf={}, iou={}".format(conf_threshold, iou_threshold))
 
         # 1. 从视频提取帧（输出到 temp_root/frames/）
         frames_dir = temp_root / "frames"
@@ -442,17 +570,19 @@ def convert_to_coco_dataset(
         )
         print(f"[INFO] 视频帧提取完成: {len(frame_meta)} 帧")
 
-        # 2. 解压模型，获取标注
-        model_extract_dir = temp_root / "model_extract"
-        _extract_archive(Path(model_archive), model_extract_dir)
-
-        # 3. 从模型提取 labels/*.json（输出到 temp_root/labels/）
+        # 2. ONNX 推理生成标注（输出到 temp_root/labels/）
         labels_dir = temp_root / "labels"
-        label_meta = _extract_model_labels(
-            model_extract_dir, labels_dir, target_w, target_h
+        label_meta = _run_onnx_inference(
+            Path(model_archive),
+            frames_dir,
+            labels_dir,
+            target_w,
+            target_h,
+            conf_threshold,
+            iou_threshold,
         )
 
-        # 4. 合并视频帧和模型标注
+        # 3. 合并视频帧和模型标注
         result = _merge_and_write(
             frames_dir, labels_dir, output_dir, target_w, target_h
         )
