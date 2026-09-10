@@ -1082,7 +1082,7 @@ class TrimDialog(QDialog):
         w = int(first_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         h = int(first_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        fourcc = cv2.VideoWriter_fourcc(*'MJPG')
         out = cv2.VideoWriter(temp_path, fourcc, self.fps, (w, h))
         
         # 流式读取并写入
@@ -1211,7 +1211,7 @@ class TrimDialog(QDialog):
         temp_path = str(temp_dir / "temp.mp4")
         
         height, width = all_frames[0].shape[:2]
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        fourcc = cv2.VideoWriter_fourcc(*'MJPG')
         out = cv2.VideoWriter(temp_path, fourcc, all_fps, (width, height))
         for frame in all_frames:
             out.write(frame)
@@ -1324,7 +1324,7 @@ class TrimDialog(QDialog):
             out_path = Path(self.video_path).parent / clip_name
             
             cap_in = cv2.VideoCapture(temp_video_path)
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            fourcc = cv2.VideoWriter_fourcc(*'MJPG')
             w = int(cap_in.get(cv2.CAP_PROP_FRAME_WIDTH))
             h = int(cap_in.get(cv2.CAP_PROP_FRAME_HEIGHT))
             cap_out = cv2.VideoWriter(str(out_path), fourcc, self.fps, (w, h))
@@ -1668,7 +1668,7 @@ class UnifiedPanel(QMainWindow):
         width = int(orig_width * resize_ratio)
         height = int(orig_height * resize_ratio)
         
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        fourcc = cv2.VideoWriter_fourcc(*'MJPG')
         
         # 创建临时视频文件
         temp_video_dir = Path("1src")
@@ -2792,7 +2792,7 @@ class UnifiedPanel(QMainWindow):
         if sample is None:
             raise ValueError(f"无法读取起始帧: frame_{start_idx:06d}.jpg")
         height, width = sample.shape[:2]
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        fourcc = cv2.VideoWriter_fourcc(*'MJPG')
         out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
         frame_count = 0
         for i in range(start_idx, total_frames):
@@ -3000,7 +3000,7 @@ class UnifiedPanel(QMainWindow):
                     if sample is None:
                         return
                     height, width = sample.shape[:2]
-                    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                    fourcc = cv2.VideoWriter_fourcc(*'MJPG')
                     out = cv2.VideoWriter(clip_path, fourcc, 30, (width, height))
                     for idx in range(len(frame_list)):
                         frame = cv2.imread(str(temp_frames / f"frame_{idx:06d}.jpg"))
@@ -3188,7 +3188,7 @@ class UnifiedPanel(QMainWindow):
                     if sample is None:
                         return
                     height, width = sample.shape[:2]
-                    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                    fourcc = cv2.VideoWriter_fourcc(*'MJPG')
                     out = cv2.VideoWriter(clip_path, fourcc, 30, (width, height))
                     for idx in range(len(frame_list)):
                         frame = cv2.imread(str(temp_frames / f"frame_{idx:06d}.jpg"))
@@ -3476,7 +3476,7 @@ class UnifiedPanel(QMainWindow):
 
                 clip_path = str(temp_frames / "clip.mp4")
                 prompt_log(f"[DEBUG {direction}] 正在生成视频片段: {clip_path}")
-                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                fourcc = cv2.VideoWriter_fourcc(*'MJPG')
                 fps_cap = 30
                 out = cv2.VideoWriter(clip_path, fourcc, fps_cap, (width, height))
                 frames_written = 0
@@ -5499,7 +5499,7 @@ names: {class_names}
         height = int(video_info.get('height', 720))
         fps = int(video_info.get('fps', 30))
 
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        fourcc = cv2.VideoWriter_fourcc(*'MJPG')
         out = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
 
         labels_dir = input_path / "labels"
@@ -5958,7 +5958,7 @@ names: {class_names}
                 break
             
             if raw_fps is not None:
-                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                fourcc = cv2.VideoWriter_fourcc(*'MJPG')
                 out_raw = cv2.VideoWriter(str(raw_video_path), fourcc, raw_fps, (raw_width, raw_height))
             
             # 逐个视频读取并直接写入，边读边写不缓存
