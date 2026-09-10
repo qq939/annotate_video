@@ -83,6 +83,21 @@ from PyQt5.Qt import QDragEnterEvent, QDropEvent
 # BASE_DIR: 项目根目录（app.py 所在目录），所有相对路径以此为准，避免 CWD 不一致导致路径错误
 BASE_DIR = Path(__file__).resolve().parent
 
+# 提示帧模式日志文件（项目根目录），在 do_bidirectional_inject 中通过 prompt_log 写入
+PROMPT_LOG_FILE = BASE_DIR / "提示帧.log"
+
+
+def prompt_log(msg=""):
+    """提示帧模式日志：同时写入 提示帧.log 和控制台，便于排查帧对齐问题。"""
+    line = str(msg)
+    print(line)
+    try:
+        with open(PROMPT_LOG_FILE, "a", encoding="utf-8") as _f:
+            _f.write(line + "\n")
+    except Exception:
+        pass
+
+
 import torch
 import app_utils
 
@@ -2798,6 +2813,12 @@ class UnifiedPanel(QMainWindow):
         prompt_bboxes = self.viewer.get_prompt_bboxes()
         prompt_points = self.viewer.get_prompt_points()
         items_text = self.items_input.text().strip()
+        # 每次提示帧操作开始时清空日志，便于单次诊断
+        try:
+            with open(PROMPT_LOG_FILE, "w", encoding="utf-8") as _f:
+                _f.write("===== 提示帧模式日志 =====\n")
+        except Exception:
+            pass
         
         # 根据输入决定模式
         # 1. 点+文本：使用点作为提示
@@ -2811,7 +2832,7 @@ class UnifiedPanel(QMainWindow):
         
         if not has_items and not has_bboxes and not has_points:
             # 自动分割模式：SAM3会分割所有检测到的物体
-            print("[提示帧] 模式: 自动分割（无文本无bbox无点）")
+            prompt_log("[提示帧] 模式: 自动分割（无文本无bbox无点）")
         
         prompt_idx = self.prompt_frame_idx
         total = self.total_frames
@@ -2862,7 +2883,7 @@ class UnifiedPanel(QMainWindow):
                         if src.exists():
                             shutil.copy2(src, dst)
                     
-                    print(f"[自动分割{direction}] 无文本无bbox")
+                    prompt_log(f"[自动分割{direction}] 无文本无bbox")
                     # 对每一帧使用generate进行自动分割
                     for idx, i in enumerate(frame_list):
                         frame_path = str(temp_frames / f"frame_{idx:06d}.jpg")
@@ -2915,13 +2936,13 @@ class UnifiedPanel(QMainWindow):
                             json.dump(merged, f, ensure_ascii=False)
                         
                         predictor.reset_image()
-                    print(f"[自动分割{direction}] 完成: {len(frame_list)} 帧")
+                    prompt_log(f"[自动分割{direction}] 完成: {len(frame_list)} 帧")
                 
                 if self.forward_cb.isChecked():
-                    print(f"[自动分割前向] 帧 {prompt_idx} → {total-1}")
+                    prompt_log(f"[自动分割前向] 帧 {prompt_idx} → {total-1}")
                     do_auto_seg_clip(prompt_idx, total, True)
                 if self.backward_cb.isChecked():
-                    print(f"[自动分割后向] 帧 0 → {prompt_idx}")
+                    prompt_log(f"[自动分割后向] 帧 0 → {prompt_idx}")
                     do_auto_seg_clip(0, prompt_idx, False)
                 
                 self.reset_prompt_btn()
@@ -2954,9 +2975,9 @@ class UnifiedPanel(QMainWindow):
                     total = end_frame - start_frame
                     mem_info = _gpu_memory_info()
                     if _check_oom_risk(2.0):
-                        print(f"[点分割{direction}] ⚠️ GPU显存不足({mem_info})，先清理...")
+                        prompt_log(f"[点分割{direction}] ⚠️ GPU显存不足({mem_info})，先清理...")
                         _safe_empty_cache()
-                    print(f"[点分割{direction}] 开始: 帧{start_frame}→{end_frame-1}共{total}帧, 点={len(prompt_points)} {_gpu_memory_info()}")
+                    prompt_log(f"[点分割{direction}] 开始: 帧{start_frame}→{end_frame-1}共{total}帧, 点={len(prompt_points)} {_gpu_memory_info()}")
 
                     try:
                         predictor_local = SAM3VideoSemanticPredictor(overrides=overrides)
@@ -2987,7 +3008,7 @@ class UnifiedPanel(QMainWindow):
                             out.write(frame)
                     out.release()
                     _safe_empty_cache()
-                    print(f"[点分割{direction}] SAM推理中: {len(frame_list)}帧... {_gpu_memory_info()}")
+                    prompt_log(f"[点分割{direction}] SAM推理中: {len(frame_list)}帧... {_gpu_memory_info()}")
 
                     processed = 0
                     try:
@@ -3005,7 +3026,7 @@ class UnifiedPanel(QMainWindow):
                             orig_idx = start_frame + idx if forward else end_frame - 1 - idx
 
                             if processed % 100 == 0 or processed == total - 1 or processed == 0:
-                                print(f"[点分割{direction}] 进度: {processed}/{total}帧 ({processed*100//total if total > 0 else 0}%) {_gpu_memory_info()}")
+                                prompt_log(f"[点分割{direction}] 进度: {processed}/{total}帧 ({processed*100//total if total > 0 else 0}%) {_gpu_memory_info()}")
 
                             label_file = src_labels_dir / f"frame_{orig_idx:06d}.json"
                             existing = []
@@ -3049,26 +3070,26 @@ class UnifiedPanel(QMainWindow):
                             if processed % 200 == 0:
                                 _safe_empty_cache()
                             if _check_oom_risk(1.5):
-                                print(f"[点分割{direction}] ⚠️ 显存接近不足({_gpu_memory_info()})，继续...")
+                                prompt_log(f"[点分割{direction}] ⚠️ 显存接近不足({_gpu_memory_info()})，继续...")
                                 _safe_empty_cache()
 
                             processed += 1
 
-                        print(f"[点分割{direction}] ✅ 完成: {processed}/{total}帧 {_gpu_memory_info()}")
+                        prompt_log(f"[点分割{direction}] ✅ 完成: {processed}/{total}帧 {_gpu_memory_info()}")
                     except Exception as e:
-                        print(f"[点分割{direction}] ❌ 推理出错({e})，已处理{processed}帧")
+                        prompt_log(f"[点分割{direction}] ❌ 推理出错({e})，已处理{processed}帧")
                         import traceback
                         traceback.print_exc()
                     finally:
                         del predictor_local
                         _safe_empty_cache()
-                        print(f"[点分割{direction}] 清理完成 {_gpu_memory_info()}")
+                        prompt_log(f"[点分割{direction}] 清理完成 {_gpu_memory_info()}")
                 
                 if self.forward_cb.isChecked():
-                    print(f"[点分割前向] 帧 {prompt_idx} → {total-1}")
+                    prompt_log(f"[点分割前向] 帧 {prompt_idx} → {total-1}")
                     do_point_seg_clip(prompt_idx, total, True)
                 if self.backward_cb.isChecked():
-                    print(f"[点分割后向] 帧 0 → {prompt_idx}")
+                    prompt_log(f"[点分割后向] 帧 0 → {prompt_idx}")
                     do_point_seg_clip(0, prompt_idx, False)
                 
                 self.reset_prompt_btn()
@@ -3109,7 +3130,7 @@ class UnifiedPanel(QMainWindow):
                     QMessageBox.warning(self, "错误", "所有 track_id 档位都已被占用")
                     self.reset_prompt_btn()
                     return
-                print(f"[纯语义] FIRST_ID={FIRST_ID}")
+                prompt_log(f"[纯语义] FIRST_ID={FIRST_ID}")
 
                 def do_pure_semantic_clip(start_frame, end_frame, forward):
                     direction = "向前" if forward else "向后"
@@ -3137,9 +3158,9 @@ class UnifiedPanel(QMainWindow):
                     # OOM预检测
                     mem_info = _gpu_memory_info()
                     if _check_oom_risk(2.0):
-                        print(f"[纯语义{direction}] ⚠️ GPU显存不足({mem_info})，先清理...")
+                        prompt_log(f"[纯语义{direction}] ⚠️ GPU显存不足({mem_info})，先清理...")
                         _safe_empty_cache()
-                    print(f"[纯语义{direction}] 开始: 帧 {start_frame} → {end_frame-1} 共{total}帧, 文本={items_text} {mem_info}")
+                    prompt_log(f"[纯语义{direction}] 开始: 帧 {start_frame} → {end_frame-1} 共{total}帧, 文本={items_text} {mem_info}")
 
                     try:
                         predictor_local = SAM3VideoSemanticPredictor(overrides=overrides)
@@ -3175,7 +3196,7 @@ class UnifiedPanel(QMainWindow):
                             out.write(frame)
                     out.release()
                     _safe_empty_cache()
-                    print(f"[纯语义{direction}] SAM推理中: {len(frame_list)}帧... {_gpu_memory_info()}")
+                    prompt_log(f"[纯语义{direction}] SAM推理中: {len(frame_list)}帧... {_gpu_memory_info()}")
 
                     # 流式迭代：每处理完一帧立即保存并释放显存，不等待全部完成
                     processed = 0
@@ -3197,7 +3218,7 @@ class UnifiedPanel(QMainWindow):
 
                             # 每100帧打印进度，避免刷屏
                             if processed % 100 == 0 or processed == total - 1 or processed == 0:
-                                print(f"[纯语义{direction}] 进度: {processed}/{total}帧 ({processed*100//total if total > 0 else 0}%) {_gpu_memory_info()}")
+                                prompt_log(f"[纯语义{direction}] 进度: {processed}/{total}帧 ({processed*100//total if total > 0 else 0}%) {_gpu_memory_info()}")
 
                             label_file = src_labels_dir / f"frame_{orig_idx:06d}.json"
                             existing = []
@@ -3266,30 +3287,30 @@ class UnifiedPanel(QMainWindow):
 
                             # OOM预防检测
                             if _check_oom_risk(1.5):
-                                print(f"[纯语义{direction}] ⚠️ 显存接近不足({_gpu_memory_info()})，继续处理...")
+                                prompt_log(f"[纯语义{direction}] ⚠️ 显存接近不足({_gpu_memory_info()})，继续处理...")
                                 _safe_empty_cache()
 
                             processed += 1
 
-                        print(f"[纯语义{direction}] ✅ 完成: {processed}/{total}帧 {_gpu_memory_info()}")
+                        prompt_log(f"[纯语义{direction}] ✅ 完成: {processed}/{total}帧 {_gpu_memory_info()}")
                     except Exception as e:
-                        print(f"[纯语义{direction}] ❌ 推理出错({e})，已处理{processed}帧")
+                        prompt_log(f"[纯语义{direction}] ❌ 推理出错({e})，已处理{processed}帧")
                         import traceback
                         traceback.print_exc()
                     finally:
                         del predictor_local
                         _safe_empty_cache()
-                        print(f"[纯语义{direction}] 清理完成 {_gpu_memory_info()}")
+                        prompt_log(f"[纯语义{direction}] 清理完成 {_gpu_memory_info()}")
                 
                 # 前向语义分割
                 if self.forward_cb.isChecked():
-                    print(f"[纯语义前向] 帧 {prompt_idx} → {total-1}")
+                    prompt_log(f"[纯语义前向] 帧 {prompt_idx} → {total-1}")
                     do_pure_semantic_clip(prompt_idx, total, True)
                     torch.cuda.empty_cache()
                 
                 # 后向语义分割
                 if self.backward_cb.isChecked():
-                    print(f"[纯语义后向] 帧 0 → {prompt_idx}")
+                    prompt_log(f"[纯语义后向] 帧 0 → {prompt_idx}")
                     do_pure_semantic_clip(0, prompt_idx, False)
                     torch.cuda.empty_cache()
                 
@@ -3350,8 +3371,8 @@ class UnifiedPanel(QMainWindow):
             # 记录本次执行的FIRST_ID用于回退
             self.last_prompt_first_id = FIRST_ID
             device_str = "GPU" if device_type == 'cuda' else ("MPS" if device_type == 'mps' else "CPU")
-            print(f"=== 双向标注开始 === 提示帧: {prompt_idx}, 总帧数: {total}, 设备: [{device_str}], 前向={self.forward_cb.isChecked()}, 后向={self.backward_cb.isChecked()}, FIRST_ID={FIRST_ID}")
-            print(f"[提示帧] prompt_frame_idx={prompt_idx}, 模式(box/point/text)="
+            prompt_log(f"=== 双向标注开始 === 提示帧: {prompt_idx}, 总帧数: {total}, 设备: [{device_str}], 前向={self.forward_cb.isChecked()}, 后向={self.backward_cb.isChecked()}, FIRST_ID={FIRST_ID}")
+            prompt_log(f"[提示帧] prompt_frame_idx={prompt_idx}, 模式(box/point/text)="
                   f"{'point' if self.viewer.prompt_type == 'point' else 'bbox'}, "
                   f"prompt_bboxes={prompt_bboxes}, prompt_points={prompt_points}")
             forward_annotations = []
@@ -3381,18 +3402,18 @@ class UnifiedPanel(QMainWindow):
                             if name:
                                 return name
                     return fallback
-                print(f"\n[DEBUG {direction}] === 进入 process_clip ===")
-                print(f"[DEBUG {direction}] start_frame={start_frame}, end_frame={end_frame}, 总帧数={end_frame - start_frame}, 设备=[{device_str}]")
+                prompt_log(f"\n[DEBUG {direction}] === 进入 process_clip ===")
+                prompt_log(f"[DEBUG {direction}] start_frame={start_frame}, end_frame={end_frame}, 总帧数={end_frame - start_frame}, 设备=[{device_str}]")
 
                 if start_frame >= end_frame:
-                    print(f"[DEBUG {direction}] start_frame >= end_frame, 直接返回空列表")
+                    prompt_log(f"[DEBUG {direction}] start_frame >= end_frame, 直接返回空列表")
                     return []
 
                 temp_frames = BASE_DIR / "temp_inject" / ("forward" if forward else "backward")
                 temp_frames.mkdir(parents=True, exist_ok=True)
 
                 frame_count = end_frame - start_frame
-                print(f"[DEBUG {direction}] 正在复制 {frame_count} 帧到临时目录...")
+                prompt_log(f"[DEBUG {direction}] 正在复制 {frame_count} 帧到临时目录...")
                 if forward:
                     for i in range(start_frame, end_frame):
                         src = mid_frames_dir / f"frame_{i:06d}.jpg"
@@ -3400,7 +3421,7 @@ class UnifiedPanel(QMainWindow):
                         if src.exists():
                             shutil.copy2(src, dst)
                         else:
-                            print(f"[DEBUG {direction}] ⚠️ 帧文件不存在: {src}")
+                            prompt_log(f"[DEBUG {direction}] ⚠️ 帧文件不存在: {src}")
                 else:
                     for rev_idx, i in enumerate(range(end_frame - 1, start_frame - 1, -1)):
                         src = mid_frames_dir / f"frame_{i:06d}.jpg"
@@ -3408,11 +3429,11 @@ class UnifiedPanel(QMainWindow):
                         if src.exists():
                             shutil.copy2(src, dst)
                         else:
-                            print(f"[DEBUG {direction}] ⚠️ 帧文件不存在: {src}")
-                print(f"[DEBUG {direction}] ✓ 帧复制完成: {frame_count} 帧")
+                            prompt_log(f"[DEBUG {direction}] ⚠️ 帧文件不存在: {src}")
+                prompt_log(f"[DEBUG {direction}] ✓ 帧复制完成: {frame_count} 帧")
 
                 clip_path = str(temp_frames / "clip.mp4")
-                print(f"[DEBUG {direction}] 正在生成视频片段: {clip_path}")
+                prompt_log(f"[DEBUG {direction}] 正在生成视频片段: {clip_path}")
                 fourcc = cv2.VideoWriter_fourcc(*'mp4v')
                 fps_cap = 30
                 out = cv2.VideoWriter(clip_path, fourcc, fps_cap, (width, height))
@@ -3430,14 +3451,14 @@ class UnifiedPanel(QMainWindow):
                             out.write(frame)
                             frames_written += 1
                 out.release()
-                print(f"[DEBUG {direction}] ✓ 视频片段生成完成: {frames_written} 帧")
+                prompt_log(f"[DEBUG {direction}] ✓ 视频片段生成完成: {frames_written} 帧")
                 cap_check = cv2.VideoCapture(clip_path)
                 actual_clip_frames = int(cap_check.get(cv2.CAP_PROP_FRAME_COUNT))
                 cap_check.release()
-                print(f"[DEBUG {direction}] clip文件实际帧数: {actual_clip_frames}, expected: {end_frame - start_frame}")
+                prompt_log(f"[DEBUG {direction}] clip文件实际帧数: {actual_clip_frames}, expected: {end_frame - start_frame}")
 
-                print(f"[DEBUG {direction}] 正在加载 predictor 处理...")
-                print(f"[DEBUG {direction}] prompt_bboxes={prompt_bboxes}, is_semantic={is_semantic}")
+                prompt_log(f"[DEBUG {direction}] 正在加载 predictor 处理...")
+                prompt_log(f"[DEBUG {direction}] prompt_bboxes={prompt_bboxes}, is_semantic={is_semantic}")
                 if is_semantic:
                     # 语义模式：使用文本提示
                     results = predictor_local(source=clip_path, stream=True, bboxes=prompt_bboxes, labels=[1]*len(prompt_bboxes), text=items_text)
@@ -3447,21 +3468,21 @@ class UnifiedPanel(QMainWindow):
                 else:
                     # 无提示：纯追踪
                     results = predictor_local(source=clip_path, stream=True)
-                    print(f"[DEBUG {direction}] ⚠️ 无提示，使用无提示模式")
+                    prompt_log(f"[DEBUG {direction}] ⚠️ 无提示，使用无提示模式")
                 manager = TrackManager(iou_threshold=float(self.iou_input.text() or "0.02"))
                 manager.next_track_id = FIRST_ID
                 ann_id = FIRST_ID
                 merge_iou_val = float(self.merge_iou_input.text() or "0.5")
-                print(f"[DEBUG {direction}] TrackManager 初始化: next_track_id={manager.next_track_id}, iou={manager.iou_threshold}")
+                prompt_log(f"[DEBUG {direction}] TrackManager 初始化: next_track_id={manager.next_track_id}, iou={manager.iou_threshold}")
 
                 result_anns = []
                 frame_idx = 0
                 total_results = 0
 
-                print(f"[DEBUG {direction}] 开始遍历 predictor 结果...")
+                prompt_log(f"[DEBUG {direction}] 开始遍历 predictor 结果...")
                 for r in results:
                     total_results += 1
-                    print(f"[DEBUG {direction}] [帧{total_results}] 收到结果对象")
+                    prompt_log(f"[DEBUG {direction}] [帧{total_results}] 收到结果对象")
 
                     orig_img = r.orig_img if hasattr(r, 'orig_img') and r.orig_img is not None else None
                     if orig_img is None:
@@ -3471,9 +3492,9 @@ class UnifiedPanel(QMainWindow):
                         cap_t.release()
                         if not ret_t:
                             orig_img = np.zeros((height, width, 3), dtype=np.uint8)
-                            print(f"[DEBUG {direction}] [帧{total_results}] ⚠️ cap fallback 也失败，使用空白图")
+                            prompt_log(f"[DEBUG {direction}] [帧{total_results}] ⚠️ cap fallback 也失败，使用空白图")
                     else:
-                        print(f"[DEBUG {direction}] [帧{total_results}] 使用 orig_img")
+                        prompt_log(f"[DEBUG {direction}] [帧{total_results}] 使用 orig_img")
 
                     if len(orig_img.shape) == 2:
                         orig_img = cv2.cvtColor(orig_img, cv2.COLOR_GRAY2BGR)
@@ -3500,10 +3521,10 @@ class UnifiedPanel(QMainWindow):
                             _best = min((x for x in _mads if x[1] >= 0), key=lambda x: x[1])
                             _mad0 = next((m for o, m in _mads if o == 0), -1.0)
                             _flag = "" if _best[0] == 0 else "  ⚠️ 存在帧偏移!"
-                            print(f"[DEBUG {direction}] 帧对齐校验[首帧]: 期望原帧={_fwd_check}, "
+                            prompt_log(f"[DEBUG {direction}] 帧对齐校验[首帧]: 期望原帧={_fwd_check}, "
                                   f"与期望帧MAD={_mad0:.2f}, 最佳匹配偏移={_best[0]:+d}帧(MAD={_best[1]:.2f}){_flag}")
                         except Exception as _e:
-                            print(f"[DEBUG {direction}] 帧对齐校验失败: {_e}")
+                            prompt_log(f"[DEBUG {direction}] 帧对齐校验失败: {_e}")
 
                     cv2.imwrite(str(temp_frames / f"frame_{frame_idx:06d}.jpg"), orig_img)
 
@@ -3514,19 +3535,19 @@ class UnifiedPanel(QMainWindow):
                     debug_track_ids = []
 
                     has_masks = hasattr(r, 'masks') and r.masks is not None
-                    print(f"[DEBUG {direction}] [帧{total_results}] has_masks={has_masks}")
+                    prompt_log(f"[DEBUG {direction}] [帧{total_results}] has_masks={has_masks}")
 
                     if has_masks:
                         masks_tensor = r.masks.data
                         has_tensor = masks_tensor is not None and len(masks_tensor) > 0
-                        print(f"[DEBUG {direction}] [帧{total_results}] masks_tensor: {has_tensor}, len={len(masks_tensor) if has_tensor else 0}")
+                        prompt_log(f"[DEBUG {direction}] [帧{total_results}] masks_tensor: {has_tensor}, len={len(masks_tensor) if has_tensor else 0}")
 
                         if has_tensor:
                             debug_masks_count = len(masks_tensor)
                             confs = None
                             if hasattr(r, 'boxes') and r.boxes is not None and hasattr(r.boxes, 'conf'):
                                 confs = r.boxes.conf.cpu().numpy()
-                                print(f"[DEBUG {direction}] [帧{total_results}] boxes.conf={confs.tolist()}")
+                                prompt_log(f"[DEBUG {direction}] [帧{total_results}] boxes.conf={confs.tolist()}")
 
                             cur_masks = []
                             cur_bboxes = []
@@ -3549,13 +3570,13 @@ class UnifiedPanel(QMainWindow):
                                             cur_bboxes.append(bb)
 
                             debug_merged_count = len(cur_masks)
-                            print(f"[DEBUG {direction}] [帧{total_results}] masks={debug_masks_count}, contours={debug_contours_count}, 有效polygon={debug_merged_count}")
+                            prompt_log(f"[DEBUG {direction}] [帧{total_results}] masks={debug_masks_count}, contours={debug_contours_count}, 有效polygon={debug_merged_count}")
 
                             if cur_masks:
                                 cur_masks, cur_bboxes = merge_masks_in_frame(cur_masks, cur_bboxes, merge_iou_val)
                                 track_ids = manager.update(cur_masks, cur_bboxes, frame_idx)
                                 debug_track_ids = track_ids
-                                print(f"[DEBUG {direction}] [帧{total_results}] merge后={len(cur_masks)}, track_ids={track_ids}")
+                                prompt_log(f"[DEBUG {direction}] [帧{total_results}] merge后={len(cur_masks)}, track_ids={track_ids}")
 
                                 for idx, (m, bb) in enumerate(zip(cur_masks, cur_bboxes)):
                                     m_bin = (m > 0.5).astype(np.uint8)
@@ -3580,13 +3601,13 @@ class UnifiedPanel(QMainWindow):
                                             result_anns.append(ann)
                                             frame_anns.append(ann)
                                             ann_id += 1
-                                print(f"[DEBUG {direction}] [帧{total_results}] 本帧标注数={len(frame_anns)}, 累计={len(result_anns)}")
+                                prompt_log(f"[DEBUG {direction}] [帧{total_results}] 本帧标注数={len(frame_anns)}, 累计={len(result_anns)}")
                             else:
-                                print(f"[DEBUG {direction}] [帧{total_results}] ⚠️ cur_masks为空，跳过")
+                                prompt_log(f"[DEBUG {direction}] [帧{total_results}] ⚠️ cur_masks为空，跳过")
                         else:
-                            print(f"[DEBUG {direction}] [帧{total_results}] ⚠️ masks_tensor为空或长度=0")
+                            prompt_log(f"[DEBUG {direction}] [帧{total_results}] ⚠️ masks_tensor为空或长度=0")
                     else:
-                        print(f"[DEBUG {direction}] [帧{total_results}] ⚠️ 无masks属性或masks为None")
+                        prompt_log(f"[DEBUG {direction}] [帧{total_results}] ⚠️ 无masks属性或masks为None")
 
                     if forward:
                         orig_frame_idx = frame_idx + start_frame
@@ -3594,47 +3615,47 @@ class UnifiedPanel(QMainWindow):
                         orig_frame_idx = end_frame - 1 - frame_idx
                     clip_frames = end_frame - start_frame
                     if orig_frame_idx >= total:
-                        print(f"[DEBUG {direction}] [帧{frame_idx + 1}/{clip_frames}] ⚠️ orig_frame_idx={orig_frame_idx} >= total={total}，跳过")
+                        prompt_log(f"[DEBUG {direction}] [帧{frame_idx + 1}/{clip_frames}] ⚠️ orig_frame_idx={orig_frame_idx} >= total={total}，跳过")
                         frame_idx += 1
                         continue
-                    print(f"[DEBUG {direction}] [帧{frame_idx + 1}/{clip_frames}] clip_frame={frame_idx} → 原帧{orig_frame_idx}, 新增标注数={len(frame_anns)}")
+                    prompt_log(f"[DEBUG {direction}] [帧{frame_idx + 1}/{clip_frames}] clip_frame={frame_idx} → 原帧{orig_frame_idx}, 新增标注数={len(frame_anns)}")
                     label_file = src_labels_dir / f"frame_{orig_frame_idx:06d}.json"
                     existing_anns = []
                     if label_file.exists():
                         with open(label_file, encoding='utf-8') as f:
                             existing_anns = json.load(f)
-                        print(f"[DEBUG {direction}] [帧{total_results}] 已存在标注{len(existing_anns)}条，追加新标注")
+                        prompt_log(f"[DEBUG {direction}] [帧{total_results}] 已存在标注{len(existing_anns)}条，追加新标注")
                     merged_anns = existing_anns + frame_anns
                     with open(label_file, 'w', encoding='utf-8') as f:
                         json.dump(merged_anns, f, ensure_ascii=False)
-                    print(f"[DEBUG {direction}] [帧{total_results}] 保存label文件: frame_{orig_frame_idx:06d}.json, 保留{len(existing_anns)}+新增{len(frame_anns)}=合计{len(merged_anns)}")
+                    prompt_log(f"[DEBUG {direction}] [帧{total_results}] 保存label文件: frame_{orig_frame_idx:06d}.json, 保留{len(existing_anns)}+新增{len(frame_anns)}=合计{len(merged_anns)}")
                     frame_idx += 1
 
-                print(f"[DEBUG {direction}] === process_clip 完成 ===")
-                print(f"[DEBUG {direction}] 总results数={total_results}, 总frame_idx={frame_idx}, 总annotations={len(result_anns)}, clip帧数={end_frame - start_frame}")
+                prompt_log(f"[DEBUG {direction}] === process_clip 完成 ===")
+                prompt_log(f"[DEBUG {direction}] 总results数={total_results}, 总frame_idx={frame_idx}, 总annotations={len(result_anns)}, clip帧数={end_frame - start_frame}")
                 if total_results != (end_frame - start_frame):
-                    print(f"[DEBUG {direction}] ⚠️ 警告: predictor返回{total_results}个结果，但clip有{end_frame - start_frame}帧，可能有帧对齐问题！")
-                print(f"[DEBUG {direction}] id范围: {FIRST_ID} ~ {ann_id - 1}")
+                    prompt_log(f"[DEBUG {direction}] ⚠️ 警告: predictor返回{total_results}个结果，但clip有{end_frame - start_frame}帧，可能有帧对齐问题！")
+                prompt_log(f"[DEBUG {direction}] id范围: {FIRST_ID} ~ {ann_id - 1}")
                 return result_anns
 
-            print(f"=== 双向标注开始 === 提示帧: {prompt_idx}, 总帧数: {total}, 设备: [{device_str}], 前向={self.forward_cb.isChecked()}, 后向={self.backward_cb.isChecked()}, FIRST_ID={FIRST_ID}")
+            prompt_log(f"=== 双向标注开始 === 提示帧: {prompt_idx}, 总帧数: {total}, 设备: [{device_str}], 前向={self.forward_cb.isChecked()}, 后向={self.backward_cb.isChecked()}, FIRST_ID={FIRST_ID}")
             forward_anns = []
             backward_anns = []
             
             # 前向：包含当前帧
             if self.forward_cb.isChecked():
                 forward_start = prompt_idx
-                print(f"[1/2] 向前标注: 帧 {forward_start} → {total-1} (共 {total - forward_start} 帧)")
+                prompt_log(f"[1/2] 向前标注: 帧 {forward_start} → {total-1} (共 {total - forward_start} 帧)")
                 forward_anns = process_clip(forward_start, total, forward=True, prompt_bboxes=prompt_bboxes)
 
             # 后向：也包含当前帧
             if self.backward_cb.isChecked():
                 backward_end = prompt_idx + 1  # 包含当前帧
-                print(f"\n[2/2] 向后标注: 帧 0 → {backward_end-1} (共 {backward_end} 帧)")
+                prompt_log(f"\n[2/2] 向后标注: 帧 0 → {backward_end-1} (共 {backward_end} 帧)")
                 backward_anns = process_clip(0, backward_end, forward=False, prompt_bboxes=prompt_bboxes)
 
             all_new_anns = backward_anns + forward_anns
-            print(f"\n[DEBUG 汇总] 向后标注={len(backward_anns)}, 向前标注={len(forward_anns)}, 合计={len(all_new_anns)}")
+            prompt_log(f"\n[DEBUG 汇总] 向后标注={len(backward_anns)}, 向前标注={len(forward_anns)}, 合计={len(all_new_anns)}")
 
             if not all_new_anns:
                 QMessageBox.warning(self, "提示", "未检测到任何分割结果")
@@ -3644,15 +3665,15 @@ class UnifiedPanel(QMainWindow):
             if src_annotations_file.exists():
                 with open(src_annotations_file, encoding='utf-8') as f:
                     coco = json.load(f)
-                print(f"[DEBUG 汇总] 现有coco: 已有annotations={len(coco.get('annotations', []))}")
+                prompt_log(f"[DEBUG 汇总] 现有coco: 已有annotations={len(coco.get('annotations', []))}")
             else:
                 coco = {'info': {}, 'images': [], 'annotations': [], 'categories': []}
-                print(f"[DEBUG 汇总] annotations.json 不存在，创建新的coco结构")
+                prompt_log(f"[DEBUG 汇总] annotations.json 不存在，创建新的coco结构")
 
             max_img_id = max([img.get('id', 0) for img in coco.get('images', [])], default=-1)
             max_ann_id = max([ann.get('id', 0) for ann in coco.get('annotations', [])], default=FIRST_ID - 1)
             max_track_id = max([ann.get('track_id', 0) for ann in coco.get('annotations', [])], default=FIRST_ID - 1)
-            print(f"[DEBUG 汇总] 现有max_ann_id={max_ann_id}, max_track_id={max_track_id}")
+            prompt_log(f"[DEBUG 汇总] 现有max_ann_id={max_ann_id}, max_track_id={max_track_id}")
 
             # 检查与现有标注重叠的IoU阈值
             overlap_threshold = float(self.merge_iou_input.text()) if self.merge_iou_input.text() else 0.5
@@ -3677,7 +3698,7 @@ class UnifiedPanel(QMainWindow):
                         union = area1 + area2 - inter
                         iou = inter / union if union > 0 else 0
                         if iou > overlap_threshold:
-                            print(f"[DEBUG 汇总] 跳过重叠标注: frame={ann.get('image_id')}, iou={iou:.3f}")
+                            prompt_log(f"[DEBUG 汇总] 跳过重叠标注: frame={ann.get('image_id')}, iou={iou:.3f}")
                             skip = True
                             break
                 
@@ -3694,11 +3715,11 @@ class UnifiedPanel(QMainWindow):
                 coco['annotations'].append(new_ann)
                 new_anns_count += 1
 
-            print(f"[DEBUG 汇总] 追加 {new_anns_count} 条标注, 最终track_id范围: {FIRST_ID}~{max_track_id}")
+            prompt_log(f"[DEBUG 汇总] 追加 {new_anns_count} 条标注, 最终track_id范围: {FIRST_ID}~{max_track_id}")
 
             with open(src_annotations_file, 'w', encoding='utf-8') as f:
                 json.dump(coco, f, ensure_ascii=False)
-            print(f"[DEBUG 汇总] ✓ annotations.json 已写入")
+            prompt_log(f"[DEBUG 汇总] ✓ annotations.json 已写入")
 
             # 更新labels目录下的帧标注文件
             temp_mid = Path(TEMP_DATA_MID_DIR)
@@ -3736,11 +3757,11 @@ class UnifiedPanel(QMainWindow):
                     frame_anns.append(ann)
                     with open(label_file, 'w', encoding='utf-8') as f:
                         json.dump(frame_anns, f, ensure_ascii=False)
-            print(f"[DEBUG 汇总] ✓ labels目录已更新")
+            prompt_log(f"[DEBUG 汇总] ✓ labels目录已更新")
 
             shutil.rmtree(BASE_DIR / "temp_inject", ignore_errors=True)
 
-            print(f"=== 双向标注完成 === 新增标注: {len(all_new_anns)}, 总标注: {len(coco['annotations'])}")
+            prompt_log(f"=== 双向标注完成 === 新增标注: {len(all_new_anns)}, 总标注: {len(coco['annotations'])}")
             self.statusBar().showMessage(f"双向标注完成: +{len(all_new_anns)} 条")
             QMessageBox.information(self, "完成", f"双向标注完成！\n新增标注: {len(all_new_anns)} 条\n追加到 temp_data")
             if self.viewer:
