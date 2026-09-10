@@ -11,7 +11,7 @@ import shutil
 import random
 import string
 from pathlib import Path
-from PyQt5.QtWidgets import QApplication, QFileDialog, QInputDialog, QMessageBox
+from PyQt5.QtWidgets import QApplication, QFileDialog, QInputDialog, QMessageBox, QLineEdit
 import sys
 from PIL import Image
 
@@ -265,7 +265,7 @@ def main():
         pass
 
     # 输入目标分辨率（使用默认值填入文本框）
-    height_str, ok = QInputDialog.getText(None, "Target Height", f"Enter target image height:", str(default_h))
+    height_str, ok = QInputDialog.getText(None, "Target Height", "Enter target image height:", QLineEdit.Normal, str(default_h))
     if not ok:
         print("[INFO] Cancelled")
         return
@@ -275,7 +275,7 @@ def main():
         QMessageBox.critical(None, "Error", "Height must be an integer!")
         return
 
-    width_str, ok = QInputDialog.getText(None, "Target Width", f"Enter target image width:", str(default_w))
+    width_str, ok = QInputDialog.getText(None, "Target Width", "Enter target image width:", QLineEdit.Normal, str(default_w))
     if not ok:
         print("[INFO] Cancelled")
         return
