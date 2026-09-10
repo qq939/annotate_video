@@ -28,6 +28,25 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
     src_dir = Path(src_dir)
     dst_dir = Path(dst_dir)
 
+    # 检查目标目录是否存在
+    if dst_dir.exists():
+        reply = QMessageBox.question(
+            None, "目录已存在",
+            f"目标目录 {dst_dir.name} 已存在。\n\n选择 \"是\" 跳过已处理的帧（从断点继续）\n选择 \"否\" 完全重建（删除后重新转换）\n选择 \"取消\" 退出",
+            QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel
+        )
+        if reply == QMessageBox.Cancel:
+            print("[INFO] Cancelled")
+            return False
+        elif reply == QMessageBox.No:
+            try:
+                import shutil
+                shutil.rmtree(dst_dir)
+            except PermissionError:
+                print(f"[ERROR] 无法删除目录 {dst_dir}，可能是权限问题。请手动删除后重试。")
+                return False
+        # 如果选择 Yes (QMessageBox.Yes)，则继续但不删除目录，从断点继续
+
     # 创建目标目录结构
     dst_dir.mkdir(parents=True, exist_ok=True)
     labels_dir = dst_dir / "labels"
@@ -43,26 +62,28 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
 
     print(f"[INFO] Found {len(json_files)} JSON files")
 
-    # 从第一个labelme JSON获取源图片尺寸
-    first_json = json_files[0]
-    with open(first_json, encoding='utf-8') as f:
-        first_data = json.load(f)
-    src_w = int(first_data.get("imageWidth", 0))
-    src_h = int(first_data.get("imageHeight", 0))
+    # 优先从图片文件获取真实尺寸（JSON中的imageWidth/imageHeight可能不准确）
+    src_w, src_h = 0, 0
+    img_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.JPG', '.JPEG', '.PNG', '.BMP']
+    for ext in img_extensions:
+        img_files = sorted(list(src_dir.glob(f"*{ext}")))
+        if img_files:
+            try:
+                with Image.open(img_files[0]) as img:
+                    src_w, src_h = img.size
+                    print(f"[INFO] Got real size from image: {src_w}x{src_h}")
+                break
+            except Exception:
+                pass
 
-    # 如果JSON中没有尺寸，从图片获取
+    # 如果图片获取失败，从JSON获取
     if src_w <= 0 or src_h <= 0:
-        img_extensions = ['.jpg', '.jpeg', '.png', '.bmp']
-        for ext in img_extensions:
-            img_files = list(src_dir.glob(f"*{ext}")) + list(src_dir.glob(f"*{ext.upper()}"))
-            if img_files:
-                try:
-                    with Image.open(img_files[0]) as img:
-                        src_w, src_h = img.size
-                        print(f"[INFO] Got size from image: {src_w}x{src_h}")
-                    break
-                except Exception:
-                    pass
+        first_json = json_files[0]
+        with open(first_json, encoding='utf-8') as f:
+            first_data = json.load(f)
+        src_w = int(first_data.get("imageWidth", 0))
+        src_h = int(first_data.get("imageHeight", 0))
+        print(f"[INFO] Got size from JSON: {src_w}x{src_h}")
 
     if src_w <= 0 or src_h <= 0:
         src_w, src_h = target_w, target_h
@@ -75,6 +96,7 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
     ratio_x = target_w / src_w if src_w > 0 else 1.0
     ratio_y = target_h / src_h if src_h > 0 else 1.0
     print(f"[INFO] Ratio: x={ratio_x:.4f}, y={ratio_y:.4f}")
+    print(f"[DEBUG] Processing first file: {sorted(json_files)[0].name}")
 
     # 收集类别（保持首次出现的顺序）
     cat_map = {}  # label -> category_id
@@ -240,7 +262,6 @@ def main():
     # 自动检测源图片分辨率并设为默认值
     default_w, default_h = 2012, 1518
     try:
-        first_json = src_path / [f for f in src_path.glob("*.json") if f.name != "annotations.json"][0].name if any(f.name != "annotations.json" for f in src_path.glob("*.json")) else None
         json_files = [f for f in src_path.glob("*.json") if f.name != "annotations.json"]
         if json_files:
             with open(json_files[0], encoding='utf-8') as f:
@@ -270,13 +291,6 @@ def main():
         target_w = int(width_str.strip())
     except ValueError:
         QMessageBox.critical(None, "Error", "Width must be an integer!")
-        return
-
-    try:
-        target_h = int(height_str.strip())
-        target_w = int(width_str.strip())
-    except ValueError:
-        QMessageBox.critical(None, "Error", "Width and height must be integers!")
         return
 
     if target_h <= 0 or target_w <= 0:
