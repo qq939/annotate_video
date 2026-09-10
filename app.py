@@ -3220,6 +3220,48 @@ class UnifiedPanel(QMainWindow):
                             if processed % 100 == 0 or processed == total - 1 or processed == 0:
                                 prompt_log(f"[纯语义{direction}] 进度: {processed}/{total}帧 ({processed*100//total if total > 0 else 0}%) {_gpu_memory_info()}")
 
+                            # 帧对齐校验（首帧）：比较 predictor 返回帧与源帧内容，定位偏移
+                            if processed == 0:
+                                try:
+                                    # 获取 predictor 返回的首帧（从 orig_img 或 r.orig_img）
+                                    orig_img = None
+                                    if hasattr(r, 'orig_img') and r.orig_img is not None:
+                                        orig_img = r.orig_img
+                                    elif hasattr(r, 'plot') and callable(r.plot):
+                                        _orig_frame = cv2.imread(str(temp_frames / f"frame_{idx:06d}.jpg"))
+                                        if _orig_frame is not None:
+                                            orig_img = _orig_frame
+                                    else:
+                                        orig_frame = cv2.imread(str(temp_frames / f"frame_{idx:06d}.jpg"))
+                                        if orig_frame is not None:
+                                            orig_img = orig_frame
+                                    if orig_img is not None:
+                                        if len(orig_img.shape) == 2:
+                                            orig_img = cv2.cvtColor(orig_img, cv2.COLOR_GRAY2BGR)
+                                        elif orig_img.shape[2] == 4:
+                                            orig_img = cv2.cvtColor(orig_img, cv2.COLOR_BGRA2BGR)
+                                        _fwd_check = start_frame if forward else end_frame - 1
+                                        _g = cv2.cvtColor(orig_img, cv2.COLOR_BGR2GRAY).astype(np.float32)
+                                        _mads = []
+                                        for _off in range(-3, 13):
+                                            _cand = mid_frames_dir / f"frame_{_fwd_check + _off:06d}.jpg"
+                                            if not _cand.exists():
+                                                _mads.append((_off, -1.0))
+                                                continue
+                                            _c = cv2.imread(str(_cand))
+                                            if _c is None:
+                                                _mads.append((_off, -1.0))
+                                                continue
+                                            _cg = cv2.cvtColor(_c, cv2.COLOR_BGR2GRAY).astype(np.float32)
+                                            _mads.append((_off, float(np.mean(np.abs(_g - _cg)))))
+                                        _best = min((x for x in _mads if x[1] >= 0), key=lambda x: x[1])
+                                        _mad0 = next((m for o, m in _mads if o == 0), -1.0)
+                                        _flag = "" if _best[0] == 0 else "  ⚠️ 存在帧偏移!"
+                                        prompt_log(f"[纯语义{direction}] 帧对齐校验[首帧]: 期望原帧={_fwd_check}, "
+                                              f"与期望帧MAD={_mad0:.2f}, 最佳匹配偏移={_best[0]:+d}帧(MAD={_best[1]:.2f}){_flag}")
+                                except Exception as _e:
+                                    prompt_log(f"[纯语义{direction}] 帧对齐校验失败: {_e}")
+
                             label_file = src_labels_dir / f"frame_{orig_idx:06d}.json"
                             existing = []
                             if label_file.exists():
