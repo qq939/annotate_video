@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 import json
 
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QRadioButton, QPushButton, QFileDialog, QInputDialog, QListWidget, QMessageBox)
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QRadioButton, QPushButton, QFileDialog, QInputDialog, QListWidget, QMessageBox, QLineEdit)
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QImage, QPixmap, QPainter, QPen, QColor
 from PyQt5.QtCore import pyqtSignal
@@ -297,10 +297,23 @@ class VideoViewer(QMainWindow):
         self.box_delete_radio = QRadioButton("框删")
         self.box_delete_radio.setChecked(False)
         self.box_delete_radio.toggled.connect(self._on_box_select_toggled)
+        # 按traceid删除模式：radio + 输入框 + 确定按钮（放到radiobox右侧）
+        self.trace_delete_radio = QRadioButton("按traceid删除")
+        self.trace_delete_radio.setChecked(False)
+        self.trace_delete_input = QLineEdit()
+        self.trace_delete_input.setFixedWidth(70)
+        self.trace_delete_input.setPlaceholderText("trace id")
+        self.trace_delete_btn = QPushButton("确定")
+        self.trace_delete_btn.setFixedWidth(44)
+        self.trace_delete_btn.setFixedHeight(22)
+        self.trace_delete_btn.clicked.connect(self._delete_by_trace_id)
         mode_layout.addWidget(self.single_frame_radio)
         mode_layout.addWidget(self.multi_frame_radio)
         mode_layout.addWidget(self.box_select_radio)
         mode_layout.addWidget(self.box_delete_radio)
+        mode_layout.addWidget(self.trace_delete_radio)
+        mode_layout.addWidget(self.trace_delete_input)
+        mode_layout.addWidget(self.trace_delete_btn)
         # A/B 模式切换
         mode_layout.addWidget(QLabel("点击:"))
         self.mode_ab_btn = QPushButton("A")
@@ -1153,6 +1166,64 @@ class VideoViewer(QMainWindow):
         print(f"[框删] 区域({rx1},{ry1},{rx2},{ry2}) 帧范围[{start_frame},{end_frame}] 删除 {deleted_count} 个annotation / {frame_count} 帧")
         QMessageBox.information(self, "框删完成",
                                 f"框删区域删除 {deleted_count} 个annotation\n帧范围 [{start_frame},{end_frame}]，涉及 {frame_count} 帧")
+
+    def _delete_by_trace_id(self):
+        """按traceid删除：删除app面板起始-终止闭区间内所有 track_id==输入框值的 bbox/annotations"""
+        text = self.trace_delete_input.text().strip()
+        if not text:
+            QMessageBox.warning(self, "提示", "请输入要删除的 trace id")
+            return
+        try:
+            tid = int(text)
+        except ValueError:
+            QMessageBox.warning(self, "提示", "trace id 必须是整数")
+            return
+
+        panel = self.panel
+        start_frame, end_frame = self._get_fixed_frame_range()
+        undo_changes = []
+        deleted_count = 0
+        frame_count = 0
+
+        for i in range(start_frame - 1, end_frame):  # 1-based闭区间[start, end] → 0-based [start-1, end-1]
+            frame_file = self.labels_dir / f"frame_{i:06d}.json"
+            if not frame_file.exists():
+                continue
+            try:
+                with open(frame_file, encoding='utf-8') as f:
+                    annotations = json.load(f)
+                new_anns = []
+                changed = False
+                for ann in annotations:
+                    if ann.get('track_id', 0) == tid:
+                        bbox_key = self._get_bbox_key(ann.get('bbox', []))
+                        undo_changes.append({
+                            'frame_idx': i,
+                            'bbox_key': bbox_key,
+                            'old_trace_id': tid,
+                            'new_trace_id': -3,  # -3表示按traceid删除
+                            'deleted_ann': ann,
+                        })
+                        deleted_count += 1
+                        changed = True
+                    else:
+                        new_anns.append(ann)
+                if changed:
+                    frame_count += 1
+                    with open(frame_file, 'w', encoding='utf-8') as f:
+                        json.dump(new_anns, f, ensure_ascii=False)
+            except Exception:
+                continue
+
+        if undo_changes and panel and hasattr(panel, 'push_undo'):
+            panel.push_undo(undo_changes)
+        if panel and hasattr(panel, 'refresh_trace_id_list'):
+            panel.refresh_trace_id_list()
+        self.update_display()
+
+        print(f"[按traceid删除] trace_id={tid} 帧范围[{start_frame},{end_frame}] 删除 {deleted_count} 个annotation / {frame_count} 帧")
+        QMessageBox.information(self, "完成",
+                                f"已删除 trace_id={tid} 的 {deleted_count} 个标注\n帧范围 [{start_frame},{end_frame}]，涉及 {frame_count} 帧")
 
     def _get_fixed_frame_range(self):
         """读取app面板固定框的起始/终止帧（1-based闭区间），返回(start_frame, end_frame)"""
