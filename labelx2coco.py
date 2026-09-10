@@ -35,8 +35,8 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
     frames_dir = dst_dir / "frames"
     frames_dir.mkdir(exist_ok=True)
 
-    # 查找所有labelme JSON文件
-    json_files = list(src_dir.glob("*.json"))
+    # 查找所有labelme JSON文件（排除annotations.json）
+    json_files = [f for f in src_dir.glob("*.json") if f.name != "annotations.json"]
     if not json_files:
         print(f"[错误] 目录 {src_dir} 中没有找到 .json 文件")
         return False
