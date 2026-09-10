@@ -38,64 +38,54 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
     # 查找所有labelme JSON文件（排除annotations.json）
     json_files = [f for f in src_dir.glob("*.json") if f.name != "annotations.json"]
     if not json_files:
-        print(f"[错误] 目录 {src_dir} 中没有找到 .json 文件")
+        print(f"[ERROR] No .json files found in {src_dir}")
         return False
 
-    print(f"[INFO] 找到 {len(json_files)} 个 JSON 文件")
+    print(f"[INFO] Found {len(json_files)} JSON files")
 
-    # 从 labelme JSON 推断源图片尺寸（取第一个有 imageWidth/imageHeight 的文件）
-    src_w, src_h = None, None
-    for jf in json_files[:20]:
-        try:
-            with open(jf, encoding='utf-8') as f:
-                d = json.load(f)
-            if d.get("imageWidth") and d.get("imageHeight"):
-                src_w = int(d["imageWidth"])
-                src_h = int(d["imageHeight"])
-                break
-        except Exception:
-            pass
+    # 从第一个labelme JSON获取源图片尺寸
+    first_json = json_files[0]
+    with open(first_json, encoding='utf-8') as f:
+        first_data = json.load(f)
+    src_w = int(first_data.get("imageWidth", 0))
+    src_h = int(first_data.get("imageHeight", 0))
 
-    # 如果labelme JSON中没有尺寸，尝试从图片文件获取
-    if src_w is None or src_h is None:
-        for ext in ['.jpg', '.jpeg', '.png', '.bmp']:
+    # 如果JSON中没有尺寸，从图片获取
+    if src_w <= 0 or src_h <= 0:
+        img_extensions = ['.jpg', '.jpeg', '.png', '.bmp']
+        for ext in img_extensions:
             img_files = list(src_dir.glob(f"*{ext}")) + list(src_dir.glob(f"*{ext.upper()}"))
             if img_files:
                 try:
                     with Image.open(img_files[0]) as img:
                         src_w, src_h = img.size
-                        print(f"[INFO] 从图片获取源尺寸: {src_w}x{src_h}")
+                        print(f"[INFO] Got size from image: {src_w}x{src_h}")
                     break
                 except Exception:
                     pass
 
-    # 默认尺寸
-    if src_w is None or src_h is None:
+    if src_w <= 0 or src_h <= 0:
         src_w, src_h = target_w, target_h
-        print(f"[WARNING] 无法确定源尺寸，使用目标尺寸: {src_w}x{src_h}")
+        print(f"[WARNING] Could not determine source size, using target size")
 
-    print(f"[INFO] 源图片尺寸: {src_w}x{src_h}")
-    print(f"[INFO] 目标图片尺寸: {target_w}x{target_h}")
+    print(f"[INFO] Source size: {src_w}x{src_h}")
+    print(f"[INFO] Target size: {target_w}x{target_h}")
 
-    # 计算缩放比例（用于转换标注坐标）
+    # 计算缩放比例
     ratio_x = target_w / src_w if src_w > 0 else 1.0
     ratio_y = target_h / src_h if src_h > 0 else 1.0
-    print(f"[INFO] 缩放比例: x={ratio_x:.4f}, y={ratio_y:.4f}")
+    print(f"[INFO] Ratio: x={ratio_x:.4f}, y={ratio_y:.4f}")
 
-    # 收集所有类别
-    all_labels = set()
-    for jf in json_files:
-        try:
-            with open(jf, encoding='utf-8') as f:
-                d = json.load(f)
-            for shape in d.get("shapes", []):
-                all_labels.add(shape.get("label", "unknown"))
-        except Exception:
-            pass
+    # 收集类别（保持首次出现的顺序）
+    cat_map = {}  # label -> category_id
+    categories = []  # 按首次出现顺序
 
-    categories = [{"id": i + 1, "name": name, "supercategory": ""} for i, name in enumerate(sorted(all_labels))]
-    cat_map = {c["name"]: c["id"] for c in categories}
-    print(f"[INFO] 类别数量: {len(categories)}")
+    def get_or_create_category(label):
+        if label not in cat_map:
+            cat_id = len(categories) + 1
+            cat_map[label] = cat_id
+            categories.append({"id": cat_id, "name": label, "supercategory": ""})
+        return cat_map[label]
 
     # 构建 frame_XXXXXX.json 文件，同时处理图片
     frame_jsons = {}  # frame_idx -> list of ann
@@ -106,7 +96,7 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
             with open(jf, encoding='utf-8') as f:
                 d = json.load(f)
 
-            # 文件名解析帧号：frame_000123.json → 123，B00214 → 214，其他用索引
+            # 文件名解析帧号
             name = jf.stem
             frame_idx = None
             if name.startswith("frame_"):
@@ -128,6 +118,9 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
                 stype = shape.get("shape_type", "rectangle")
                 points = shape.get("points", [])
 
+                # 确保类别已注册（保持首次出现顺序）
+                get_or_create_category(label)
+
                 if stype == "rectangle" and len(points) >= 2:
                     x1, y1 = points[0]
                     x2, y2 = points[1]
@@ -142,7 +135,7 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
 
                     anns.append({
                         "id": len(anns) + 1,
-                        "category_id": cat_map.get(label, 1),
+                        "category_id": cat_map[label],
                         "track_id": 0,
                         "trace_id_list": [0],
                         "bbox": [x_scaled, y_scaled, w_scaled, h_scaled],
@@ -164,7 +157,7 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
 
                     anns.append({
                         "id": len(anns) + 1,
-                        "category_id": cat_map.get(label, 1),
+                        "category_id": cat_map[label],
                         "track_id": 0,
                         "trace_id_list": [0],
                         "bbox": [x * ratio_x, y * ratio_y, w * ratio_x, h * ratio_y],
@@ -175,7 +168,7 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
 
             frame_jsons[frame_idx] = anns
 
-            # 处理图片文件：查找对应的图片
+            # 处理图片文件
             img_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.JPG', '.JPEG', '.PNG', '.BMP']
             src_img = None
             for ext in img_extensions:
@@ -184,7 +177,6 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
                     src_img = potential_img
                     break
 
-            # 如果没找到，尝试在子目录中查找
             if src_img is None:
                 for subdir in [src_dir / "images", src_dir / "img", src_dir / "pics"]:
                     for ext in img_extensions:
@@ -196,20 +188,22 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
                         break
 
             if src_img:
-                # 读取并resize图片
                 try:
                     with Image.open(src_img) as img:
+                        # 转换为 RGB（如果是 RGBA 或其他模式）
+                        if img.mode != 'RGB':
+                            img = img.convert('RGB')
                         img_resized = img.resize((target_w, target_h), Image.LANCZOS)
                         dst_img_path = frames_dir / f"frame_{frame_idx:06d}.jpg"
-                        img_resized.save(dst_img_path, "JPEG")
+                        img_resized.save(dst_img_path, "JPEG", quality=95)
                         processed_frames += 1
                 except Exception as e:
-                    print(f"[警告] 无法处理图片 {src_img.name}: {e}")
+                    print(f"[WARN] Could not process image {src_img.name}: {e}")
             else:
-                print(f"[警告] 找不到对应图片: {name}")
+                print(f"[WARN] Image not found: {name}")
 
         except Exception as e:
-            print(f"[跳过] {jf.name}: {e}")
+            print(f"[SKIP] {jf.name}: {e}")
 
     # 写入 frame_XXXXXX.json 文件
     for frame_idx, anns in sorted(frame_jsons.items()):
@@ -237,8 +231,11 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
     with open(dst_dir / "annotations.json", 'w', encoding='utf-8') as f:
         json.dump(ann_data, f, ensure_ascii=False)
 
-    print(f"[完成] 输出到 {dst_dir}")
-    print(f"[完成] 帧数: {len(frame_jsons)}, 处理图片: {processed_frames}, 类别数: {len(categories)}")
+    print(f"[DONE] Output: {dst_dir}")
+    print(f"[DONE] Frames: {len(frame_jsons)}, Images: {processed_frames}, Categories: {len(categories)}")
+    print(f"[DONE] Category mapping:")
+    for cat in categories:
+        print(f"       id={cat['id']}: {cat['name']}")
     return True
 
 
@@ -246,59 +243,59 @@ def main():
     app = QApplication(sys.argv)
 
     # 选择源文件夹
-    src_dir = QFileDialog.getExistingDirectory(None, "选择labelme格式文件夹", ".")
+    src_dir = QFileDialog.getExistingDirectory(None, "Select labelme folder", ".")
     if not src_dir:
-        print("[INFO] 用户取消")
+        print("[INFO] Cancelled")
         return
 
     src_path = Path(src_dir)
 
     # 输入目标分辨率
-    height_str, ok = QInputDialog.getText(None, "输入目标高度", "请输入目标图片的高度（像素）:")
+    height_str, ok = QInputDialog.getText(None, "Target Height", "Enter target image height (pixels):")
     if not ok or not height_str.strip():
-        print("[INFO] 用户取消")
+        print("[INFO] Cancelled")
         return
 
-    width_str, ok = QInputDialog.getText(None, "输入目标宽度", "请输入目标图片的宽度（像素）:")
+    width_str, ok = QInputDialog.getText(None, "Target Width", "Enter target image width (pixels):")
     if not ok or not width_str.strip():
-        print("[INFO] 用户取消")
+        print("[INFO] Cancelled")
         return
 
     try:
         target_h = int(height_str.strip())
         target_w = int(width_str.strip())
     except ValueError:
-        QMessageBox.critical(None, "错误", "高度和宽度必须是整数！")
+        QMessageBox.critical(None, "Error", "Width and height must be integers!")
         return
 
     if target_h <= 0 or target_w <= 0:
-        QMessageBox.critical(None, "错误", "高度和宽度必须是正整数！")
+        QMessageBox.critical(None, "Error", "Width and height must be positive integers!")
         return
 
-    # 构建目标文件夹名：原名 + coco
+    # 构建目标文件夹名
     dst_dir = src_path.parent / (src_path.name + "_coco")
     if dst_dir.exists():
         reply = QMessageBox.question(
-            None, "确认",
-            f"目标文件夹已存在: {dst_dir}\n是否覆盖？",
+            None, "Confirm",
+            f"Target folder exists: {dst_dir}\nOverwrite?",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
         if reply != QMessageBox.Yes:
-            print("[INFO] 用户取消")
+            print("[INFO] Cancelled")
             return
         shutil.rmtree(dst_dir)
 
-    print(f"[INFO] 源目录: {src_path}")
-    print(f"[INFO] 目标目录: {dst_dir}")
-    print(f"[INFO] 目标分辨率: {target_w}x{target_h}")
+    print(f"[INFO] Source: {src_path}")
+    print(f"[INFO] Target: {dst_dir}")
+    print(f"[INFO] Size: {target_w}x{target_h}")
 
     success = convert_labelme_to_coco(src_path, dst_dir, target_w, target_h)
 
     if success:
-        QMessageBox.information(None, "完成", f"转换完成！\n\n输出目录: {dst_dir}")
+        QMessageBox.information(None, "Done", f"Conversion complete!\n\nOutput: {dst_dir}")
     else:
-        QMessageBox.critical(None, "错误", "转换失败！")
+        QMessageBox.critical(None, "Error", "Conversion failed!")
 
 
 if __name__ == "__main__":
