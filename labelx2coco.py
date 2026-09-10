@@ -122,6 +122,7 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
                 frame_idx = idx
 
             anns = []
+            ann_id = 1001  # 每个shape一个唯一的track_id，从1001开始
             for shape in d.get("shapes", []):
                 label = shape.get("label", "unknown")
                 stype = shape.get("shape_type", "rectangle")
@@ -140,24 +141,24 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
                     w_scaled = w * ratio_x
                     h_scaled = h * ratio_y
 
-                    # 缩放segmentation坐标（所有点）
-                    seg = []
-                    for p in points:
-                        seg.append(p[0] * ratio_x)
-                        seg.append(p[1] * ratio_y)
+                    # 生成4个角点的segmentation [x1,y1,x2,y1,x2,y2,x1,y2]
+                    seg = [
+                        x_scaled, y_scaled,           # 左上
+                        x_scaled + w_scaled, y_scaled,  # 右上
+                        x_scaled + w_scaled, y_scaled + h_scaled,  # 右下
+                        x_scaled, y_scaled + h_scaled  # 左下
+                    ]
 
                     anns.append({
-                        "id": len(anns) + 1,
-                        "track_id": 1000,  # 默认track_id
-                        "image_id": frame_idx,
-                        "category_id": 0,  # 始终为0
                         "bbox": [x_scaled, y_scaled, w_scaled, h_scaled],
-                        "area": w_scaled * h_scaled,
-                        "segmentation": [seg],  # 4个角点展开的列表
-                        "iscrowd": 0,
+                        "track_id": ann_id,  # 每个shape有唯一的track_id
+                        "segmentation": [seg],  # 4个角点 [x1,y1,x2,y1,x2,y2,x1,y2]
+                        "category": label,  # 类别名称
                         "confidence": 1.0,
-                        "category": label  # 类别名称
+                        "category_id": 0,  # 由用户在UI中分配
+                        "trace_id_list": [ann_id]  # 必须有这个字段
                     })
+                    ann_id += 1
 
             frame_jsons[frame_idx] = anns
 
