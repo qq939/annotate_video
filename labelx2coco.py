@@ -13,6 +13,7 @@ import string
 from pathlib import Path
 from PyQt5.QtWidgets import QApplication, QFileDialog, QInputDialog, QMessageBox
 import sys
+from PIL import Image
 
 
 def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
@@ -31,6 +32,8 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
     dst_dir.mkdir(parents=True, exist_ok=True)
     labels_dir = dst_dir / "labels"
     labels_dir.mkdir(exist_ok=True)
+    frames_dir = dst_dir / "frames"
+    frames_dir.mkdir(exist_ok=True)
 
     # 查找所有labelme JSON文件
     json_files = list(src_dir.glob("*.json"))
@@ -41,7 +44,7 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
     print(f"[INFO] 找到 {len(json_files)} 个 JSON 文件")
 
     # 从 labelme JSON 推断源图片尺寸（取第一个有 imageWidth/imageHeight 的文件）
-    src_w, src_h = target_w, target_h
+    src_w, src_h = None, None
     for jf in json_files[:20]:
         try:
             with open(jf, encoding='utf-8') as f:
@@ -52,6 +55,24 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
                 break
         except Exception:
             pass
+
+    # 如果labelme JSON中没有尺寸，尝试从图片文件获取
+    if src_w is None or src_h is None:
+        for ext in ['.jpg', '.jpeg', '.png', '.bmp']:
+            img_files = list(src_dir.glob(f"*{ext}")) + list(src_dir.glob(f"*{ext.upper()}"))
+            if img_files:
+                try:
+                    with Image.open(img_files[0]) as img:
+                        src_w, src_h = img.size
+                        print(f"[INFO] 从图片获取源尺寸: {src_w}x{src_h}")
+                    break
+                except Exception:
+                    pass
+
+    # 默认尺寸
+    if src_w is None or src_h is None:
+        src_w, src_h = target_w, target_h
+        print(f"[WARNING] 无法确定源尺寸，使用目标尺寸: {src_w}x{src_h}")
 
     print(f"[INFO] 源图片尺寸: {src_w}x{src_h}")
     print(f"[INFO] 目标图片尺寸: {target_w}x{target_h}")
@@ -76,8 +97,10 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
     cat_map = {c["name"]: c["id"] for c in categories}
     print(f"[INFO] 类别数量: {len(categories)}")
 
-    # 构建 frame_XXXXXX.json 文件
+    # 构建 frame_XXXXXX.json 文件，同时处理图片
     frame_jsons = {}  # frame_idx -> list of ann
+    processed_frames = 0
+
     for idx, jf in enumerate(sorted(json_files)):
         try:
             with open(jf, encoding='utf-8') as f:
@@ -112,19 +135,19 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
                     w, h = abs(x2 - x1), abs(y2 - y1)
 
                     # 缩放坐标
-                    x = x * ratio_x
-                    y = y * ratio_y
-                    w = w * ratio_x
-                    h = h * ratio_y
+                    x_scaled = x * ratio_x
+                    y_scaled = y * ratio_y
+                    w_scaled = w * ratio_x
+                    h_scaled = h * ratio_y
 
                     anns.append({
                         "id": len(anns) + 1,
                         "category_id": cat_map.get(label, 1),
                         "track_id": 0,
                         "trace_id_list": [0],
-                        "bbox": [x, y, w, h],
-                        "area": w * h,
-                        "segmentation": [[x, y, x + w, y, x + w, y + h, x, y + h]],
+                        "bbox": [x_scaled, y_scaled, w_scaled, h_scaled],
+                        "area": w_scaled * h_scaled,
+                        "segmentation": [[x_scaled, y_scaled, x_scaled + w_scaled, y_scaled, x_scaled + w_scaled, y_scaled + h_scaled, x_scaled, y_scaled + h_scaled]],
                         "iscrowd": 0
                     })
                 elif stype == "polygon" and len(points) >= 3:
@@ -145,12 +168,46 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
                         "track_id": 0,
                         "trace_id_list": [0],
                         "bbox": [x * ratio_x, y * ratio_y, w * ratio_x, h * ratio_y],
-                        "area": w * ratio_x * h * ratio_y,
+                        "area": w * h * ratio_x * ratio_y,
                         "segmentation": [seg],
                         "iscrowd": 0
                     })
 
             frame_jsons[frame_idx] = anns
+
+            # 处理图片文件：查找对应的图片
+            img_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.JPG', '.JPEG', '.PNG', '.BMP']
+            src_img = None
+            for ext in img_extensions:
+                potential_img = src_dir / f"{name}{ext}"
+                if potential_img.exists():
+                    src_img = potential_img
+                    break
+
+            # 如果没找到，尝试在子目录中查找
+            if src_img is None:
+                for subdir in [src_dir / "images", src_dir / "img", src_dir / "pics"]:
+                    for ext in img_extensions:
+                        potential_img = subdir / f"{name}{ext}"
+                        if potential_img.exists():
+                            src_img = potential_img
+                            break
+                    if src_img:
+                        break
+
+            if src_img:
+                # 读取并resize图片
+                try:
+                    with Image.open(src_img) as img:
+                        img_resized = img.resize((target_w, target_h), Image.LANCZOS)
+                        dst_img_path = frames_dir / f"frame_{frame_idx:06d}.jpg"
+                        img_resized.save(dst_img_path, "JPEG")
+                        processed_frames += 1
+                except Exception as e:
+                    print(f"[警告] 无法处理图片 {src_img.name}: {e}")
+            else:
+                print(f"[警告] 找不到对应图片: {name}")
+
         except Exception as e:
             print(f"[跳过] {jf.name}: {e}")
 
@@ -181,7 +238,7 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
         json.dump(ann_data, f, ensure_ascii=False)
 
     print(f"[完成] 输出到 {dst_dir}")
-    print(f"[完成] 帧数: {len(frame_jsons)}, 类别数: {len(categories)}")
+    print(f"[完成] 帧数: {len(frame_jsons)}, 处理图片: {processed_frames}, 类别数: {len(categories)}")
     return True
 
 
