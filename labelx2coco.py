@@ -73,21 +73,9 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
             with open(jf, encoding='utf-8') as f:
                 d = json.load(f)
 
-            # 文件名解析帧号
+            # 帧号：按字符串排序后的索引直接映射（0,1,2,...），避免不同前缀数字重叠导致覆盖
             name = jf.stem
-            frame_idx = None
-            if name.startswith("frame_"):
-                part = name.split("_")[1]
-                digits = ''.join(c for c in part if c.isdigit())
-                if digits:
-                    frame_idx = int(digits)
-            else:
-                digits = ''.join(c for c in name if c.isdigit())
-                if digits:
-                    frame_idx = int(digits)
-
-            if frame_idx is None:
-                frame_idx = idx
+            frame_idx = idx
 
             # 查找该帧对应图片，每帧独立读取真实尺寸（混合尺寸源不能用全局尺寸）
             src_img = None
@@ -106,17 +94,13 @@ def convert_labelme_to_coco(src_dir, dst_dir, target_w, target_h):
                     if src_img:
                         break
 
-            src_w, src_h = 0, 0
-            if src_img:
-                with Image.open(src_img) as img:
-                    src_w, src_h = img.size
-            if src_w <= 0 or src_h <= 0:
-                src_w = int(d.get("imageWidth", 0))
-                src_h = int(d.get("imageHeight", 0))
+            # 统一用 JSON 记录的源尺寸计算缩放比例，resize 到文本框输入的 target
+            src_w = int(d.get("imageWidth", 0))
+            src_h = int(d.get("imageHeight", 0))
             if src_w <= 0 or src_h <= 0:
                 src_w, src_h = target_w, target_h
 
-            # 每帧按自身真实尺寸计算缩放比例
+            # 每帧按 JSON 记录的源尺寸计算缩放比例
             ratio_x = target_w / src_w if src_w > 0 else 1.0
             ratio_y = target_h / src_h if src_h > 0 else 1.0
 
