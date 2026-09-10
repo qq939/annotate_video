@@ -264,32 +264,26 @@ def main():
     except Exception:
         pass
 
-    # 输入目标分辨率（使用默认值）
-    height_str, ok = QInputDialog.getText(None, "Target Height", f"Enter target image height\n(Default: {default_h}):")
+    # 输入目标分辨率（使用默认值填入文本框）
+    height_str, ok = QInputDialog.getText(None, "Target Height", f"Enter target image height:", str(default_h))
     if not ok:
         print("[INFO] Cancelled")
         return
-    if not height_str.strip():
-        target_h = default_h
-    else:
-        try:
-            target_h = int(height_str.strip())
-        except ValueError:
-            QMessageBox.critical(None, "Error", "Height must be an integer!")
-            return
+    try:
+        target_h = int(height_str.strip())
+    except ValueError:
+        QMessageBox.critical(None, "Error", "Height must be an integer!")
+        return
 
-    width_str, ok = QInputDialog.getText(None, "Target Width", f"Enter target image width\n(Default: {default_w}):")
+    width_str, ok = QInputDialog.getText(None, "Target Width", f"Enter target image width:", str(default_w))
     if not ok:
         print("[INFO] Cancelled")
         return
-    if not width_str.strip():
-        target_w = default_w
-    else:
-        try:
-            target_w = int(width_str.strip())
-        except ValueError:
-            QMessageBox.critical(None, "Error", "Width must be an integer!")
-            return
+    try:
+        target_w = int(width_str.strip())
+    except ValueError:
+        QMessageBox.critical(None, "Error", "Width must be an integer!")
+        return
 
     try:
         target_h = int(height_str.strip())
