@@ -2865,7 +2865,7 @@ class UnifiedPanel(QMainWindow):
                 )
                 if device_type == 'cuda':
                     overrides['batch'] = 1
-                    overrides['stream_buffer'] = False
+                    overrides['stream_buffer'] = True
                 predictor = SAM3VideoPredictor(overrides=overrides)  # 不带语义
                 
                 def do_auto_seg_clip(start_frame, end_frame, forward):
@@ -2961,7 +2961,7 @@ class UnifiedPanel(QMainWindow):
                 )
                 if device_type == 'cuda':
                     overrides['batch'] = 1
-                    overrides['stream_buffer'] = False
+                    overrides['stream_buffer'] = True
                 predictor = SAM3VideoSemanticPredictor(overrides=overrides)
                 
                 # 将点转换为numpy数组
@@ -3108,9 +3108,9 @@ class UnifiedPanel(QMainWindow):
                     half=device_type == 'cuda', save=False, verbose=False
                 )
                 if device_type == 'cuda':
-                    # CUDA优化：逐帧流式处理，避免视频帧缓冲导致OOM
+                    # CUDA: batch=1 逐帧推理；stream_buffer=True 让读取线程缓冲不丢帧（False会导致跳帧）
                     overrides['batch'] = 1
-                    overrides['stream_buffer'] = False
+                    overrides['stream_buffer'] = True
                 predictor = SAM3VideoSemanticPredictor(overrides=overrides)
 
                 # 计算 FIRST_ID（查找未被占用的1000档位）
@@ -3376,7 +3376,7 @@ class UnifiedPanel(QMainWindow):
             )
             if device_type == 'cuda':
                 overrides['batch'] = 1
-                overrides['stream_buffer'] = False
+                overrides['stream_buffer'] = True
             elif device_type == 'mps':
                 overrides['half'] = True
                 overrides['amp'] = True
