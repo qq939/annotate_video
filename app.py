@@ -3011,6 +3011,7 @@ class UnifiedPanel(QMainWindow):
                     prompt_log(f"[点分割{direction}] SAM推理中: {len(frame_list)}帧... {_gpu_memory_info()}")
 
                     processed = 0
+                    frame_idx = 0  # 独立的帧计数器：追踪 predictor 实际 yield 的帧号，masks 为空也不影响对齐
                     try:
                         for result_item in predictor_local(source=clip_path, stream=True, points=points_np, labels=labels_np, text=items_text if items_text else None):
                             r = result_item
@@ -3020,9 +3021,11 @@ class UnifiedPanel(QMainWindow):
                                 except (StopIteration, TypeError, AttributeError):
                                     r = result_item
                             if not hasattr(r, 'masks') or r is None or r.masks is None:
+                                frame_idx += 1
                                 continue
 
-                            idx = processed
+                            idx = frame_idx
+                            frame_idx += 1
                             orig_idx = start_frame + idx if forward else end_frame - 1 - idx
 
                             if processed % 100 == 0 or processed == total - 1 or processed == 0:
@@ -3200,6 +3203,7 @@ class UnifiedPanel(QMainWindow):
 
                     # 流式迭代：每处理完一帧立即保存并释放显存，不等待全部完成
                     processed = 0
+                    frame_idx = 0  # 独立的帧计数器：追踪 predictor 实际 yield 的帧号，masks 为空也不影响对齐
                     try:
                         for result_item in predictor_local(source=clip_path, stream=True, text=items_text):
                             # 兼容不同版本ultralytics返回值格式
@@ -3211,9 +3215,11 @@ class UnifiedPanel(QMainWindow):
                                     r = result_item
 
                             if not hasattr(r, 'masks') or r is None or r.masks is None:
+                                frame_idx += 1
                                 continue
 
-                            idx = processed
+                            idx = frame_idx
+                            frame_idx += 1
                             orig_idx = start_frame + idx if forward else end_frame - 1 - idx
 
                             # 每100帧打印进度，避免刷屏
@@ -3221,7 +3227,7 @@ class UnifiedPanel(QMainWindow):
                                 prompt_log(f"[纯语义{direction}] 进度: {processed}/{total}帧 ({processed*100//total if total > 0 else 0}%) {_gpu_memory_info()}")
 
                             # 帧对齐校验（每100帧）：比较 predictor 返回帧与源帧内容，定位偏移
-                            if processed % 100 == 0:
+                            if idx % 100 == 0:
                                 try:
                                     # 获取 predictor 返回的首帧（从 orig_img 或 r.orig_img）
                                     orig_img = None
@@ -3240,7 +3246,7 @@ class UnifiedPanel(QMainWindow):
                                             orig_img = cv2.cvtColor(orig_img, cv2.COLOR_GRAY2BGR)
                                         elif orig_img.shape[2] == 4:
                                             orig_img = cv2.cvtColor(orig_img, cv2.COLOR_BGRA2BGR)
-                                        _fwd_check = start_frame + processed if forward else end_frame - 1 - processed
+                                        _fwd_check = start_frame + idx if forward else end_frame - 1 - idx
                                         _g = cv2.cvtColor(orig_img, cv2.COLOR_BGR2GRAY).astype(np.float32)
                                         _mads = []
                                         for _off in range(-3, 13):
@@ -3257,7 +3263,7 @@ class UnifiedPanel(QMainWindow):
                                         _best = min((x for x in _mads if x[1] >= 0), key=lambda x: x[1])
                                         _mad0 = next((m for o, m in _mads if o == 0), -1.0)
                                         _flag = "" if _best[0] == 0 else "  ⚠️ 存在帧偏移!"
-                                        prompt_log(f"[纯语义{direction}] 帧对齐校验[帧{processed}]: 期望原帧={_fwd_check}, "
+                                        prompt_log(f"[纯语义{direction}] 帧对齐校验[帧{idx}]: 期望原帧={_fwd_check}, "
                                               f"与期望帧MAD={_mad0:.2f}, 最佳匹配偏移={_best[0]:+d}帧(MAD={_best[1]:.2f}){_flag}")
                                 except Exception as _e:
                                     prompt_log(f"[纯语义{direction}] 帧对齐校验失败: {_e}")
