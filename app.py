@@ -75,7 +75,7 @@ def _safe_empty_cache():
     except Exception:
         pass
 
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QSlider, QLabel, QLineEdit, QFileDialog, QGroupBox, QTextEdit, QMessageBox, QListWidget, QSizePolicy, QDialog, QInputDialog, QCheckBox, QToolButton, QMenu)
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QSlider, QLabel, QLineEdit, QFileDialog, QGroupBox, QTextEdit, QMessageBox, QListWidget, QSizePolicy, QDialog, QInputDialog, QCheckBox, QToolButton, QMenu, QRadioButton)
 from PyQt5.QtCore import Qt, QTimer, QPoint, QRect, pyqtSignal
 from PyQt5.QtGui import QPainter, QPen, QColor
 from PyQt5.Qt import QDragEnterEvent, QDropEvent
@@ -2233,6 +2233,25 @@ class UnifiedPanel(QMainWindow):
         trace_list_layout.addLayout(btn_col)
         layout.addLayout(trace_list_layout)
 
+        # 修改模式：单帧映射、多帧映射、单删
+        mode_layout = QHBoxLayout()
+        mode_layout.setSpacing(4)
+        mode_layout.addWidget(QLabel("修改:"))
+        self.mode_single_map = QRadioButton("单帧映射")
+        self.mode_single_map.setChecked(True)
+        self.mode_single_map.setStyleSheet("QRadioButton { font-size: 11px; }")
+        self.mode_single_map.toggled.connect(self.on_modify_mode_changed)
+        mode_layout.addWidget(self.mode_single_map)
+        self.mode_multi_map = QRadioButton("多帧映射")
+        self.mode_multi_map.setStyleSheet("QRadioButton { font-size: 11px; }")
+        self.mode_multi_map.toggled.connect(self.on_modify_mode_changed)
+        mode_layout.addWidget(self.mode_multi_map)
+        self.mode_single_del = QRadioButton("单删")
+        self.mode_single_del.setStyleSheet("QRadioButton { font-size: 11px; }")
+        self.mode_single_del.toggled.connect(self.on_modify_mode_changed)
+        mode_layout.addWidget(self.mode_single_del)
+        layout.addLayout(mode_layout)
+
         # 固定框功能
         fixed_bbox_layout = QVBoxLayout()
         fixed_bbox_layout.setSpacing(2)
@@ -4316,6 +4335,84 @@ class UnifiedPanel(QMainWindow):
         self.ctrl.next_track_id += 1
         self.trace_id_input.setText(str(self.ctrl.next_track_id))
 
+    def on_modify_mode_changed(self):
+        """修改模式切换：单帧映射/多帧映射/单删"""
+        if self.mode_single_del.isChecked():
+            self.prompt_btn.setEnabled(False)
+            if hasattr(self, 'viewer') and self.viewer:
+                self.viewer.setCursor(Qt.PointingHandCursor)
+        else:
+            self.prompt_btn.setEnabled(True)
+            if hasattr(self, 'viewer') and self.viewer:
+                self.viewer.setCursor(Qt.ArrowCursor)
+
+    def delete_annotation_at_point(self, video_x, video_y, frame_idx):
+        """单删模式：删除点击位置的标注"""
+        if not self.viewer:
+            return
+
+        if self.is_playing:
+            self.is_playing = False
+            self.play_timer.stop()
+            self.next_btn.setText("正帧")
+            self.forward_fast_btn.setText("正播")
+            if self.viewer:
+                self.viewer.stop_playback()
+
+        _, annotations = self.viewer.load_frame_data(frame_idx)
+        filtered = self.ctrl.filter_annotations(annotations)
+
+        all_found = []
+        for ann in filtered:
+            polygon = ann.get('segmentation')
+            if not polygon:
+                # 无polygon时用bbox判断
+                bbox = ann.get('bbox', [])
+                if bbox:
+                    bx, by, bw, bh = bbox
+                    if bx <= video_x <= bx + bw and by <= video_y <= by + bh:
+                        all_found.append(ann)
+                continue
+            pts = np.array(polygon[0], dtype=np.int32).reshape(-1, 2)
+            if cv2.pointPolygonTest(pts, (float(video_x), float(video_y)), False) >= 0:
+                all_found.append(ann)
+
+        if not all_found:
+            return
+
+        chosen = all_found[0]
+        if len(all_found) > 1:
+            items = []
+            for ann in all_found:
+                tid = ann.get('track_id', ann.get('id', 0))
+                cat = ann.get('category', 'unknown')
+                items.append(f"track_id={tid} ({cat})")
+            item, ok = QInputDialog.getItem(self, "选择删除", "多个标注重叠，请选择要删除的:", items, 0, False)
+            if not ok:
+                return
+            idx = items.index(item)
+            chosen = all_found[idx]
+
+        label_file = self.viewer.labels_dir / f"frame_{frame_idx:06d}.json"
+        if not label_file.exists():
+            return
+
+        with open(label_file, encoding='utf-8') as f:
+            existing = json.load(f)
+
+        # 移除选中的标注
+        ann_id = chosen.get('id')
+        track_id = chosen.get('track_id')
+        new_existing = [a for a in existing if a.get('id') != ann_id and a.get('track_id') != track_id]
+
+        with open(label_file, 'w', encoding='utf-8') as f:
+            json.dump(new_existing, f, ensure_ascii=False)
+
+        tid_str = track_id if track_id else ann_id
+        print(f"已删除帧{frame_idx}的标注: track_id={tid_str}")
+        self.viewer.current_frame_idx = frame_idx
+        self.viewer.update_display()
+
     def toggle_dark_mode(self):
         """切换关灯/开灯模式"""
         self.dark_mode = not self.dark_mode
@@ -4359,6 +4456,52 @@ class UnifiedPanel(QMainWindow):
             if self.viewer:
                 self.viewer.stop_playback()
 
+        # 根据修改模式分发
+        if self.mode_single_del.isChecked():
+            self.delete_annotation_at_point(video_x, video_y, frame_idx)
+        elif self.mode_single_map.isChecked():
+            self._handle_single_map_click(video_x, video_y, frame_idx)
+        elif self.mode_multi_map.isChecked():
+            self._handle_multi_map_click(video_x, video_y, frame_idx)
+
+    def _handle_single_map_click(self, video_x, video_y, frame_idx):
+        """单帧映射：点击即映射"""
+        _, annotations = self.viewer.load_frame_data(frame_idx)
+        filtered = self.ctrl.filter_annotations(annotations)
+
+        all_found = []
+        for ann in filtered:
+            polygon = ann.get('segmentation')
+            if not polygon:
+                continue
+            pts = np.array(polygon[0], dtype=np.int32).reshape(-1, 2)
+            if cv2.pointPolygonTest(pts, (float(video_x), float(video_y)), False) >= 0:
+                all_found.append(ann)
+
+        if not all_found:
+            return
+
+        chosen = all_found[0]
+        if len(all_found) > 1:
+            items = [f"track_id={ann.get('track_id', ann.get('id', 0))}" for ann in all_found]
+            item, ok = QInputDialog.getItem(self, "选择标注", "多个标注重叠，请选择一个", items, 0, False)
+            if not ok:
+                return
+            idx = items.index(item)
+            chosen = all_found[idx]
+
+        old_id = chosen.get('track_id', 0)
+        new_id = self.ctrl.next_track_id
+
+        self._apply_single_mapping_to_mid(old_id, new_id)
+
+        self.trace_id_list.addItem(f"ID: {old_id} → {new_id}")
+        self._save_trace_id_mappings()
+        self.viewer.current_frame_idx = frame_idx
+        self.viewer.update_display()
+
+    def _handle_multi_map_click(self, video_x, video_y, frame_idx):
+        """多帧映射：记录映射对，等应用按钮"""
         _, annotations = self.viewer.load_frame_data(frame_idx)
         filtered = self.ctrl.filter_annotations(annotations)
 
