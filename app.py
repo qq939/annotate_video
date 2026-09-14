@@ -2450,6 +2450,11 @@ class UnifiedPanel(QMainWindow):
         self.train_resume_check.setChecked(False)
         self.train_resume_check.setStyleSheet("QCheckBox { font-size: 11px; }")
         train_params_layout.addWidget(self.train_resume_check)
+        self.early_stop_check = QCheckBox("早停")
+        self.early_stop_check.setChecked(False)
+        self.early_stop_check.setStyleSheet("QCheckBox { font-size: 11px; }")
+        self.early_stop_check.setToolTip("mAP>0.97且5轮无提升时自动停止训练")
+        train_params_layout.addWidget(self.early_stop_check)
         self.upload_obs_check = QCheckBox("数据集上传OBS")
         self.upload_obs_check.setChecked(True)
         self.upload_obs_check.setStyleSheet("QCheckBox { font-size: 11px; }")
@@ -6698,7 +6703,8 @@ names: {class_names}
                 # 有best.pt，加载作为预训练权重
                 model = YOLO(str(best_pt))
                 model.add_callback("on_train_epoch", _esc_stop_callback)
-                model.add_callback("on_train_epoch", _map_early_stop_callback)
+                if self.early_stop_check.isChecked():
+                    model.add_callback("on_train_epoch", _map_early_stop_callback)
                 try:
                     result = model.train(
                         data=yaml_path.as_posix(),
@@ -6726,7 +6732,8 @@ names: {class_names}
                 # 有last.pt，加载作为预训练权重
                 model = YOLO(str(last_pt))
                 model.add_callback("on_train_epoch", _esc_stop_callback)
-                model.add_callback("on_train_epoch", _map_early_stop_callback)
+                if self.early_stop_check.isChecked():
+                    model.add_callback("on_train_epoch", _map_early_stop_callback)
                 try:
                     result = model.train(
                         data=yaml_path.as_posix(),
@@ -6755,7 +6762,8 @@ names: {class_names}
                 print("[YOLO] 只有best.onnx，从ONNX加载...")
                 model = YOLO(str(best_onnx))
                 model.add_callback("on_train_epoch", _esc_stop_callback)
-                model.add_callback("on_train_epoch", _map_early_stop_callback)
+                if self.early_stop_check.isChecked():
+                    model.add_callback("on_train_epoch", _map_early_stop_callback)
                 try:
                     result = model.train(
                         data=yaml_path.as_posix(),
@@ -6790,7 +6798,8 @@ names: {class_names}
 
             model = YOLO("yolo11m.pt")
             model.add_callback("on_train_epoch", _esc_stop_callback)
-            model.add_callback("on_train_epoch", _map_early_stop_callback)
+            if self.early_stop_check.isChecked():
+                model.add_callback("on_train_epoch", _map_early_stop_callback)
             try:
                 result = model.train(
                     data=yaml_path.as_posix(),
