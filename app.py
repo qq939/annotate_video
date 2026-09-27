@@ -399,6 +399,66 @@ def build_class_mapping(panel_pairs, used_tids=()):
     return ordered, class_names, classes_id, tid_to_index, tid_to_name
 
 
+def build_samples_from_post(post_dir):
+    """把 temp_data_post（frames/ + labels/）直接转成训练样本 [(图片路径, labelme风格dict), ...]。
+
+    目的：训练不再需要先生成 label_x_label_me 目录（那份要再拷贝/重写上GB的帧与标注，纯属浪费算力）。
+    返回的 dict 与 labelme JSON 同结构（shapes[].label/points、imageWidth/imageHeight），
+    因此下游的增广、转 YOLO txt 逻辑无需改动。
+    （使用位置：_train_yolo_model —— 入参为 temp_data_post 时构造训练/验证集）
+    """
+    post_dir = Path(post_dir)
+    frames_dir = post_dir / "frames"
+    labels_dir = post_dir / "labels"
+    # 图像尺寸优先取 annotations.json 的 info（一次读取，避免逐帧解码）
+    width = height = None
+    ann_file = post_dir / "annotations.json"
+    if ann_file.exists():
+        try:
+            with open(ann_file, encoding="utf-8") as f:
+                info = (json.load(f) or {}).get("info", {}) or {}
+            width, height = info.get("width"), info.get("height")
+        except Exception:
+            width = height = None
+
+    samples = []
+    for img in sorted(frames_dir.glob("frame_*.*")):
+        if img.suffix.lower() not in (".jpg", ".jpeg", ".png"):
+            continue
+        shapes = []
+        label_file = labels_dir / f"{img.stem}.json"
+        if label_file.exists():
+            with open(label_file, encoding="utf-8") as f:
+                for ann in json.load(f):
+                    bbox = ann.get("bbox") or []
+                    if len(bbox) != 4:
+                        continue
+                    x, y, w, h = bbox
+                    shapes.append({
+                        "label": ann.get("category") or "Detect",
+                        "points": [[x, y], [x + w, y], [x + w, y + h], [x, y + h]],
+                        "shape_type": "rectangle",
+                    })
+        w_img, h_img = width, height
+        if not w_img or not h_img:
+            frame = cv2.imread(str(img))
+            if frame is None:
+                continue
+            h_img, w_img = frame.shape[:2]
+        samples.append((img, {
+            "version": "4.0.0-beta.5",
+            "flags": {},
+            "checked": False,
+            "shapes": shapes,
+            "imagePath": img.name,
+            "imageData": None,
+            "imageHeight": h_img,
+            "imageWidth": w_img,
+            "description": "",
+        }))
+    return samples
+
+
 import torch
 import app_utils
 
@@ -5799,7 +5859,12 @@ names: {class_names}
         QMessageBox.information(self, "完成", f"数据已保存到 {output_path}\n\n帧数: {export_frames}")
 
     def _export_to_labelme(self, input_dir):
-        """将temp_data_post转换为labelme格式"""
+        """将 temp_data_post 转换为 labelme 格式（写到 label_x_label_me/）。
+
+        注意：当前流程已不再调用本方法（生成一份上GB的 labelme 数据纯属浪费算力，
+        训练改为 build_samples_from_post 直读 temp_data_post）。
+        保留此实现作为「读取/生成 labelme 格式」的参考代码，需要时手动调用即可。
+        """
         import shutil
         input_path = Path(input_dir)
         output_path = BASE_DIR / "label_x_label_me"
@@ -6346,23 +6411,17 @@ names: {class_names}
         out.release()
         print(f"视频已保存: {output_path} ({written}/{total_frames}帧)")
 
-        # 转换为labelme格式
-        try:
-            self._export_to_labelme(input_path)
-        except Exception as e:
-            import traceback
-            print(f"[ERROR] 导出labelme格式失败: {e}")
-            traceback.print_exc()
+        # 不再生成 label_x_label_me（要再拷贝/重写上GB帧与标注，浪费算力）；
+        # 训练直接读 temp_data_post。旧实现 _export_to_labelme 仅作为读取labelme格式的参考代码保留。
 
-        # 如果勾选了继续训练，跳过上传视频和labelme压缩包
+        # 如果勾选了继续训练，跳过上传视频
         if self.train_resume_check.isChecked():
-            print("[YOLO] 继续训练模式，跳过视频和labelme上传")
+            print("[YOLO] 继续训练模式，跳过视频上传")
             if self.train_model_check.isChecked():
                 print(f"[YOLO] 开始训练模型...")
                 try:
-                    # 继续训练时重新从temp_data_post导出并增广
-                    self._export_to_labelme(BASE_DIR / "temp_data_post")
-                    self._train_yolo_model(BASE_DIR / "label_x_label_me")
+                    # 直接读 temp_data_post（frames/ + labels/），不再生成 labelme 中间目录
+                    self._train_yolo_model(BASE_DIR / "temp_data_post")
                 except Exception as e:
                     print(f"[YOLO] 训练失败: {e}")
                     import traceback
@@ -6459,22 +6518,15 @@ names: {class_names}
         shutil.copy2(output_path, annotated_video_path)
         print(f"[保存] 标注视频已保存到: {annotated_video_path}")
 
-        # 复制label_x_label_me到temp文件夹
+        # 数据集改为直接用 temp_data_post（不再生成/拷贝 label_x_label_me）
         import zipfile
-        labelme_dir = BASE_DIR / "label_x_label_me"
-        if labelme_dir.exists():
-            # 保存dataset到temp
-            temp_labelme_dir = temp_dataset_dir / "labelme"
-            if temp_labelme_dir.exists():
-                shutil.rmtree(temp_labelme_dir)
-            shutil.copytree(labelme_dir, temp_labelme_dir)
-            print(f"[保存] labelme数据已保存到: {temp_labelme_dir}")
-            
-            # 训练YOLO模型
+        data_post_dir = BASE_DIR / "temp_data_post"
+        if data_post_dir.exists():
+            # 训练YOLO模型（直接读 temp_data_post 的 frames/ + labels/）
             if self.train_model_check.isChecked():
                 print(f"[YOLO] 开始训练模型...")
                 try:
-                    self._train_yolo_model(labelme_dir)
+                    self._train_yolo_model(data_post_dir)
                 except Exception as e:
                     print(f"[YOLO] 训练失败: {e}")
                     import traceback
@@ -6552,16 +6604,41 @@ names: {class_names}
         else:
             print(f"标注视频已上传!\nOCS地址: {ocs_url}")
 
-    def _train_yolo_model(self, labelme_dir):
-        """训练YOLO模型"""
+    def _train_yolo_model(self, data_dir):
+        """训练YOLO模型。
+
+        入参支持两种：
+          - temp_data_post（含 frames/ + labels/）：直接读取，不再生成 label_x_label_me 目录（省一次上GB拷贝）
+          - labelme 目录（含 *.jpg + 同名 *.json）：保留旧的读取方式作为参考实现
+        """
         import yaml
         import random
         import shutil
         
-        labelme_dir = Path(labelme_dir)
+        data_dir = Path(data_dir)
         output_dir = BASE_DIR / "yolo_dataset"
         yolo_runs_dir = BASE_DIR / "runs" / "detect" / "yolo_runs"
         yolo_project = yolo_runs_dir  # 与训练输出目录一致
+
+        # 样本标注：post 直读时放内存；labelme 目录则回退读同名 json
+        samples = {}          # str(图片绝对路径) -> labelme风格dict
+        post_samples = []
+        if (data_dir / "frames").is_dir() and (data_dir / "labels").is_dir():
+            post_samples = build_samples_from_post(data_dir)
+            for _p, _d in post_samples:
+                samples[str(Path(_p).resolve())] = _d
+            print(f"[YOLO] 直接从 {data_dir.name} 读取样本: {len(post_samples)} 帧（不生成label_x_label_me）")
+
+        def sample_data(img_file):
+            """取样本标注：优先内存（post直读），否则回退读同名labelme json"""
+            data = samples.get(str(Path(img_file).resolve()))
+            if data is not None:
+                return data
+            json_file = Path(img_file).with_suffix('.json')
+            if json_file.exists():
+                with open(json_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            return None
         
         # 清理旧数据
         if output_dir.exists():
@@ -6596,9 +6673,9 @@ names: {class_names}
                 except:
                     pass
             
-            # 如果还是没有，从labelme目录提取
+            # 如果还是没有，从labelme格式json里提取（参考实现；post直读时该目录下没有json，跳过）
             if not class_names:
-                for json_file in labelme_dir.glob("*.json"):
+                for json_file in data_dir.glob("*.json"):
                     try:
                         with open(json_file, 'r', encoding='utf-8') as f:
                             data = json.load(f)
@@ -6632,11 +6709,14 @@ names: {class_names}
             f.write(yaml_content)
         print(f"[YOLO] 数据集yaml已生成: {yaml_path}")
         
-        # 获取所有图片文件
-        img_files = []
-        for ext in ['*.jpg', '*.jpeg', '*.png']:
-            img_files.extend(labelme_dir.glob(ext))
-        img_files = list(set(img_files))  # 去重
+        # 获取所有图片文件：post直读用内存样本，否则按labelme目录扫描
+        if post_samples:
+            img_files = [Path(p) for p, _ in post_samples]
+        else:
+            img_files = []
+            for ext in ['*.jpg', '*.jpeg', '*.png']:
+                img_files.extend(data_dir.glob(ext))
+            img_files = list(set(img_files))  # 去重
         random.shuffle(img_files)
         
         if not img_files:
@@ -6647,11 +6727,9 @@ names: {class_names}
         class_counts = {c: 0 for c in class_names}
         img_with_class = {c: [] for c in class_names}
         for img_file in img_files:
-            json_file = img_file.with_suffix('.json')
-            if json_file.exists():
+            data = sample_data(img_file)
+            if data:
                 try:
-                    with open(json_file, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
                     labels = set(shape.get('label') for shape in data.get('shapes', []))
                     for label in labels:
                         if label in class_counts:
@@ -6689,15 +6767,12 @@ names: {class_names}
             print("[YOLO] 警告: 未安装albumentations，使用简单翻转")
             has_albumentations = False
         
-        def augment_with_bbox(img_path, json_path, aug_idx, target_dir):
+        def augment_with_bbox(img_path, data, aug_idx, target_dir):
             """使用albumentations增广，返回新的json数据（使用标准labelme格式）"""
             import cv2
             img = cv2.imread(str(img_path))
             if img is None:
                 return None
-            
-            with open(json_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
             
             h, w = img.shape[:2]
             bboxes = []
@@ -6787,6 +6862,8 @@ names: {class_names}
             return new_data, new_img_path
         
         # 对每个类别增广到 target_count（原始总帧数*0.2）
+        aug_dir = output_dir / "aug"
+        aug_dir.mkdir(parents=True, exist_ok=True)
         aug_idx = 0
         for class_name in class_names:
             current_count = class_counts[class_name]
@@ -6797,15 +6874,14 @@ names: {class_names}
                     print(f"[YOLO] 增广 {class_name}: {current_count} -> {target_count}")
                     for i in range(copies_needed):
                         src = source_imgs[i % len(source_imgs)]
-                        json_file = src.with_suffix('.json')
-                        if json_file.exists():
-                            result = augment_with_bbox(src, json_file, aug_idx, labelme_dir)
+                        src_data = sample_data(src)
+                        if src_data:
+                            result = augment_with_bbox(src, src_data, aug_idx, aug_dir)
                             if result:
                                 new_data, new_img_path = result
                                 img_files.append(new_img_path)
-                                new_json_path = new_img_path.with_suffix('.json')
-                                with open(new_json_path, 'w', encoding='utf-8') as f:
-                                    json.dump(new_data, f, ensure_ascii=False)
+                                # 增广结果记入内存样本，后续转YOLO txt按图像路径取用
+                                samples[str(Path(new_img_path).resolve())] = new_data
                                 aug_idx += 1
         
         random.shuffle(img_files)
@@ -6815,11 +6891,9 @@ names: {class_names}
         # 分类别统计
         final_counts = {c: 0 for c in class_names}
         for img_file in img_files:
-            json_file = img_file.with_suffix('.json')
-            if json_file.exists():
+            data = sample_data(img_file)
+            if data:
                 try:
-                    with open(json_file, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
                     labels = set(shape.get('label') for shape in data.get('shapes', []))
                     for label in labels:
                         if label in final_counts:
@@ -6833,11 +6907,8 @@ names: {class_names}
         train_files = img_files[:split_idx]
         val_files = img_files[split_idx:]
         
-        def convert_to_yolo(json_path, class_names):
-            """将labelme JSON转换为YOLO格式"""
-            with open(json_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            
+        def convert_to_yolo(data, class_names):
+            """将(labelme风格的)样本标注转换为YOLO txt行"""
             img_w = data.get('imageWidth', 640)
             img_h = data.get('imageHeight', 480)
             
@@ -6871,19 +6942,19 @@ names: {class_names}
         
         # 处理训练集
         for img_file in train_files:
-            json_file = img_file.with_suffix('.json')
             shutil.copy(img_file, output_dir / "images" / "train" / img_file.name)
-            if json_file.exists():
-                yolo_lines = convert_to_yolo(json_file, class_names)
+            data = sample_data(img_file)
+            if data:
+                yolo_lines = convert_to_yolo(data, class_names)
                 with open(output_dir / "labels" / "train" / f"{img_file.stem}.txt", 'w', encoding='utf-8') as f:
                     f.write('\n'.join(yolo_lines))
         
         # 处理验证集
         for img_file in val_files:
-            json_file = img_file.with_suffix('.json')
             shutil.copy(img_file, output_dir / "images" / "val" / img_file.name)
-            if json_file.exists():
-                yolo_lines = convert_to_yolo(json_file, class_names)
+            data = sample_data(img_file)
+            if data:
+                yolo_lines = convert_to_yolo(data, class_names)
                 with open(output_dir / "labels" / "val" / f"{img_file.stem}.txt", 'w', encoding='utf-8') as f:
                     f.write('\n'.join(yolo_lines))
         
