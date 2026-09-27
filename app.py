@@ -12,6 +12,12 @@ import subprocess
 import msvcrt
 import tempfile     # 用于redo_copy创建临时解压目录 L4514/4552
 import zipfile      # 用于redo_copy解压zip重做包 L4518/4557
+import hashlib      # 用于obs_upload计算分片SHA256/MD5及整文件指纹
+import math         # 用于obs_upload按分片大小计算分片总数
+import time         # 用于obs_upload重试退避sleep
+import threading    # 用于obs_upload分片上传的线程局部Session
+import concurrent.futures  # 用于obs_upload并发上传分片
+import requests     # 用于obs_upload调用OBS分片上传/直传接口
 
 # ESC早停标志：训练过程中监听ESC键
 _esc_pressed = False
@@ -98,48 +104,240 @@ def prompt_log(msg=""):
         pass
 
 
-# OBS上传体积经验上限(MB)：实测 148MB 曾成功，295MB 返回 502(且只留下0字节空文件)
-OBS_SIZE_WARN_MB = 140
-# 网关类错误(502/503/504)属服务端临时故障，重试可能成功；4xx 为确定性失败不重试
-OBS_RETRY_CODES = ("502", "503", "504")
+# OBS上传参数，依据服务端 src/obs/server.py(https://github.com/qq939/obs) 及线上实测
+# 使用位置：obs_upload / _obs_put_direct / _obs_put_chunked
+OBS_BASE = "http://obs.dimond.top"
+# 分片大小：线上网关对请求体有上限（实测 ≥500KB 必 502、≤100KB 大多成功），故用 64KB 小分片
+# 仅当文件大于该值才走分片上传，否则直传 PUT /{filename}
+OBS_CHUNK_SIZE = 64 * 1024
+# 分片并发路数
+OBS_CHUNK_CONCURRENCY = 4
+# 单请求重试次数（线上服务端不稳定，偶发502）
+OBS_RETRIES = 5
+# 单请求超时（连接, 读取）秒
+OBS_TIMEOUT = (20, 300)
+
+# 分片上传用线程局部Session（分片数量多，复用连接避免反复建连）
+_obs_tls = threading.local()
 
 
-def obs_upload(local_path, remote_name, timeout=1800, retries=3):
+def _obs_session():
+    """返回当前线程的requests.Session（使用位置：_obs_put_chunked 的init/chunk/complete）"""
+    s = getattr(_obs_tls, "session", None)
+    if s is None:
+        s = requests.Session()
+        _obs_tls.session = s
+    return s
+
+
+def _obs_chunk_fingerprint(path, chunk_size):
+    """整文件指纹：各分片 sha256(hex) 拼接后再取一次 sha256。
+    与服务端 server.py chunk_fingerprint / 前端 fileFingerprint 一一对应。
+    （使用位置：_obs_put_chunked 计算 hash 字段）"""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while True:
+            part = f.read(chunk_size)
+            if not part:
+                break
+            h.update(hashlib.sha256(part).hexdigest().encode())
+    return h.hexdigest()
+
+
+def _obs_put_direct(local_path, url, size, retries):
+    """小文件直传：PUT /{filename}，必须校验 HTTP 201。
+    （使用位置：obs_upload 中 size <= OBS_CHUNK_SIZE 的分支）"""
+    last_err = ""
+    for attempt in range(1, retries + 1):
+        try:
+            with open(local_path, "rb") as f:
+                r = _obs_session().put(url, data=f, timeout=OBS_TIMEOUT)
+            if r.status_code == 201:
+                print(f"[OBS] ✅ 直传成功: {url} (HTTP 201, {size / 1024 / 1024:.1f}MB)")
+                return True, url, "HTTP 201"
+            last_err = f"HTTP {r.status_code}: {(r.text or '')[:200]}"
+        except Exception as e:
+            last_err = f"{type(e).__name__}: {e}"
+        print(f"[OBS] 第{attempt}/{retries}次直传失败({local_path.name}): {last_err}")
+        if last_err.startswith("HTTP 4"):  # 4xx确定性失败
+            break
+        if attempt < retries:
+            time.sleep(min(2 ** attempt, 15))
+    return False, url, last_err
+
+
+def _obs_init(remote_name, size, file_hash, chunk_size, total_chunks, retries):
+    """POST /upload/init，返回响应的json（失败返回None，会重试5xx）。
+    （使用位置：_obs_put_chunked 首次init与新版指纹重新init）"""
+    payload = {"filename": remote_name, "size": size, "hash_algo": "sha256",
+               "hash": file_hash, "chunk_size": chunk_size, "total_chunks": total_chunks}
+    for attempt in range(1, retries + 1):
+        try:
+            r = _obs_session().post(f"{OBS_BASE}/upload/init", json=payload, timeout=OBS_TIMEOUT)
+            if r.status_code == 200:
+                return r.json()
+            err = f"HTTP {r.status_code}: {(r.text or '')[:200]}"
+            if r.status_code < 500:
+                print(f"[OBS] init失败: {err}")
+                return None
+        except Exception as e:
+            err = f"{type(e).__name__}: {e}"
+        print(f"[OBS] 第{attempt}/{retries}次init失败: {err}")
+        if attempt < retries:
+            time.sleep(min(2 ** attempt, 15))
+    return None
+
+
+def _obs_put_chunked(local_path, remote_name, url, size, retries):
+    """分片上传：/upload/init -> /upload/chunk -> /upload/complete，支持秒传与断点续传。
+
+    兼容线上与仓库main两个版本：
+      - 线上旧版：init返回 upload_id，complete 校验「整文件sha256」，
+                  分片响应返回 md5 由客户端比对，不一致则重传
+      - 仓库main：init返回 uploadId，complete 校验「分片指纹」，
+                  分片需带 X-Chunk-SHA256 供服务端逐片校验
+    两种版本的 hash 口径不同，故先用整文件sha256 init，识别为新版时再用分片指纹重新init
+    （此时尚未上传任何分片，重新init无代价）。
+    （使用位置：obs_upload 中 size > OBS_CHUNK_SIZE 的分支）"""
+    chunk_size = OBS_CHUNK_SIZE
+    total_chunks = max(1, math.ceil(size / chunk_size))
+
+    # 1) 单遍顺序读取：各分片sha256(X-Chunk-SHA256用)、各分片md5(旧版比对用)、整文件sha256
+    chunk_sha256, chunk_md5 = [], []
+    whole = hashlib.sha256()
+    with open(local_path, "rb") as f:
+        while True:
+            part = f.read(chunk_size)
+            if not part:
+                break
+            whole.update(part)
+            chunk_sha256.append(hashlib.sha256(part).hexdigest())
+            chunk_md5.append(hashlib.md5(part).hexdigest())
+    whole_sha = whole.hexdigest()
+    fingerprint = hashlib.sha256("".join(chunk_sha256).encode()).hexdigest()
+    print(f"[OBS] 分片上传 {remote_name}: {size / 1024 / 1024:.1f}MB, {total_chunks}片, "
+          f"sha256={whole_sha[:12]}...")
+
+    # 2) 初始化会话（含秒传判定与已上传分片枚举）
+    info = _obs_init(remote_name, size, whole_sha, chunk_size, total_chunks, retries)
+    if info is None:
+        return False, url, "init失败"
+    file_hash = whole_sha
+    need_chunk_header = False  # 仅仓库main分支(new版)才需要带 X-Chunk-SHA256
+    if "uploadId" in info and "upload_id" not in info:
+        # 仓库main分支：complete 按分片指纹校验，且分片需带 X-Chunk-SHA256，用指纹重新init
+        info = _obs_init(remote_name, size, fingerprint, chunk_size, total_chunks, retries)
+        if info is None:
+            return False, url, "init失败(分片指纹)"
+        file_hash = fingerprint
+        need_chunk_header = True
+    if info.get("skip"):
+        print(f"[OBS] ✅ 秒传命中(服务端已有相同文件): {url}")
+        return True, url, "秒传命中"
+
+    upload_id = info.get("upload_id") or info.get("uploadId")
+    uploaded = set(info.get("uploaded") or [])
+    if uploaded:
+        print(f"[OBS] 断点续传：服务端已有 {len(uploaded)}/{total_chunks} 片")
+
+    # 3) 并发上传缺失分片：旧版不带额外请求头（与其前端一致），新版带 X-Chunk-SHA256
+    def _send_chunk(index):
+        with open(local_path, "rb") as f:
+            f.seek(index * chunk_size)
+            blob = f.read(chunk_size)
+        chunk_url = f"{OBS_BASE}/upload/chunk/{upload_id}/{index}"
+        headers = {"X-Chunk-SHA256": chunk_sha256[index]} if need_chunk_header else {}
+        last = ""
+        for attempt in range(1, retries + 1):
+            try:
+                resp = _obs_session().put(chunk_url, data=blob,
+                                          headers=headers,
+                                          timeout=OBS_TIMEOUT)
+                if resp.status_code == 201:
+                    got = None
+                    try:
+                        got = (resp.json() or {}).get("md5")
+                    except ValueError:
+                        got = None
+                    if got and got != chunk_md5[index]:
+                        last = f"分片md5不一致 服务端={got[:8]} 本地={chunk_md5[index][:8]}"
+                    else:
+                        return index, ""
+                else:
+                    last = f"HTTP {resp.status_code}: {(resp.text or '')[:120]}"
+                    if resp.status_code == 422:  # 服务端校验失败，重传同样失败
+                        return index, last
+            except Exception as e:
+                last = f"{type(e).__name__}: {e}"
+            print(f"[OBS] 片{index} 第{attempt}/{retries}次失败: {last}")
+            if attempt < retries:
+                time.sleep(min(2 ** attempt, 15))
+        return index, last
+
+    todo = [i for i in range(total_chunks) if i not in uploaded]
+    failed = {}
+    if todo:
+        # 先同步上传首片探活：服务端不可用时立刻失败，避免上千个分片长时间空转
+        first_index, first_err = _send_chunk(todo[0])
+        if first_err:
+            print(f"[OBS] ❌ 首片上传失败，判定服务端不可用: {first_err}")
+            return False, url, f"首片失败 {first_err}"
+        done = len(uploaded) + 1
+        step = max(1, total_chunks // 20)  # 进度按5%粒度打印
+        if done % step == 0 or done == total_chunks:
+            print(f"[OBS] 分片进度: {done}/{total_chunks} ({done * 100 // total_chunks}%)")
+        rest = todo[1:]
+        if rest:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=OBS_CHUNK_CONCURRENCY) as ex:
+                for index, err in ex.map(_send_chunk, rest):
+                    if err:
+                        failed[index] = err
+                    else:
+                        done += 1
+                        if done % step == 0 or done == total_chunks:
+                            print(f"[OBS] 分片进度: {done}/{total_chunks} ({done * 100 // total_chunks}%)")
+    if failed:
+        detail = "; ".join(f"片{i}:{e}" for i, e in list(failed.items())[:3])
+        print(f"[OBS] ❌ 分片上传失败 {len(failed)}/{total_chunks} 片: {detail}")
+        return False, url, f"分片失败 {detail}"
+
+    # 4) 合并（服务端按 file_hash 口径再校验一次）
+    payload = {"filename": remote_name, "size": size, "total_chunks": total_chunks,
+               "chunk_size": chunk_size, "hash_algo": "sha256", "hash": file_hash}
+    last = ""
+    for attempt in range(1, retries + 1):
+        try:
+            r = _obs_session().post(f"{OBS_BASE}/upload/complete/{upload_id}",
+                                    json=payload, timeout=(20, 900))
+            if r.status_code == 200:
+                print(f"[OBS] ✅ 分片上传完成: {url} (HTTP 200, {size / 1024 / 1024:.1f}MB)")
+                return True, url, "HTTP 200"
+            last = f"HTTP {r.status_code}: {(r.text or '')[:200]}"
+        except Exception as e:
+            last = f"{type(e).__name__}: {e}"
+        print(f"[OBS] 第{attempt}/{retries}次合并失败({remote_name}): {last}")
+        if last.startswith("HTTP 4"):
+            break
+        if attempt < retries:
+            time.sleep(min(2 ** attempt, 15))
+    return False, url, last
+
+
+def obs_upload(local_path, remote_name, retries=OBS_RETRIES):
     """上传文件到OBS，返回 (是否成功, url, 详情)。
 
-    关键点：curl 默认不会因 HTTP 4xx/5xx 返回非0退出码（实测 502 时退出码仍为0），
-    必须加 --fail，否则服务器报错会被误判成上传成功。
+    服务端(obs.dimond.top)对 >10MB 的文件走「分片上传+完整性校验」，
+    ≤10MB 才直传；实测大文件直传会被网关掐断(HTTP 502)，且 curl 退出码仍为 0
+    （不校验 HTTP 状态码就会误报成功），故统一改为 requests 并显式校验状态码。
     """
     local_path = Path(local_path)
     if not local_path.exists():
         return False, "", f"本地文件不存在: {local_path}"
-    size_mb = local_path.stat().st_size / 1024 / 1024
-    if size_mb > OBS_SIZE_WARN_MB:
-        print(f"[OBS] ⚠️ {remote_name} 体积 {size_mb:.1f}MB 超过经验上限 {OBS_SIZE_WARN_MB}MB，服务器可能返回502")
-    url = f"http://obs.dimond.top/{remote_name}"
-    last_err = ""
-    for attempt in range(1, retries + 1):
-        try:
-            result = subprocess.run(
-                ['curl', '--fail', '--show-error', '--silent',
-                 '--max-time', str(timeout),
-                 '-w', '%{http_code}',
-                 '--upload-file', str(local_path), url],
-                capture_output=True, text=True, timeout=timeout + 30
-            )
-        except subprocess.TimeoutExpired:
-            last_err = f"上传超时(>{timeout}s)"
-            print(f"[OBS] 第{attempt}/{retries}次上传失败({remote_name}, {size_mb:.1f}MB): {last_err}")
-            continue
-        http_code = (result.stdout or "").strip()
-        if result.returncode == 0 and http_code.startswith("2"):
-            print(f"[OBS] ✅ 上传成功: {url} (HTTP {http_code}, {size_mb:.1f}MB)")
-            return True, url, f"HTTP {http_code}, {size_mb:.1f}MB"
-        last_err = f"curl退出码={result.returncode}, HTTP={http_code or '无'}, {(result.stderr or '').strip()[:300]}"
-        print(f"[OBS] 第{attempt}/{retries}次上传失败({remote_name}, {size_mb:.1f}MB): {last_err}")
-        if http_code and http_code not in OBS_RETRY_CODES:
-            break  # 4xx等确定性失败，重试无意义
-    return False, url, last_err
+    size = local_path.stat().st_size
+    url = f"{OBS_BASE}/{remote_name}"
+    if size <= OBS_CHUNK_SIZE:
+        return _obs_put_direct(local_path, url, size, retries)
+    return _obs_put_chunked(local_path, remote_name, url, size, retries)
 
 
 import torch

@@ -32,3 +32,11 @@ https://docs.python.org/3/library/zipfile.html
 
 # pyunpack（可选：多格式压缩包统一接口，含7z/rar/zip）
 https://github.com/ponty/pyunpack
+
+# OBS文件服务端（app.py 的 obs_upload 上传协议依据）
+# 上传接口：≤10MB 直传 PUT /{filename}；>10MB 走分片上传 /upload/init -> /upload/chunk/{upload_id}/{index} -> /upload/complete/{upload_id}
+# 完整性校验：每片需带请求头 X-Chunk-SHA256(该片sha256 hex)；
+#   整文件指纹 hash = sha256( 各分片sha256_hex 顺序拼接 )，服务端 upload_complete 会按同样规则重算比对
+# 无体积上限（server.py: MAX_UPLOAD_SIZE = None）；分片大小 10MB、并发 3、支持秒传(skip)与断点续传(uploaded)
+https://github.com/qq939/obs
+https://github.com/qq939/obs/blob/main/src/obs/server.py
