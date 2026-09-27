@@ -98,6 +98,50 @@ def prompt_log(msg=""):
         pass
 
 
+# OBS上传体积经验上限(MB)：实测 148MB 曾成功，295MB 返回 502(且只留下0字节空文件)
+OBS_SIZE_WARN_MB = 140
+# 网关类错误(502/503/504)属服务端临时故障，重试可能成功；4xx 为确定性失败不重试
+OBS_RETRY_CODES = ("502", "503", "504")
+
+
+def obs_upload(local_path, remote_name, timeout=1800, retries=3):
+    """上传文件到OBS，返回 (是否成功, url, 详情)。
+
+    关键点：curl 默认不会因 HTTP 4xx/5xx 返回非0退出码（实测 502 时退出码仍为0），
+    必须加 --fail，否则服务器报错会被误判成上传成功。
+    """
+    local_path = Path(local_path)
+    if not local_path.exists():
+        return False, "", f"本地文件不存在: {local_path}"
+    size_mb = local_path.stat().st_size / 1024 / 1024
+    if size_mb > OBS_SIZE_WARN_MB:
+        print(f"[OBS] ⚠️ {remote_name} 体积 {size_mb:.1f}MB 超过经验上限 {OBS_SIZE_WARN_MB}MB，服务器可能返回502")
+    url = f"http://obs.dimond.top/{remote_name}"
+    last_err = ""
+    for attempt in range(1, retries + 1):
+        try:
+            result = subprocess.run(
+                ['curl', '--fail', '--show-error', '--silent',
+                 '--max-time', str(timeout),
+                 '-w', '%{http_code}',
+                 '--upload-file', str(local_path), url],
+                capture_output=True, text=True, timeout=timeout + 30
+            )
+        except subprocess.TimeoutExpired:
+            last_err = f"上传超时(>{timeout}s)"
+            print(f"[OBS] 第{attempt}/{retries}次上传失败({remote_name}, {size_mb:.1f}MB): {last_err}")
+            continue
+        http_code = (result.stdout or "").strip()
+        if result.returncode == 0 and http_code.startswith("2"):
+            print(f"[OBS] ✅ 上传成功: {url} (HTTP {http_code}, {size_mb:.1f}MB)")
+            return True, url, f"HTTP {http_code}, {size_mb:.1f}MB"
+        last_err = f"curl退出码={result.returncode}, HTTP={http_code or '无'}, {(result.stderr or '').strip()[:300]}"
+        print(f"[OBS] 第{attempt}/{retries}次上传失败({remote_name}, {size_mb:.1f}MB): {last_err}")
+        if http_code and http_code not in OBS_RETRY_CODES:
+            break  # 4xx等确定性失败，重试无意义
+    return False, url, last_err
+
+
 import torch
 import app_utils
 
@@ -6063,19 +6107,10 @@ names: {class_names}
         obs_filename = f"{video_id}_{timestamp}_{rand}_annotated.{ext}"
         obs_url = f"http://obs.dimond.top/{obs_filename}"
 
-        print("正在上传到OBS...")
         print(f"[OBS] 上传文件名: {obs_filename}")
-        try:
-            result = subprocess.run(
-                ['curl', '--upload-file', str(output_path), obs_url],
-                capture_output=True, text=True
-            )
-            if result.returncode == 0:
-                print(f"上传成功! OBS地址: {obs_url}")
-            else:
-                print(f"上传失败: {result.stderr}")
-        except Exception as e:
-            print(f"上传失败: {e}")
+        obs_ok, obs_url, obs_msg = obs_upload(output_path, obs_filename)
+        if not obs_ok:
+            print(f"[OBS] ⚠️ 标注视频上传失败: {obs_msg}")
         
         # 保存原视频到temp文件夹（命名为ID_raw.mp4）
         train_id = self.train_id_input.text() or self.default_model_id
@@ -6142,12 +6177,9 @@ names: {class_names}
                 timestamp = time.strftime("%Y%m%d_%H%M%S")
                 rand = random.randint(1000, 9999)
                 raw_obs_filename = f"{video_name}_{timestamp}_{rand}.mp4"
-                raw_obs_url = f"http://obs.dimond.top/{raw_obs_filename}"
-                result = subprocess.run(['curl', '--upload-file', str(raw_video_path), raw_obs_url], capture_output=True, text=True)
-                if result.returncode == 0:
-                    print(f"[OBS] 原视频上传成功: {raw_obs_url}")
-                else:
-                    print(f"[OBS] 原视频上传失败: {result.stderr}")
+                raw_obs_ok, _, raw_obs_msg = obs_upload(raw_video_path, raw_obs_filename)
+                if not raw_obs_ok:
+                    print(f"[OBS] ⚠️ 原视频上传失败: {raw_obs_msg}")
         else:
             print(f"[保存] 无法获取原视频")
 
@@ -6236,16 +6268,10 @@ names: {class_names}
                                     zf.write(file, arcname)
                         
                         # 上传到OBS
-                        obs_zip_url = f"http://obs.dimond.top/{zip_filename}"
                         print(f"[OBS] 正在上传 {zip_filename}...")
-                        result = subprocess.run(
-                            ['curl', '--upload-file', str(zip_path), obs_zip_url],
-                            capture_output=True, text=True
-                        )
-                        if result.returncode == 0:
-                            print(f"[OBS] 上传成功! 地址: {obs_zip_url}")
-                        else:
-                            print(f"[OBS] 上传失败: {result.stderr}")
+                        zip_ok, _, zip_msg = obs_upload(zip_path, zip_filename)
+                        if not zip_ok:
+                            print(f"[OBS] ⚠️ 数据集压缩包上传失败: {zip_msg}")
                     else:
                         print(f"[OBS] temp_data_post 目录不存在，跳过上传")
                 except Exception as e:
@@ -6900,12 +6926,13 @@ names: {class_names}
             with open(weights_json, 'w', encoding='utf-8') as f:
                 json.dump(model_json, f, ensure_ascii=False, indent=2)
             
-            # 整体拷贝runs/detect/yolo_runs文件夹到1dst/{ID}_train
+            # 只拷贝本次训练的run目录到1dst/{ID}_train
+            # 注意：不要拷贝整个 yolo_runs_dir，否则会累积历史train-N导致体积膨胀(如295MB)触发服务器502
             upload_dir = BASE_DIR / "1dst" / f"{train_id}_train"
             if upload_dir.exists():
                 shutil.rmtree(upload_dir)
-            shutil.copytree(yolo_runs_dir, upload_dir)
-            print(f"[YOLO] 已拷贝runs文件夹到 {upload_dir}")
+            shutil.copytree(train_dir, upload_dir)
+            print(f"[YOLO] 已拷贝本次训练文件夹到 {upload_dir}")
             
             # 压缩上传整个文件夹
             import zipfile
@@ -6918,14 +6945,16 @@ names: {class_names}
             with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
                 for f in upload_dir.rglob("*"):
                     if f.is_file():
+                        # 排除 last.pt(约40MB)控制包体：实测148MB包曾成功、295MB必失败，
+                        # 且该服务器上传端点不稳定(间歇502)，留足体积余量更稳。
+                        # 部署用best.onnx、继续训练优先用best.pt，last.pt非必需
+                        if f.name == "last.pt":
+                            continue
                         zf.write(f, f.relative_to(upload_dir.parent))
             print(f"[ZIP] 正在上传模型压缩包...")
-            zip_url = f"http://obs.dimond.top/{zip_filename}"
-            result = subprocess.run(['curl', '--upload-file', str(zip_path), zip_url], capture_output=True, text=True)
-            if result.returncode == 0:
-                print(f"[YOLO] 模型上传成功: {zip_url}")
-            else:
-                print(f"[YOLO] 模型上传失败: {result.stderr}")
+            zip_ok, _, zip_msg = obs_upload(zip_path, zip_filename)
+            if not zip_ok:
+                print(f"[YOLO] ⚠️ 模型上传失败: {zip_msg}")
             
             print(f"[YOLO] 训练完成!")
             print(f"[YOLO] 模型ID: {train_id}")
