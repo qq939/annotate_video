@@ -370,6 +370,35 @@ def ocs_upload(local_path, remote_name, retries=OCS_RETRIES):
     return ok, public_url, msg
 
 
+def build_class_mapping(panel_pairs, used_tids=()):
+    """由面板（trace_id → 类别）生成类别映射，保证 classes[i] 与 classes_id[i] 对应同一个 trace_id。
+
+    面板是唯一权威来源（用户要求：导出后的一一对应关系必须等于面板上的对应关系），
+    禁止用「位置索引」在两个方向互查——trace id 列表增删会让位置整体错位。
+
+    panel_pairs: 面板有序的 [(trace_id, 类别名), ...]
+    used_tids:   标注里实际出现的 trace_id 集合；面板里没有的追加在末尾（类别名 Detect），
+                 既不丢标注、也不会让面板里已有的配对位移
+    返回 (ordered, class_names, classes_id, tid_to_index, tid_to_name)
+    （使用位置：export_to_temp_data_post —— 生成 annotations.json / labels / model.json / dataset.yaml）
+    """
+    ordered = []
+    seen = set()
+    for tid, name in panel_pairs:
+        tid = int(tid)
+        if tid in seen:
+            continue
+        seen.add(tid)
+        ordered.append((tid, (name or "").strip() or "Detect"))
+    for tid in sorted({int(t) for t in used_tids} - seen):
+        ordered.append((tid, "Detect"))
+    class_names = [name for _, name in ordered]
+    classes_id = [tid for tid, _ in ordered]
+    tid_to_index = {tid: i for i, (tid, _) in enumerate(ordered)}
+    tid_to_name = {tid: name for tid, name in ordered}
+    return ordered, class_names, classes_id, tid_to_index, tid_to_name
+
+
 import torch
 import app_utils
 
@@ -4300,7 +4329,7 @@ class UnifiedPanel(QMainWindow):
         self._update_category_list()
     
     def _update_category_list(self):
-        """根据trace_id_list更新类别列表"""
+        """根据trace_id_list更新类别列表（重建时按 trace_id 保留用户已填的类别名）"""
         target_ids = []
         if hasattr(self, 'trace_id_list') and self.trace_id_list:
             for i in range(self.trace_id_list.count()):
@@ -4312,6 +4341,12 @@ class UnifiedPanel(QMainWindow):
                     pass
         if not target_ids:
             target_ids = [1000000]
+        
+        # 记录旧输入框里的文本（按 trace_id 键），重建后回填，避免用户填的类别名被重置成 Detect
+        old_text_by_tid = {}
+        if hasattr(self, 'category_tids') and hasattr(self, 'category_inputs'):
+            for tid, inp in zip(self.category_tids, self.category_inputs):
+                old_text_by_tid[tid] = inp.text()
         
         # 更新palette_colors数量与类别数量一致
         self.palette_colors = []
@@ -4341,14 +4376,14 @@ class UnifiedPanel(QMainWindow):
         self.category_layout.addWidget(title)
         
         # 添加新的类别行
-        self.category_tids = list(target_ids)  # 保存实际 tid 列表，供 _get_category_for_track_id 和导出使用
+        self.category_tids = list(target_ids)  # 保存实际 tid 列表，导出时与 category_inputs 一起作为唯一的类别来源
         for idx, tid in enumerate(target_ids):
             row = QHBoxLayout()
             row.setSpacing(2)
             label = QLabel(f"{tid}:")
             label.setFixedWidth(80)
             row.addWidget(label)
-            inp = QLineEdit("Detect")
+            inp = QLineEdit(old_text_by_tid.get(tid) or "Detect")
             inp.setFixedHeight(20)
             row.addWidget(inp)
             self.category_labels.append(label)
@@ -5137,20 +5172,22 @@ class UnifiedPanel(QMainWindow):
                 # 更新ID输入框
                 self.train_id_input.setText(model_info.get('id', ''))
                 
-                # 根据 classes_id（实际 trace_id）匹配 category_tids 找到正确的输入框位置
+                # 根据 classes_id（实际 trace_id）匹配 category_tids 找到正确的输入框位置。
+                # 只回填空白/仍是Default的行，绝不覆盖用户已填的类别名（旧逻辑会把陈旧映射写回面板，
+                # 导致面板显示与用户填写不一致，并进一步污染导出的 model.json）
                 if classes and hasattr(self, 'category_tids') and self.category_tids:
+                    filled = 0
                     for idx, tid in enumerate(classes_id):
                         if idx < len(classes) and tid in self.category_tids:
                             cat_idx = self.category_tids.index(tid)
                             if cat_idx < len(self.category_inputs):
-                                self.category_inputs[cat_idx].setText(classes[idx])
-                    print(f"[显示] 从model.json加载类别: {classes}")
-                elif classes and hasattr(self, 'category_inputs'):
-                    # 回退：按索引直接填（旧逻辑兼容）
-                    for idx, class_name in enumerate(classes):
-                        if idx < len(self.category_inputs):
-                            self.category_inputs[idx].setText(class_name)
-                    print(f"[显示] 从model.json加载类别(旧方式): {classes}")
+                                cur = self.category_inputs[cat_idx].text().strip()
+                                if not cur or cur == "Detect":
+                                    self.category_inputs[cat_idx].setText(classes[idx])
+                                    filled += 1
+                    print(f"[显示] 从model.json加载类别(仅回填未填写行 {filled} 个): {classes}")
+                else:
+                    print(f"[显示] model.json中的classes_id无法与面板trace_id匹配: {classes_id}")
                 
                 # 应用trace_id映射（classes_id索引对应classes索引）
                 if classes_id and hasattr(self.ctrl, 'assigned_to_original'):
@@ -5605,26 +5642,36 @@ class UnifiedPanel(QMainWindow):
         output_frames_dir = output_path / "frames"
         output_frames_dir.mkdir(exist_ok=True)
 
-        cat_id_set = set()
-        
-        # 从UI文本框category_inputs读取用户定义的trace_id映射
-        # 创建 tid -> class_name 的映射，使用实际 tid 而非硬算 idx+1000000
-        tid_to_class = {}  # tid -> class_name
+        # 面板（trace_id → 类别）是唯一权威来源：先读面板，再扫描标注里实际出现的 trace_id，
+        # 由 build_class_mapping 统一生成 classes/classes_id，杜绝「位置索引反查」导致的整体错位
         category_tids = getattr(self, 'category_tids', [])
+        panel_pairs = []
         if hasattr(self, 'category_inputs') and self.category_inputs:
             for idx, inp in enumerate(self.category_inputs):
-                class_name = inp.text().strip()
-                if class_name:
-                    # 使用实际 tid（从 category_tids 获取），而非 1000000+idx
-                    tid = category_tids[idx] if idx < len(category_tids) else (1000000 + idx)
-                    tid_to_class[tid] = class_name
-                    cat_id_set.add((idx, class_name))
-            class_names_from_ui = [inp.text().strip() for inp in self.category_inputs if inp.text().strip()]
-            print(f"[导出] 从UI文本框读取类别: {class_names_from_ui}")
-        
-        # 更新temp_data_mid的annotations.json的categories
-        sorted_cat_list = sorted(cat_id_set, key=lambda x: x[0])
-        updated_categories = [{'id': cid, 'name': cname} for cid, cname in sorted_cat_list]
+                tid = category_tids[idx] if idx < len(category_tids) else (1000000 + idx)
+                panel_pairs.append((tid, inp.text().strip()))
+        print(f"[导出] 面板类别(trace_id→类别): {panel_pairs}")
+
+        # 扫描标注里实际出现的 trace_id（面板缺失的会被追加为 Detect，避免丢标注）
+        used_tids = set()
+        for i in range(export_frames):
+            label_path = labels_dir / f"frame_{i:06d}.json"
+            if not label_path.exists():
+                continue
+            with open(label_path, encoding='utf-8') as f:
+                for ann in json.load(f):
+                    tid = ann.get('track_id', 0)
+                    if tid > 999998:
+                        used_tids.add(tid)
+
+        _ordered, class_names_map, classes_id_map, tid_to_index, tid_to_name = \
+            build_class_mapping(panel_pairs, used_tids)
+        missing_in_panel = [tid for tid, name in _ordered if name == "Detect" and tid in used_tids]
+        if missing_in_panel:
+            print(f"[导出] ⚠️ 面板未配置类别的 trace_id（已按 Detect 追加）: {missing_in_panel}")
+
+        # 更新temp_data_mid的annotations.json的categories（与面板顺序一致）
+        updated_categories = [{'id': i, 'name': name} for i, name in enumerate(class_names_map)]
         coco_data['categories'] = updated_categories
         with open(annotations_file, 'w', encoding='utf-8') as f:
             json.dump(coco_data, f, ensure_ascii=False)
@@ -5659,8 +5706,8 @@ class UnifiedPanel(QMainWindow):
                         continue
                     seen_bboxes.add(bbox)
                     tid = ann.get('track_id', 0)
-                    cat_id, cat_name = self._get_category_for_track_id(tid)
-                    cat_id_set.add((cat_id, cat_name))
+                    cat_id = tid_to_index.get(tid, 0)
+                    cat_name = tid_to_name.get(tid, "Detect")
                     ann_copy = ann.copy()
                     ann_copy['category_id'] = cat_id
                     ann_copy['category'] = cat_name
@@ -5684,17 +5731,14 @@ class UnifiedPanel(QMainWindow):
                         if unique_key in all_seen_ids:
                             continue
                         all_seen_ids.add(unique_key)
-                        # 从UI文本框映射获取类别名和cat_id
-                        class_name = tid_to_class.get(tid, self.ctrl.category_name)
-                        tid_id, _ = self._get_category_for_track_id(tid) if tid in tid_to_class else (tid - 1000000, class_name)
+                        # 类别索引/名称都取自同一份映射（tid → index/name），不再按位置反查
                         ann_copy = ann.copy()
-                        ann_copy['category_id'] = tid_id
-                        ann_copy['category'] = class_name
+                        ann_copy['category_id'] = tid_to_index.get(tid, 0)
+                        ann_copy['category'] = tid_to_name.get(tid, "Detect")
                         all_annotations.append(ann_copy)
         
-        # 按trace_id排序生成类别列表（确保顺序一致）
-        sorted_categories = sorted(cat_id_set, key=lambda x: x[0])
-        categories_list = [{'id': cid, 'name': cname} for cid, cname in sorted_categories]
+        # 类别列表与 class_names/classes_id 同源，保证 categories[i]、classes[i]、classes_id[i] 对应同一 trace_id
+        categories_list = [{'id': i, 'name': name} for i, name in enumerate(class_names_map)]
         
         coco_output = {
             'info': video_info,
@@ -5708,13 +5752,9 @@ class UnifiedPanel(QMainWindow):
         
         # 生成model.json和dataset.yaml到temp_data_post目录
         train_id = self.train_id_input.text() or self.default_model_id
-        # 从categories_list获取类别（这是从标注数据中提取的真实类别）
-        class_names = [cat['name'] for cat in categories_list]
-        # classes_id 使用实际的 trace_id（从 category_tids 读取，而非 cat_id+1000000）
-        if category_tids:
-            classes_id = [category_tids[cat['id']] if cat['id'] < len(category_tids) else (cat['id'] + 1000000) for cat in categories_list]
-        else:
-            classes_id = [cat['id'] + 1000000 for cat in categories_list]
+        # classes 与 classes_id 直接来自面板映射，天然一一对应
+        class_names = list(class_names_map)
+        classes_id = list(classes_id_map)
         
         model_json = {
             "id": train_id,
@@ -5734,6 +5774,10 @@ class UnifiedPanel(QMainWindow):
             }
         }
         with open(output_path / "model.json", 'w', encoding='utf-8') as f:
+            json.dump(model_json, f, ensure_ascii=False, indent=2)
+        # 同步刷新 temp_data_mid/model.json：它正是下次加载面板时回填类别的来源，
+        # 不同步的话面板会被上一次（可能已错位的）旧映射覆盖
+        with open(data_dir / "model.json", 'w', encoding='utf-8') as f:
             json.dump(model_json, f, ensure_ascii=False, indent=2)
         
         # 生成dataset.yaml（与model.json的classes顺序一致）
