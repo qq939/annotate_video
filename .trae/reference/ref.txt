@@ -33,10 +33,18 @@ https://docs.python.org/3/library/zipfile.html
 # pyunpack（可选：多格式压缩包统一接口，含7z/rar/zip）
 https://github.com/ponty/pyunpack
 
-# OBS文件服务端（app.py 的 obs_upload 上传协议依据）
+# OCS文件服务端（app.py 的 ocs_upload 上传协议依据；已取代原 OBS）
+# 地址：本地 http://localhost:19082 优先（容器 19082-ocs 内 python3 src/obs/server.py，端口8082映射），
+#       探测失败回落公网 http://ocs.dimond.top（同一套服务的隧道出口）
 # 上传接口：≤10MB 直传 PUT /{filename}；>10MB 走分片上传 /upload/init -> /upload/chunk/{upload_id}/{index} -> /upload/complete/{upload_id}
 # 完整性校验：每片需带请求头 X-Chunk-SHA256(该片sha256 hex)；
 #   整文件指纹 hash = sha256( 各分片sha256_hex 顺序拼接 )，服务端 upload_complete 会按同样规则重算比对
 # 无体积上限（server.py: MAX_UPLOAD_SIZE = None）；分片大小 10MB、并发 3、支持秒传(skip)与断点续传(uploaded)
+# 【关键坑】服务端 uvicorn limit_max_requests=10000：单次进程生命周期内请求数超限会静默自杀
+#   （日志 "Maximum request limit of 10000 exceeded. Terminating process."），
+#   故客户端分片必须用 10MB（644MB 包=65 片），不可用 64KB（=10314 片，直接打爆服务）。
+#   服务异常时的恢复方式（宿主机）：docker exec 19082-ocs bash -lc "cd /home/agent/.claude/workspace/project && bash scripts/restart_obs.sh"
+#   项目路径（宿主机）：C:/Users/qq939/Downloads/hermitclaw/workspaces/19082-ocs（容器内 /home/agent/.claude/workspace/project）
+#   日志：C:/Users/qq939/Downloads/hermitclaw/logs/19082-ocs/start.log
 https://github.com/qq939/obs
 https://github.com/qq939/obs/blob/main/src/obs/server.py
