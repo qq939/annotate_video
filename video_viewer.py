@@ -31,6 +31,38 @@ def get_color_for_track_id(track_id):
     return color
 
 
+def resolve_frame_skip(panel):
+    """从 app 面板读取抽帧比例（skip_frames_input），缺失/非法值回退为 1（不抽帧）。
+    （使用位置：add_video_frames —— 预览「+添加视频」前先按面板比例抽帧）
+    """
+    try:
+        text = panel.skip_frames_input.text()
+        skip = int(str(text).strip())
+        return skip if skip > 1 else 1
+    except Exception:
+        return 1
+
+
+def iter_kept_frames(cap, skip):
+    """按抽帧比例迭代视频帧，产出 (源帧号, 帧)；skip<=1 时全保留（首帧必保留）。
+    （使用位置：add_video_frames —— 对每个待添加视频按比例抽帧后再落盘为数据集帧）
+    """
+    try:
+        skip = int(skip)
+    except Exception:
+        skip = 1
+    if skip < 1:
+        skip = 1
+    src_idx = 0
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        if src_idx % skip == 0:
+            yield src_idx, frame
+        src_idx += 1
+
+
 class VideoLabel(QLabel):
     point_clicked = pyqtSignal(int, int)
     bbox_drawn = pyqtSignal(int, int, int, int)
@@ -568,15 +600,25 @@ class VideoViewer(QMainWindow):
             self.labels_dir.mkdir(parents=True, exist_ok=True)
             
             print(f"[VideoViewer] 添加 {len(file_paths)} 个视频的帧...")
-            
+
+            # 先按 app 面板的抽帧比例抽帧（skip=1 表示不抽帧）
+            skip = resolve_frame_skip(self.panel)
+            print(f"[VideoViewer] 抽帧比例: 每 {skip} 帧取 1 帧（来自app面板）")
+
             # 获取当前最大帧号
             existing_frames = list(self.frames_dir.glob("frame_*.jpg"))
             start_idx = len(existing_frames)
             target_w, target_h = self.video_width, self.video_height
             print(f"[VideoViewer] 当前已有 {start_idx} 帧, target={target_w}x{target_h}")
+
+            def _write_frame(idx, frame):
+                """按统一尺寸落盘一帧，并写入空的标注文件"""
+                cv2.imwrite(str(self.frames_dir / f"frame_{idx:06d}.jpg"), frame)
+                with open(self.labels_dir / f"frame_{idx:06d}.json", 'w', encoding='utf-8') as f:
+                    json.dump([], f, ensure_ascii=False)
             
             total_added = 0
-            # 从每个视频读取帧
+            # 从每个视频读取帧（按抽帧比例）
             for vi, vp in enumerate(file_paths):
                 vp_str = str(vp)
                 cap = cv2.VideoCapture(vp_str)
@@ -585,44 +627,26 @@ class VideoViewer(QMainWindow):
                     QMessageBox.warning(self, "错误", f"无法打开视频:\n{vp_str}")
                     continue
                 
-                # 读取第一帧检测分辨率
-                ret, first_frame = cap.read()
-                if not ret:
-                    print(f"[VideoViewer] 视频 {vi+1} 无帧数据: {vp_str}")
-                    cap.release()
-                    continue
-                src_h, src_w = first_frame.shape[:2]
-                need_resize = (src_w != target_w or src_h != target_h)
-                if need_resize:
-                    print(f"[VideoViewer] 视频 {vi+1} 分辨率 {src_w}x{src_h} -> 调整为 {target_w}x{target_h}")
-                
-                # 处理第一帧
                 idx = start_idx
-                frame = cv2.resize(first_frame, (target_w, target_h)) if need_resize else first_frame
-                frame_path = self.frames_dir / f"frame_{idx:06d}.jpg"
-                cv2.imwrite(str(frame_path), frame)
-                label_path = self.labels_dir / f"frame_{idx:06d}.json"
-                with open(label_path, 'w', encoding='utf-8') as f:
-                    json.dump([], f, ensure_ascii=False)
-                idx += 1
-                
-                # 处理剩余帧
-                while True:
-                    ret, frame = cap.read()
-                    if not ret:
-                        break
+                need_resize = None
+                for _, frame in iter_kept_frames(cap, skip):
+                    if need_resize is None:
+                        # 首个保留帧用于检测分辨率（同一视频内分辨率一致）
+                        src_h, src_w = frame.shape[:2]
+                        need_resize = (src_w != target_w or src_h != target_h)
+                        if need_resize:
+                            print(f"[VideoViewer] 视频 {vi+1} 分辨率 {src_w}x{src_h} -> 调整为 {target_w}x{target_h}")
                     if need_resize:
                         frame = cv2.resize(frame, (target_w, target_h))
-                    frame_path = self.frames_dir / f"frame_{idx:06d}.jpg"
-                    cv2.imwrite(str(frame_path), frame)
-                    label_path = self.labels_dir / f"frame_{idx:06d}.json"
-                    with open(label_path, 'w', encoding='utf-8') as f:
-                        json.dump([], f, ensure_ascii=False)
+                    _write_frame(idx, frame)
                     idx += 1
                 cap.release()
+
+                if idx == start_idx:
+                    print(f"[VideoViewer] 视频 {vi+1} 无帧数据: {vp_str}")
                 added_this = idx - start_idx
                 total_added += added_this
-                print(f"[VideoViewer] 视频 {vi+1}: 添加 {added_this} 帧")
+                print(f"[VideoViewer] 视频 {vi+1}: 抽帧后添加 {added_this} 帧")
                 start_idx = idx
             
             # 更新总数
