@@ -18,6 +18,8 @@ import time         # 用于ocs_upload重试退避sleep
 import threading    # 用于ocs_upload分片上传的线程局部Session
 import concurrent.futures  # 用于ocs_upload并发上传分片
 import requests     # 用于ocs_upload调用OCS分片上传/直传接口
+import re           # 用于解析OCS首页文件名（挑旧的模型包继续训练）
+from urllib.parse import unquote  # 用于OCS文件名URL解码（如 gongwei3%264_...zip）
 
 # ESC早停标志：训练过程中监听ESC键
 _esc_pressed = False
@@ -368,6 +370,107 @@ def ocs_upload(local_path, remote_name, retries=OCS_RETRIES):
     else:
         ok, _, msg = _ocs_put_chunked(local_path, remote_name, upload_url, size, retries)
     return ok, public_url, msg
+
+
+def parse_ocs_file_names(html):
+    """从OCS首页HTML里解析文件名：每个文件都是一个 <a href="http://host/name"> 链接。
+    （使用位置：ocs_list_files —— 列出OCS上的模型包）"""
+    names = []
+    for m in re.finditer(r'href="([^"]+)"', html or ""):
+        url = m.group(1).strip()
+        if url.startswith("?") or url.startswith("#"):
+            continue
+        path = url.split("?", 1)[0].split("#", 1)[0].rstrip("/")
+        if not path:
+            continue
+        name = unquote(path.rsplit("/", 1)[-1])
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+def pick_latest_model_zip(names, model_id):
+    """从文件名列表里挑出 {model_id}_{时间戳}_{随机}_model.zip 中时间戳最新的一个（找不到返回None）。
+    （使用位置：_prepare_resume_from_ocs —— 选旧的OCS模型包继续训练）"""
+    pattern = re.compile(r"^" + re.escape(str(model_id)) + r"_(\d{8}_\d{6})_\d+_model\.zip$")
+    cands = []
+    for n in names or []:
+        m = pattern.match(n)
+        if m:
+            cands.append((m.group(1), n))
+    if not cands:
+        return None
+    cands.sort(key=lambda x: x[0], reverse=True)
+    return cands[0][1]
+
+
+def find_model_dir(root):
+    """在（模型包解压后的）目录树里定位含 weights/(best.pt|last.pt|best.onnx) 的目录；没有则None。
+    （使用位置：_prepare_resume_from_ocs —— 定位可用于继续训练的权重目录）"""
+    root = Path(root)
+    if not root.exists():
+        return None
+    dirs = [root] + sorted([p for p in root.rglob("*") if p.is_dir()], key=lambda p: len(p.parts))
+    for d in dirs:
+        w = d / "weights"
+        if w.is_dir() and any((w / f).exists() for f in ("best.pt", "last.pt", "best.onnx")):
+            return d
+    return None
+
+
+def ocs_list_files(base=None, timeout=None):
+    """列出OCS根目录下的文件名（解析首页HTML）。
+    （使用位置：_prepare_resume_from_ocs —— 找旧的模型包）"""
+    base = base or _ocs_base()
+    r = _ocs_session().get(f"{base}/", timeout=timeout or (10, 60))
+    if r.status_code != 200:
+        raise RuntimeError(f"HTTP {r.status_code}")
+    return parse_ocs_file_names(r.text or "")
+
+
+def ocs_download(filename, dest_path, retries=OCS_RETRIES, timeout=None):
+    """从OCS流式下载文件到本地，并用 Content-Length 校验完整性。返回 (ok, msg)。
+    （使用位置：_prepare_resume_from_ocs —— 下载旧的模型包继续训练）"""
+    dest_path = Path(dest_path)
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+    url = f"{_ocs_base()}/{filename}"
+    tmp = dest_path.with_name(dest_path.name + ".part")
+    last = ""
+    for attempt in range(1, retries + 1):
+        try:
+            r = _ocs_session().get(url, timeout=timeout or (20, 600), stream=True)
+            if r.status_code != 200:
+                last = f"HTTP {r.status_code}"
+                if 400 <= r.status_code < 500:
+                    print(f"[OCS] 下载失败: {last}")
+                    return False, last
+            else:
+                raw_len = str(r.headers.get("Content-Length", ""))
+                expect = int(raw_len) if raw_len.isdigit() else None
+                written = 0
+                with open(tmp, "wb") as f:
+                    for blob in r.iter_content(chunk_size=1024 * 1024):
+                        if not blob:
+                            continue
+                        f.write(blob)
+                        written += len(blob)
+                if expect is not None and written != expect:
+                    last = f"大小不一致 本地={written} 服务端={expect}"
+                else:
+                    tmp.replace(dest_path)
+                    print(f"[OCS] ✅ 下载完成: {filename} ({written / 1024 / 1024:.1f}MB)")
+                    return True, f"{written} bytes"
+        except Exception as e:
+            last = f"{type(e).__name__}: {e}"
+        print(f"[OCS] 第{attempt}/{retries}次下载失败({filename}): {last}")
+        if attempt < retries:
+            time.sleep(min(2 ** attempt, 15))
+    if tmp.exists():
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+    return False, last
 
 
 def build_class_mapping(panel_pairs, used_tids=()):
@@ -1866,6 +1969,63 @@ class UnifiedPanel(QMainWindow):
         """打开temp_data_mid帧删除对话框"""
         dialog = TrimMidDialog(self)
         dialog.exec_()
+
+    def _ask_resume_source(self):
+        """继续训练时询问权重来源。返回 True=旧的OCS模型包, False=本地文件夹, None=取消。
+        （使用位置：导出到OCS流程 —— train_resume_check 与 train_model_check 同时勾选时）"""
+        box = QMessageBox(self)
+        box.setWindowTitle("继续训练")
+        box.setText("继续训练使用的旧模型来自哪里？")
+        btn_ocs = box.addButton("旧的OCS模型包", QMessageBox.AcceptRole)
+        btn_local = box.addButton("本地文件夹(app现在的方式)", QMessageBox.ActionRole)
+        box.addButton("取消", QMessageBox.RejectRole)
+        box.exec_()
+        clicked = box.clickedButton()
+        if clicked is btn_ocs:
+            print("[YOLO] 继续训练来源: OCS旧模型包")
+            return True
+        if clicked is btn_local:
+            print("[YOLO] 继续训练来源: 本地文件夹")
+            return False
+        print("[YOLO] 用户取消了继续训练")
+        return None
+
+    def _prepare_resume_from_ocs(self, model_id):
+        """下载OCS上最新的 {model_id} 模型包并解压，返回含 weights/ 的目录；失败返回 None。
+        （使用位置：导出到OCS流程 —— 用户选择「旧的OCS模型包」继续训练）"""
+        try:
+            names = ocs_list_files()
+        except Exception as e:
+            print(f"[OCS] ⚠️ 列出OCS文件失败: {e}")
+            return None
+        zip_name = pick_latest_model_zip(names, model_id)
+        if not zip_name:
+            print(f"[OCS] ⚠️ OCS上没有 {model_id} 的模型包")
+            return None
+        print(f"[OCS] 继续训练将使用旧模型包: {zip_name}")
+        work_dir = BASE_DIR / "1dst" / "_ocs_resume"
+        work_dir.mkdir(parents=True, exist_ok=True)
+        zip_path = work_dir / zip_name
+        ok, msg = ocs_download(zip_name, zip_path)
+        if not ok:
+            print(f"[OCS] ⚠️ 下载旧模型包失败: {msg}")
+            return None
+        extract_dir = work_dir / "extracted"
+        if extract_dir.exists():
+            shutil.rmtree(extract_dir)
+        extract_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            with zipfile.ZipFile(zip_path) as zf:
+                zf.extractall(extract_dir)
+        except Exception as e:
+            print(f"[OCS] ⚠️ 解压旧模型包失败: {e}")
+            return None
+        model_dir = find_model_dir(extract_dir)
+        if model_dir is None:
+            print(f"[OCS] ⚠️ 旧模型包里没有 weights/best.pt|last.pt|best.onnx")
+            return None
+        print(f"[OCS] 旧模型包已就绪: {model_dir}")
+        return model_dir
     
     def create_annotate_section(self):
         group = QWidget()
@@ -6418,14 +6578,24 @@ names: {class_names}
         if self.train_resume_check.isChecked():
             print("[YOLO] 继续训练模式，跳过视频上传")
             if self.train_model_check.isChecked():
-                print(f"[YOLO] 开始训练模型...")
-                try:
-                    # 直接读 temp_data_post（frames/ + labels/），不再生成 labelme 中间目录
-                    self._train_yolo_model(BASE_DIR / "temp_data_post")
-                except Exception as e:
-                    print(f"[YOLO] 训练失败: {e}")
-                    import traceback
-                    traceback.print_exc()
+                # 让用户选择继续训练的旧模型来源：OCS旧模型包 还是 本地文件夹
+                choice = self._ask_resume_source()
+                if choice is None:
+                    print("[YOLO] 已取消继续训练")
+                else:
+                    resume_model_dir = None
+                    if choice:
+                        train_id = self.train_id_input.text() or self.default_model_id
+                        resume_model_dir = self._prepare_resume_from_ocs(train_id)
+                        if resume_model_dir is None:
+                            print("[YOLO] ⚠️ 使用OCS旧模型包失败，改用本地文件夹继续训练")
+                    print(f"[YOLO] 开始训练模型...")
+                    try:
+                        self._train_yolo_model(BASE_DIR / "temp_data_post", resume_model_dir)
+                    except Exception as e:
+                        print(f"[YOLO] 训练失败: {e}")
+                        import traceback
+                        traceback.print_exc()
             return
 
         # 上传标注视频
@@ -6604,12 +6774,14 @@ names: {class_names}
         else:
             print(f"标注视频已上传!\nOCS地址: {ocs_url}")
 
-    def _train_yolo_model(self, data_dir):
+    def _train_yolo_model(self, data_dir, resume_model_dir=None):
         """训练YOLO模型。
 
         入参支持两种：
           - temp_data_post（含 frames/ + labels/）：直接读取，不再生成 label_x_label_me 目录（省一次上GB拷贝）
           - labelme 目录（含 *.jpg + 同名 *.json）：保留旧的读取方式作为参考实现
+        resume_model_dir: 继续训练时的权重来源目录（如OCS旧模型包解压出的 {id}_train，
+                          需含 weights/）；为 None 时沿用本地最近的 yolo_runs/train*
         """
         import yaml
         import random
@@ -6963,9 +7135,13 @@ names: {class_names}
         # 训练输出目录（已在函数开头定义为 yolo_runs_dir）
         print(f"[YOLO] 训练输出目录: {yolo_runs_dir.resolve()}")
         resume = self.train_resume_check.isChecked()
+        weights_dir = None
         
-        # 如果继续训练，查找编号最大的train文件夹
+        # 如果继续训练，权重来源：OCS旧模型包(resume_model_dir) 优先，否则本地编号最大的train*
         if resume:
+            if resume_model_dir is not None:
+                weights_dir = Path(resume_model_dir) / "weights"
+                print(f"[YOLO] 继续训练权重来源: OCS旧模型包 -> {weights_dir}")
             # 查找所有train*文件夹
             train_dirs = list(yolo_runs_dir.glob("train*"))
             train_dirs = [d for d in train_dirs if d.is_dir()]
@@ -6983,9 +7159,16 @@ names: {class_names}
                     return nums[-1] if nums else 0
                 train_dirs.sort(key=get_train_num, reverse=True)
                 train_dir = train_dirs[0]
-                print(f"[YOLO] 继续训练，使用: {train_dir.name} (编号最大)")
+                print(f"[YOLO] 继续训练，输出到: {train_dir.name} (编号最大)")
             else:
-                print("[YOLO] 未找到可继续训练的模型，请取消勾选继续训练")
+                # 本地没有历史训练目录（如换机器后用OCS模型包继续训练）：新建一个输出目录
+                train_dir = yolo_runs_dir / "train"
+                print(f"[YOLO] 本地无历史训练目录，新建输出目录: {train_dir.name}")
+            if weights_dir is None:
+                weights_dir = train_dir / "weights"
+                print(f"[YOLO] 继续训练权重来源: 本地文件夹 -> {weights_dir}")
+            if not any((weights_dir / f).exists() for f in ("best.pt", "last.pt", "best.onnx")):
+                print(f"[YOLO] 未找到可继续训练的模型({weights_dir})，请取消勾选继续训练")
                 return
         else:
             # 清理旧的train文件夹，统一用train
@@ -6995,14 +7178,16 @@ names: {class_names}
             train_dir = yolo_runs_dir / "train"
             print(f"[YOLO] 新训练文件夹: {train_dir.name}")
         
-        # 如果继续训练，从已有model.json读取ID、名称、描述
-        prev_model_json = train_dir / "model.json"
+        # 如果继续训练，从已有model.json读取ID、名称、描述（优先取权重来源目录里的）
+        prev_model_json = (weights_dir / "model.json") if weights_dir is not None else (train_dir / "model.json")
+        if resume and not prev_model_json.exists():
+            prev_model_json = train_dir / "model.json"
         if resume and prev_model_json.exists():
             try:
                 with open(prev_model_json, encoding='utf-8') as f:
                     prev_info = json.load(f)
                 self.train_id_input.setText(prev_info.get('id', ''))
-                print(f"[YOLO] 从上次的model.json读取: id={prev_info.get('id')}")
+                print(f"[YOLO] 从上次的model.json读取: id={prev_info.get('id')} ({prev_model_json})")
             except:
                 pass
         
@@ -7059,9 +7244,9 @@ names: {class_names}
             # 从已有权重加载作为预训练权重，生成新的train-N文件夹
             print("[YOLO] 从已有权重加载...")
             print(f"[YOLO] epochs={epochs}")
-            best_pt = train_dir / "weights" / "best.pt"
-            last_pt = train_dir / "weights" / "last.pt"
-            best_onnx = train_dir / "weights" / "best.onnx"
+            best_pt = weights_dir / "best.pt"
+            last_pt = weights_dir / "last.pt"
+            best_onnx = weights_dir / "best.onnx"
 
             def _esc_stop_callback(trainer):
                 if _esc_pressed:
