@@ -372,6 +372,24 @@ def ocs_upload(local_path, remote_name, retries=OCS_RETRIES):
     return ok, public_url, msg
 
 
+def build_model_package(upload_dir, zip_path):
+    """把本次训练的 run 目录整体打包成模型包。
+
+    包含 weights/ 下的全部文件（best.onnx、best.pt、last.pt、model.json），
+    包内路径相对 run 目录的上一级（如 gongwei4_train/weights/last.pt），便于直接解压使用。
+    说明：早先为避开旧OBS网关的体积/502问题曾排除 last.pt；现OCS已能稳定上传大包（实测677MB/1054MB均成功），
+    保留 last.pt 可让「用旧的OCS模型包继续训练」多一个兜底权重。
+    （使用位置：_train_yolo_model —— 训练结束后打包上传OCS）
+    """
+    upload_dir = Path(upload_dir)
+    zip_path = Path(zip_path)
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for f in sorted(upload_dir.rglob("*")):
+            if f.is_file():
+                zf.write(f, f.relative_to(upload_dir.parent))
+    return zip_path
+
+
 def parse_ocs_file_names(html):
     """从OCS首页HTML里解析文件名：每个文件都是一个 <a href="http://host/name"> 链接。
     （使用位置：ocs_list_files —— 列出OCS上的模型包）"""
@@ -7461,23 +7479,14 @@ names: {class_names}
             shutil.copytree(train_dir, upload_dir)
             print(f"[YOLO] 已拷贝本次训练文件夹到 {upload_dir}")
             
-            # 压缩上传整个文件夹
-            import zipfile
+            # 压缩上传整个文件夹（打包含 last.pt：见 build_model_package 说明）
             import time
             import random
             timestamp = time.strftime("%Y%m%d_%H%M%S")
             rand = random.randint(1000, 9999)
             zip_filename = f"{train_id}_{timestamp}_{rand}_model.zip"
             zip_path = BASE_DIR / "1dst" / zip_filename
-            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-                for f in upload_dir.rglob("*"):
-                    if f.is_file():
-                        # 排除 last.pt(约40MB)控制包体：实测148MB包曾成功、295MB必失败，
-                        # 且该服务器上传端点不稳定(间歇502)，留足体积余量更稳。
-                        # 部署用best.onnx、继续训练优先用best.pt，last.pt非必需
-                        if f.name == "last.pt":
-                            continue
-                        zf.write(f, f.relative_to(upload_dir.parent))
+            build_model_package(upload_dir, zip_path)
             print(f"[ZIP] 正在上传模型压缩包...")
             zip_ok, _, zip_msg = ocs_upload(zip_path, zip_filename)
             if not zip_ok:
