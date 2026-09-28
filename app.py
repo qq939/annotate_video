@@ -1989,8 +1989,8 @@ class UnifiedPanel(QMainWindow):
         dialog.exec_()
 
     def _ask_resume_source(self):
-        """继续训练时询问权重来源。返回 True=旧的OCS模型包, False=本地文件夹, None=取消。
-        （使用位置：导出到OCS流程 —— train_resume_check 与 train_model_check 同时勾选时）"""
+        """继续训练时询问权重来源。返回 'ocs'=旧的OCS模型包 / 'local'=本地文件夹 / 'cancel'=取消。
+        （使用位置：run_save 入口 —— 点击「💾 保存视频并上传OCS」后立即弹窗，不等视频编码完成）"""
         box = QMessageBox(self)
         box.setWindowTitle("继续训练")
         box.setText("继续训练使用的旧模型来自哪里？")
@@ -2001,12 +2001,12 @@ class UnifiedPanel(QMainWindow):
         clicked = box.clickedButton()
         if clicked is btn_ocs:
             print("[YOLO] 继续训练来源: OCS旧模型包")
-            return True
+            return 'ocs'
         if clicked is btn_local:
             print("[YOLO] 继续训练来源: 本地文件夹")
-            return False
+            return 'local'
         print("[YOLO] 用户取消了继续训练")
-        return None
+        return 'cancel'
 
     def _prepare_resume_from_ocs(self, model_id):
         """下载OCS上最新的 {model_id} 模型包并解压，返回含 weights/ 的目录；失败返回 None。
@@ -6208,6 +6208,16 @@ names: {class_names}
             QMessageBox.warning(self, "错误", "没有找到帧数据")
             return
 
+        # 继续训练要选旧模型来源：点击按钮后立刻弹窗确认，绝不等视频导出/编码完成才问
+        self._resume_choice_asked = False
+        self._resume_choice = None
+        if self.train_resume_check.isChecked() and self.train_model_check.isChecked():
+            self._resume_choice_asked = True
+            self._resume_choice = self._ask_resume_source()   # 'ocs' / 'local' / 'cancel'
+            if self._resume_choice == 'cancel':
+                print("[YOLO] 用户取消继续训练，本次保存终止")
+                return
+
         width = int(video_info.get('width', 1280))
         height = int(video_info.get('height', 720))
         fps = int(video_info.get('fps', 30))
@@ -6596,13 +6606,13 @@ names: {class_names}
         if self.train_resume_check.isChecked():
             print("[YOLO] 继续训练模式，跳过视频上传")
             if self.train_model_check.isChecked():
-                # 让用户选择继续训练的旧模型来源：OCS旧模型包 还是 本地文件夹
-                choice = self._ask_resume_source()
-                if choice is None:
+                # 来源已在点击按钮时问过（这里直接消费结果，避免再次弹窗让用户等）
+                choice = self._resume_choice if self._resume_choice_asked else self._ask_resume_source()
+                if choice == 'cancel':
                     print("[YOLO] 已取消继续训练")
                 else:
                     resume_model_dir = None
-                    if choice:
+                    if choice == 'ocs':
                         train_id = self.train_id_input.text() or self.default_model_id
                         resume_model_dir = self._prepare_resume_from_ocs(train_id)
                         if resume_model_dir is None:
