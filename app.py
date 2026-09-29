@@ -1876,10 +1876,9 @@ class SideToggleButton(QToolButton):
         return QSize(24, fm.height() + 8)
 
     def paintEvent(self, event):
-        """自绘：深色底 + 白色竖排标题（折叠时只留 ▶ 箭头，占一行高）"""
+        """自绘：黑色竖排标题（不画底色，背景与正文保持一致）"""
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor("#333"))
-        painter.setPen(QColor("white"))
+        painter.setPen(QColor("black"))
         if not self.isChecked():
             painter.drawText(self.rect(), Qt.AlignCenter, "▶")
             return
@@ -2073,6 +2072,15 @@ class UnifiedPanel(QMainWindow):
         layout.addWidget(btn, 0, Qt.AlignTop)
         layout.addWidget(content, 1)
         btn.toggled.connect(content.setVisible)
+
+        def _apply_size_policy(checked):
+            """折叠后禁止纵向拉伸：否则窗口较高时布局会把整栏拉伸，而不是只剩一行"""
+            group.setSizePolicy(QSizePolicy.Preferred,
+                                QSizePolicy.Preferred if checked else QSizePolicy.Maximum)
+            group.updateGeometry()
+
+        btn.toggled.connect(_apply_size_policy)
+        _apply_size_policy(btn.isChecked())
         setattr(self, btn_attr, btn)
         setattr(self, content_attr, content)
         return group, content_layout
