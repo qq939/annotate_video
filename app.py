@@ -84,7 +84,7 @@ def _safe_empty_cache():
         pass
 
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QSlider, QLabel, QLineEdit, QFileDialog, QGroupBox, QTextEdit, QMessageBox, QListWidget, QSizePolicy, QDialog, QInputDialog, QCheckBox, QToolButton, QMenu, QRadioButton)
-from PyQt5.QtCore import Qt, QTimer, QPoint, QRect, pyqtSignal
+from PyQt5.QtCore import Qt, QTimer, QPoint, QRect, pyqtSignal, QSize, QRectF
 from PyQt5.QtGui import QPainter, QPen, QColor
 from PyQt5.Qt import QDragEnterEvent, QDropEvent
 
@@ -1846,6 +1846,52 @@ class TrimDialog(QDialog):
         super().closeEvent(event)
 
 
+class SideToggleButton(QToolButton):
+    """栏目侧边的「标题+折叠按钮」：展开时标题竖排贴在栏目左侧，折叠后只占一行高度。
+    （使用位置：UnifiedPanel._build_collapsible_section —— 三个可折叠栏目）"""
+
+    def __init__(self, title, parent=None):
+        super().__init__(parent)
+        self._title = title
+        self.setCheckable(True)
+        self.setChecked(True)          # 默认展开
+        self.setFixedWidth(24)         # 窄条：尽量不占横向空间
+        self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip(f"{title}（点击折叠/展开）")
+        font = self.font()
+        font.setBold(True)
+        self.setFont(font)
+        self.toggled.connect(self._refresh_geometry)
+
+    def _refresh_geometry(self, _checked=False):
+        """展开/折叠切换后重算尺寸并重绘"""
+        self.updateGeometry()
+        self.update()
+
+    def sizeHint(self):
+        """展开时高度=标题竖排所需长度；折叠时高度=一行"""
+        fm = self.fontMetrics()
+        if self.isChecked():
+            return QSize(24, fm.horizontalAdvance(self._title + " ▼") + 16)
+        return QSize(24, fm.height() + 8)
+
+    def paintEvent(self, event):
+        """自绘：深色底 + 白色竖排标题（折叠时只留 ▶ 箭头，占一行高）"""
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor("#333"))
+        painter.setPen(QColor("white"))
+        if not self.isChecked():
+            painter.drawText(self.rect(), Qt.AlignCenter, "▶")
+            return
+        text = f"{self._title} ▼"
+        painter.save()
+        painter.translate(self.width() / 2, self.height() / 2)
+        painter.rotate(-90)   # 自下而上竖排（书脊式）
+        painter.drawText(QRectF(-self.height() / 2, -self.width() / 2, self.height(), self.width()),
+                         Qt.AlignCenter, text)
+        painter.restore()
+
+
 class ResumeModelZipDialog(QDialog):
     """选择继续训练用的旧模型压缩包（OCS上的 *_model.zip）。
     对话框立即弹出，文件列表在后台线程拉取后填充，用户不用等网络。
@@ -2007,37 +2053,34 @@ class UnifiedPanel(QMainWindow):
         main_layout.addWidget(self.create_viewer_section())
         main_layout.addWidget(self.create_save_section())
 
-    def create_video_trim_section(self):
-        """视频帧剔除模块"""
+    def _build_collapsible_section(self, title, btn_attr, content_attr):
+        """构建「侧边标题+折叠按钮」栏目：按钮竖排在左侧（顶部对齐），内容在右侧占满；
+        折叠后隐藏内容，整栏只剩一行高度。
+        （使用位置：create_video_trim_section / create_annotate_section / create_viewer_section）"""
         group = QWidget()
-        layout = QVBoxLayout()
+        layout = QHBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
+        layout.setSpacing(2)
         group.setLayout(layout)
-        
-        # 可折叠标题栏
-        header = QWidget()
-        header_layout = QHBoxLayout()
-        header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(4)
-        
-        self.trim_toggle_btn = QToolButton()
-        self.trim_toggle_btn.setText("0. 视频帧删除 ▼")
-        self.trim_toggle_btn.setStyleSheet("QToolButton { font-weight: bold; background: #333; color: white; border: none; padding: 4px; }")
-        self.trim_toggle_btn.setCheckable(True)
-        self.trim_toggle_btn.setChecked(True)
-        self.trim_toggle_btn.toggled.connect(lambda checked: self.trim_content.setVisible(checked))
-        header_layout.addWidget(self.trim_toggle_btn)
-        header.setLayout(header_layout)
-        layout.addWidget(header)
-        
-        # 可折叠内容
-        self.trim_content = QWidget()
+
+        btn = SideToggleButton(title)
+        content = QWidget()
         content_layout = QVBoxLayout()
         content_layout.setContentsMargins(4, 4, 4, 4)
         content_layout.setSpacing(4)
-        self.trim_content.setLayout(content_layout)
-        layout.addWidget(self.trim_content)
+        content.setLayout(content_layout)
+
+        layout.addWidget(btn, 0, Qt.AlignTop)
+        layout.addWidget(content, 1)
+        btn.toggled.connect(content.setVisible)
+        setattr(self, btn_attr, btn)
+        setattr(self, content_attr, content)
+        return group, content_layout
+
+    def create_video_trim_section(self):
+        """视频帧剔除模块"""
+        group, content_layout = self._build_collapsible_section(
+            "0. 视频帧删除", "trim_toggle_btn", "trim_content")
         
         # 选择视频
         select_layout = QHBoxLayout()
@@ -2147,35 +2190,8 @@ class UnifiedPanel(QMainWindow):
         return model_dir
     
     def create_annotate_section(self):
-        group = QWidget()
-        layout = QVBoxLayout()
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
-        group.setLayout(layout)
-        
-        # 可折叠标题栏
-        header = QWidget()
-        header_layout = QHBoxLayout()
-        header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(4)
-        
-        self.annot_toggle_btn = QToolButton()
-        self.annot_toggle_btn.setText("1. 视频标注 (annotate_video) ▼")
-        self.annot_toggle_btn.setStyleSheet("QToolButton { font-weight: bold; background: #333; color: white; border: none; padding: 4px; }")
-        self.annot_toggle_btn.setCheckable(True)
-        self.annot_toggle_btn.setChecked(True)
-        self.annot_toggle_btn.toggled.connect(lambda checked: self.annot_content.setVisible(checked))
-        header_layout.addWidget(self.annot_toggle_btn)
-        header.setLayout(header_layout)
-        layout.addWidget(header)
-        
-        # 可折叠内容
-        self.annot_content = QWidget()
-        content_layout = QVBoxLayout()
-        content_layout.setContentsMargins(4, 4, 4, 4)
-        content_layout.setSpacing(4)
-        self.annot_content.setLayout(content_layout)
-        layout.addWidget(self.annot_content)
+        group, content_layout = self._build_collapsible_section(
+            "1. 视频标注 (annotate_video)", "annot_toggle_btn", "annot_content")
         
         video_layout = QHBoxLayout()
         video_layout.setSpacing(4)
@@ -2215,7 +2231,7 @@ class UnifiedPanel(QMainWindow):
         self.resize_ratio_input.setFixedWidth(50)
         self.resize_ratio_input.setFixedHeight(22)
         preprocess_layout.addWidget(self.resize_ratio_input)
-        layout.addLayout(preprocess_layout)
+        content_layout.addLayout(preprocess_layout)
 
         iou_layout = QHBoxLayout()
         iou_layout.setSpacing(4)
@@ -2234,7 +2250,7 @@ class UnifiedPanel(QMainWindow):
         self.items_input.setMinimumWidth(100)
         self.items_input.setFixedHeight(22)
         iou_layout.addWidget(self.items_input)
-        layout.addLayout(iou_layout)
+        content_layout.addLayout(iou_layout)
 
         # 形态学操作单独一行
         morph_layout = QHBoxLayout()
@@ -2252,7 +2268,7 @@ class UnifiedPanel(QMainWindow):
         self.morph_label.setFixedWidth(30)
         morph_layout.addWidget(self.morph_label)
         morph_layout.addWidget(QLabel("(分离同色黏连)"))
-        layout.addLayout(morph_layout)
+        content_layout.addLayout(morph_layout)
 
         scale_layout = QHBoxLayout()
         scale_layout.setSpacing(4)
@@ -2268,12 +2284,12 @@ class UnifiedPanel(QMainWindow):
         self.scale_label = QLabel("100%")
         self.scale_label.setFixedWidth(30)
         scale_layout.addWidget(self.scale_label)
-        layout.addLayout(scale_layout)
+        content_layout.addLayout(scale_layout)
 
         self.annotate_btn = QPushButton("▶ 执行标注")
         self.annotate_btn.setFixedHeight(28)
         self.annotate_btn.clicked.connect(self.run_annotate)
-        layout.addWidget(self.annotate_btn)
+        content_layout.addWidget(self.annotate_btn)
 
         return group
 
@@ -2667,34 +2683,8 @@ class UnifiedPanel(QMainWindow):
             av_module.FIND = OrigFIND
 
     def create_viewer_section(self):
-        group = QWidget()
-        outer_layout = QVBoxLayout()
-        outer_layout.setContentsMargins(0, 0, 0, 0)
-        outer_layout.setSpacing(4)
-        group.setLayout(outer_layout)
-
-        # 可折叠标题栏
-        header = QWidget()
-        header_layout = QHBoxLayout()
-        header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(4)
-        self.viewer_toggle_btn = QToolButton()
-        self.viewer_toggle_btn.setText("2. 预览 ▼")
-        self.viewer_toggle_btn.setStyleSheet("QToolButton { font-weight: bold; background: #333; color: white; border: none; padding: 4px; }")
-        self.viewer_toggle_btn.setCheckable(True)
-        self.viewer_toggle_btn.setChecked(True)
-        self.viewer_toggle_btn.toggled.connect(lambda checked: self.viewer_content.setVisible(checked))
-        header_layout.addWidget(self.viewer_toggle_btn)
-        header.setLayout(header_layout)
-        outer_layout.addWidget(header)
-
-        # 可折叠内容
-        self.viewer_content = QWidget()
-        layout = QVBoxLayout()
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(4)
-        self.viewer_content.setLayout(layout)
-        outer_layout.addWidget(self.viewer_content)
+        group, layout = self._build_collapsible_section(
+            "2. 预览", "viewer_toggle_btn", "viewer_content")
 
         path_layout = QHBoxLayout()
         path_layout.setSpacing(4)
