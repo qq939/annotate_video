@@ -7269,6 +7269,7 @@ names: {class_names}
         print(f"[YOLO] 训练输出目录: {yolo_runs_dir.resolve()}")
         resume = self.train_resume_check.isChecked()
         weights_dir = None
+        micro_tune = False   # 没有继续训练条件时的降级方案：用yolo11m.pt预训练权重在当前数据上微调
         
         # 如果继续训练，权重来源：OCS旧模型包(resume_model_dir) 优先，否则本地编号最大的train*
         if resume:
@@ -7301,15 +7302,23 @@ names: {class_names}
                 weights_dir = train_dir / "weights"
                 print(f"[YOLO] 继续训练权重来源: 本地文件夹 -> {weights_dir}")
             if not any((weights_dir / f).exists() for f in ("best.pt", "last.pt", "best.onnx")):
-                print(f"[YOLO] 未找到可继续训练的模型({weights_dir})，请取消勾选继续训练")
-                return
-        else:
-            # 清理旧的train文件夹，统一用train
-            for td in yolo_runs_dir.glob("train*"):
-                if td.is_dir():
-                    shutil.rmtree(td)
-            train_dir = yolo_runs_dir / "train"
-            print(f"[YOLO] 新训练文件夹: {train_dir.name}")
+                # 没有继续训练的条件（OCS旧模型包没有、本地train*也没有）→ 降级为微调，而不是直接放弃
+                print(f"[YOLO] ⚠️ 未找到可继续训练的模型({weights_dir})，降级为微调："
+                      f"用 yolo11m.pt 预训练权重 + 当前数据训练")
+                resume = False
+                micro_tune = True
+        if not resume:
+            if micro_tune:
+                # 微调：保留历史train*（不清空），输出到独立的 train_micro 目录
+                train_dir = yolo_runs_dir / "train_micro"
+                print(f"[YOLO] 微调文件夹: {train_dir.name}（保留历史train*）")
+            else:
+                # 清理旧的train文件夹，统一用train
+                for td in yolo_runs_dir.glob("train*"):
+                    if td.is_dir():
+                        shutil.rmtree(td)
+                train_dir = yolo_runs_dir / "train"
+                print(f"[YOLO] 新训练文件夹: {train_dir.name}")
         
         # 如果继续训练，从已有model.json读取ID、名称、描述（优先取权重来源目录里的）
         prev_model_json = (weights_dir / "model.json") if weights_dir is not None else (train_dir / "model.json")
