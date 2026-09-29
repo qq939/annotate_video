@@ -2051,6 +2051,7 @@ class UnifiedPanel(QMainWindow):
         main_layout.addWidget(self.create_annotate_section())
         main_layout.addWidget(self.create_viewer_section())
         main_layout.addWidget(self.create_save_section())
+        main_layout.addStretch()   # 多余高度留在最底部，所有栏目向上密集排布（折叠后尤其明显）
 
     def _build_collapsible_section(self, title, btn_attr, content_attr):
         """构建「侧边标题+折叠按钮」栏目：按钮竖排在左侧（顶部对齐），内容在右侧占满；
@@ -2984,6 +2985,8 @@ class UnifiedPanel(QMainWindow):
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
         group.setLayout(layout)
+        # 折叠其他栏目后多余高度不能被本栏吸收（否则行距稀疏）：内容向上密集排布，空白留在底部
+        group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
 
         input_dir_name_layout = QHBoxLayout()
         input_dir_name_layout.setSpacing(4)
@@ -3127,6 +3130,7 @@ class UnifiedPanel(QMainWindow):
         self.save_btn.setFixedHeight(28)
         self.save_btn.clicked.connect(self.run_save)
         layout.addWidget(self.save_btn)
+        layout.addStretch()   # 余量留在底部，保证所有控件向上密集排布
 
         return group
 
