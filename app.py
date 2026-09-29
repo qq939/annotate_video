@@ -422,6 +422,20 @@ def pick_latest_model_zip(names, model_id):
     return cands[0][1]
 
 
+def list_model_zips(names):
+    """列出所有模型包文件名（{id}_{YYYYMMDD_HHMMSS}_{随机}_model.zip），按时间戳倒序。
+    数据集包(_cocodataset.zip)/视频/其他文件不入选。
+    （使用位置：ResumeModelZipDialog._fetch —— 让用户挑要用于继续训练的旧模型包）"""
+    pattern = re.compile(r"^(.+)_(\d{8}_\d{6})_\d+_model\.zip$")
+    cands = []
+    for n in names or []:
+        m = pattern.match(n)
+        if m:
+            cands.append((m.group(2), n))
+    cands.sort(key=lambda x: x[0], reverse=True)
+    return [n for _, n in cands]
+
+
 def find_model_dir(root):
     """在（模型包解压后的）目录树里定位含 weights/(best.pt|last.pt|best.onnx) 的目录；没有则None。
     （使用位置：_prepare_resume_from_ocs —— 定位可用于继续训练的权重目录）"""
@@ -1832,6 +1846,77 @@ class TrimDialog(QDialog):
         super().closeEvent(event)
 
 
+class ResumeModelZipDialog(QDialog):
+    """选择继续训练用的旧模型压缩包（OCS上的 *_model.zip）。
+    对话框立即弹出，文件列表在后台线程拉取后填充，用户不用等网络。
+    （使用位置：UnifiedPanel._ask_ocs_model_zip —— 选了「旧的OCS模型包」之后）"""
+
+    _list_ready = pyqtSignal(list, str)   # (模型包文件名列表, 错误信息)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("选择继续训练用的旧模型包")
+        self.setMinimumWidth(620)
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("OCS上的模型压缩包（*_model.zip），请选择用于继续训练的那个："))
+        self.zip_list = QListWidget()
+        self.zip_list.itemDoubleClicked.connect(lambda _item: self.accept())
+        self.zip_list.currentItemChanged.connect(
+            lambda *_: self.ok_btn.setEnabled(self.zip_list.currentItem() is not None))
+        layout.addWidget(self.zip_list)
+        self.status_label = QLabel("正在获取OCS文件列表...")
+        layout.addWidget(self.status_label)
+        btn_layout = QHBoxLayout()
+        self.refresh_btn = QPushButton("刷新")
+        self.refresh_btn.clicked.connect(self.reload)
+        self.ok_btn = QPushButton("确定")
+        self.ok_btn.setEnabled(False)
+        self.ok_btn.clicked.connect(self.accept)
+        cancel_btn = QPushButton("取消")
+        cancel_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(self.refresh_btn)
+        btn_layout.addStretch()
+        btn_layout.addWidget(self.ok_btn)
+        btn_layout.addWidget(cancel_btn)
+        layout.addLayout(btn_layout)
+        self._list_ready.connect(self._on_list_ready)
+        self.reload()
+
+    def reload(self):
+        """（重新）拉取OCS上的模型包列表，网络请求放在后台线程"""
+        self.status_label.setText("正在获取OCS文件列表...")
+        self.zip_list.clear()
+        self.ok_btn.setEnabled(False)
+        threading.Thread(target=self._fetch, daemon=True).start()
+
+    def _fetch(self):
+        """后台线程：列出OCS文件并过滤出模型包"""
+        try:
+            self._list_ready.emit(list_model_zips(ocs_list_files()), "")
+        except Exception as e:
+            self._list_ready.emit([], f"{type(e).__name__}: {e}")
+
+    def _on_list_ready(self, zips, err):
+        """GUI线程：填充列表（已在GUI线程，信号是跨线程队列投递）"""
+        self.zip_list.clear()
+        for name in zips:
+            self.zip_list.addItem(name)
+        if err:
+            self.status_label.setText(f"获取失败：{err}（可点「刷新」重试）")
+            return
+        if not zips:
+            self.status_label.setText("OCS上没有模型压缩包（*_model.zip）")
+            return
+        self.status_label.setText(f"共 {len(zips)} 个模型包（已按时间倒序），请选择")
+        self.zip_list.setCurrentRow(0)   # 默认选中最新
+        self.ok_btn.setEnabled(True)
+
+    def selected_name(self):
+        """返回用户选中的模型包文件名；没选中返回None"""
+        item = self.zip_list.currentItem()
+        return item.text() if item is not None else None
+
+
 class UnifiedPanel(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -2008,18 +2093,34 @@ class UnifiedPanel(QMainWindow):
         print("[YOLO] 用户取消了继续训练")
         return 'cancel'
 
-    def _prepare_resume_from_ocs(self, model_id):
-        """下载OCS上最新的 {model_id} 模型包并解压，返回含 weights/ 的目录；失败返回 None。
+    def _ask_ocs_model_zip(self):
+        """弹框让用户从OCS上挑一个旧模型压缩包（继续训练用）。返回文件名，取消返回None。
+        （使用位置：run_save 继续训练分支 —— 用户选了「旧的OCS模型包」之后）"""
+        dlg = ResumeModelZipDialog(self)
+        dlg.exec_()
+        if dlg.result() != QDialog.Accepted:
+            print("[OCS] 未选择旧模型包，取消选择")
+            return None
+        name = dlg.selected_name()
+        if name:
+            print(f"[OCS] 用户选择的旧模型包: {name}")
+        return name
+
+    def _prepare_resume_from_ocs(self, model_id, filename=None):
+        """下载指定的旧模型包并解压，返回含 weights/ 的目录；失败返回 None。
+        未指定 filename 时才回退到「自动挑最新的 {model_id} 模型包」。
         （使用位置：导出到OCS流程 —— 用户选择「旧的OCS模型包」继续训练）"""
-        try:
-            names = ocs_list_files()
-        except Exception as e:
-            print(f"[OCS] ⚠️ 列出OCS文件失败: {e}")
-            return None
-        zip_name = pick_latest_model_zip(names, model_id)
-        if not zip_name:
-            print(f"[OCS] ⚠️ OCS上没有 {model_id} 的模型包")
-            return None
+        if not filename:
+            try:
+                names = ocs_list_files()
+            except Exception as e:
+                print(f"[OCS] ⚠️ 列出OCS文件失败: {e}")
+                return None
+            filename = pick_latest_model_zip(names, model_id)
+            if not filename:
+                print(f"[OCS] ⚠️ OCS上没有 {model_id} 的模型包")
+                return None
+        zip_name = filename
         print(f"[OCS] 继续训练将使用旧模型包: {zip_name}")
         work_dir = BASE_DIR / "1dst" / "_ocs_resume"
         work_dir.mkdir(parents=True, exist_ok=True)
@@ -6614,7 +6715,11 @@ names: {class_names}
                     resume_model_dir = None
                     if choice == 'ocs':
                         train_id = self.train_id_input.text() or self.default_model_id
-                        resume_model_dir = self._prepare_resume_from_ocs(train_id)
+                        zip_name = self._ask_ocs_model_zip()   # 立即弹框让用户挑包
+                        if zip_name:
+                            resume_model_dir = self._prepare_resume_from_ocs(train_id, zip_name)
+                        else:
+                            print("[OCS] 未选择旧模型包，改用本地文件夹继续训练")
                         if resume_model_dir is None:
                             print("[YOLO] ⚠️ 使用OCS旧模型包失败，改用本地文件夹继续训练")
                     print(f"[YOLO] 开始训练模型...")
