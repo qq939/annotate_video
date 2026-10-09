@@ -36,4 +36,5 @@ pandas
 albumentations
 onnx
 onnxruntime
+imageio-ffmpeg
 git+https://github.com/ultralytics/CLIP.git

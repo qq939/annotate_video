@@ -390,6 +390,66 @@ def build_model_package(upload_dir, zip_path):
     return zip_path
 
 
+def find_ffmpeg():
+    """找可用的 ffmpeg：优先 imageio-ffmpeg 自带的二进制，其次系统 PATH。
+    （使用位置：open_video_writer —— 生成浏览器可播放的H.264视频）"""
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return shutil.which("ffmpeg")
+
+
+class FfmpegVideoWriter:
+    """把帧经管道编码成 H.264/yuv420p 的 mp4（浏览器可直接播放、可拖动进度条）。
+    替代 cv2 的 MJPG：MJPG 码流写进 .mp4 浏览器无法解码，只会卡在第一帧。
+    （使用位置：open_video_writer —— run_save 生成标注视频与原视频）"""
+
+    def __init__(self, path, fps, size, ffmpeg_exe):
+        width, height = int(size[0]), int(size[1])
+        self.size = (width - width % 2, height - height % 2)   # yuv420p 要求偶数尺寸
+        self.path = str(path)
+        cmd = [
+            ffmpeg_exe, "-y", "-loglevel", "error",
+            "-f", "rawvideo", "-pix_fmt", "bgr24",
+            "-s", "%dx%d" % self.size, "-r", str(fps), "-i", "pipe:0",
+            "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+            "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+            self.path,
+        ]
+        self.proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+
+    def write(self, frame):
+        if frame is None:
+            return
+        if (frame.shape[1], frame.shape[0]) != self.size:
+            frame = cv2.resize(frame, self.size)
+        self.proc.stdin.write(np.ascontiguousarray(frame).tobytes())
+
+    def release(self):
+        if self.proc is None:
+            return
+        if self.proc.stdin:
+            self.proc.stdin.close()
+        self.proc.wait()
+        self.proc = None
+
+
+def open_video_writer(path, fps, size):
+    """创建浏览器可播放的MP4写出器：优先 ffmpeg(H.264/yuv420p)，无ffmpeg时退回 OpenCV mp4v。
+    注意：不要再用 MJPG 写 .mp4——浏览器无法解码，只会显示第一帧。
+    （使用位置：run_save —— 生成标注视频、原视频）"""
+    exe = find_ffmpeg()
+    if exe:
+        try:
+            return FfmpegVideoWriter(path, fps, size, exe)
+        except Exception as e:
+            print(f"[视频] ⚠️ ffmpeg编码器启动失败({type(e).__name__}: {e})，退回OpenCV mp4v")
+    else:
+        print("[视频] ⚠️ 未找到ffmpeg，使用OpenCV mp4v（部分浏览器可能无法播放）")
+    return cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*'mp4v'), fps, size)
+
+
 def parse_ocs_file_names(html):
     """从OCS首页HTML里解析文件名：每个文件都是一个 <a href="http://host/name"> 链接。
     （使用位置：ocs_list_files —— 列出OCS上的模型包）"""
@@ -6325,8 +6385,8 @@ names: {class_names}
         height = int(video_info.get('height', 720))
         fps = int(video_info.get('fps', 30))
 
-        fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-        out = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
+        # 用 ffmpeg 写 H.264/yuv420p：MJPG 码流的 mp4 浏览器解不了（只显示第一帧）
+        out = open_video_writer(output_path, fps, (width, height))
 
         labels_dir = input_path / "labels"
         frames_dir = input_path / "frames"
@@ -6782,8 +6842,8 @@ names: {class_names}
                 break
             
             if raw_fps is not None:
-                fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-                out_raw = cv2.VideoWriter(str(raw_video_path), fourcc, raw_fps, (raw_width, raw_height))
+                # 同样用 H.264（原视频也要上传OCS、在浏览器里播放）
+                out_raw = open_video_writer(raw_video_path, raw_fps, (raw_width, raw_height))
             
             # 逐个视频读取并直接写入，边读边写不缓存
             for vp in videos:
