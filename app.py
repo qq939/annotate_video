@@ -1929,26 +1929,26 @@ class SideToggleButton(QToolButton):
         self.update()
 
     def sizeHint(self):
-        """展开时高度=标题竖排所需长度；折叠时高度=一行"""
+        """展开时高度=字数×字高（逐字竖排）；折叠时高度=一行"""
         fm = self.fontMetrics()
         if self.isChecked():
-            return QSize(24, fm.horizontalAdvance(self._title + " ▼") + 16)
+            return QSize(24, fm.height() * (len(self._title) + 1) + 8)
         return QSize(24, fm.height() + 8)
 
     def paintEvent(self, event):
-        """自绘：黑色竖排标题（不画底色，背景与正文保持一致）"""
+        """自绘：黑色标题逐字正立、从上到下竖排；折叠时只留 ▶ 箭头（占一行高）"""
         painter = QPainter(self)
         painter.setPen(QColor("black"))
         if not self.isChecked():
             painter.drawText(self.rect(), Qt.AlignCenter, "▶")
             return
-        text = f"{self._title} ▼"
-        painter.save()
-        painter.translate(self.width() / 2, self.height() / 2)
-        painter.rotate(-90)   # 自下而上竖排（书脊式）
-        painter.drawText(QRectF(-self.height() / 2, -self.width() / 2, self.height(), self.width()),
-                         Qt.AlignCenter, text)
-        painter.restore()
+        fm = painter.fontMetrics()
+        chars = list(self._title) + ["▼"]
+        step = fm.height()
+        y = max(0, (self.height() - step * len(chars)) / 2)   # 整串字垂直居中
+        for ch in chars:
+            painter.drawText(QRectF(0, y, self.width(), step), Qt.AlignCenter, ch)
+            y += step
 
 
 class ResumeModelZipDialog(QDialog):
@@ -2260,7 +2260,7 @@ class UnifiedPanel(QMainWindow):
     
     def create_annotate_section(self):
         group, content_layout = self._build_collapsible_section(
-            "1. 视频标注 (annotate_video)", "annot_toggle_btn", "annot_content")
+            "1. 视频标注", "annot_toggle_btn", "annot_content")
         
         video_layout = QHBoxLayout()
         video_layout.setSpacing(4)
