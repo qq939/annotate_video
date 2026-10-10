@@ -1638,8 +1638,7 @@ class TrimDialog(QDialog):
         w = int(first_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         h = int(first_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         
-        fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-        out = cv2.VideoWriter(temp_path, fourcc, self.fps, (w, h))
+        out = open_video_writer(temp_path, self.fps, (w, h))
         
         # 流式读取并写入
         frame_count = 0
@@ -1767,8 +1766,7 @@ class TrimDialog(QDialog):
         temp_path = str(temp_dir / "temp.mp4")
         
         height, width = all_frames[0].shape[:2]
-        fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-        out = cv2.VideoWriter(temp_path, fourcc, all_fps, (width, height))
+        out = open_video_writer(temp_path, all_fps, (width, height))
         for frame in all_frames:
             out.write(frame)
         out.release()
@@ -1880,10 +1878,9 @@ class TrimDialog(QDialog):
             out_path = Path(self.video_path).parent / clip_name
             
             cap_in = cv2.VideoCapture(temp_video_path)
-            fourcc = cv2.VideoWriter_fourcc(*'MJPG')
             w = int(cap_in.get(cv2.CAP_PROP_FRAME_WIDTH))
             h = int(cap_in.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            cap_out = cv2.VideoWriter(str(out_path), fourcc, self.fps, (w, h))
+            cap_out = open_video_writer(out_path, self.fps, (w, h))
             
             for f in range(s, e + 1):
                 cap_in.set(cv2.CAP_PROP_POS_FRAMES, f)
@@ -2393,8 +2390,6 @@ class UnifiedPanel(QMainWindow):
         width = int(orig_width * resize_ratio)
         height = int(orig_height * resize_ratio)
         
-        fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-        
         # 创建临时视频文件
         temp_video_dir = Path("1src")
         temp_video_dir.mkdir(exist_ok=True)
@@ -2402,7 +2397,7 @@ class UnifiedPanel(QMainWindow):
         if temp_video_path.exists():
             temp_video_path.unlink()
         
-        out = cv2.VideoWriter(str(temp_video_path), fourcc, fps, (width, height))
+        out = open_video_writer(temp_video_path, fps, (width, height))
         
         start_frame = int(start_time * fps)
         frame_idx = 0
@@ -2545,7 +2540,6 @@ class UnifiedPanel(QMainWindow):
             cap = cv2.VideoCapture(src_video)
             fourcc_int = int(cap.get(cv2.CAP_PROP_FOURCC))
             fourcc_str = ''.join([chr(fourcc_int & 0xFF), chr((fourcc_int >> 8) & 0xFF), chr((fourcc_int >> 16) & 0xFF), chr((fourcc_int >> 24) & 0xFF)])
-            fourcc = cv2.VideoWriter_fourcc(*fourcc_str)
             fps = cap.get(cv2.CAP_PROP_FPS)
             width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -2554,7 +2548,7 @@ class UnifiedPanel(QMainWindow):
 
             output_filename = get_output_filename(src_video)
             output_path = Path(DST_DIR) / output_filename
-            out = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
+            out = open_video_writer(output_path, fps, (width, height))
 
             temp_data_path = Path(TEMP_DATA_DIR)
             if temp_data_path.exists():
@@ -3518,8 +3512,7 @@ class UnifiedPanel(QMainWindow):
         if sample is None:
             raise ValueError(f"无法读取起始帧: frame_{start_idx:06d}.jpg")
         height, width = sample.shape[:2]
-        fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        out = open_video_writer(output_path, fps, (width, height))
         frame_count = 0
         for i in range(start_idx, total_frames):
             frame_path = frames_dir / f"frame_{i:06d}.jpg"
@@ -3726,8 +3719,7 @@ class UnifiedPanel(QMainWindow):
                     if sample is None:
                         return
                     height, width = sample.shape[:2]
-                    fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-                    out = cv2.VideoWriter(clip_path, fourcc, 30, (width, height))
+                    out = open_video_writer(clip_path, 30, (width, height))
                     for idx in range(len(frame_list)):
                         frame = cv2.imread(str(temp_frames / f"frame_{idx:06d}.jpg"))
                         if frame is not None:
@@ -3917,8 +3909,7 @@ class UnifiedPanel(QMainWindow):
                     if sample is None:
                         return
                     height, width = sample.shape[:2]
-                    fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-                    out = cv2.VideoWriter(clip_path, fourcc, 30, (width, height))
+                    out = open_video_writer(clip_path, 30, (width, height))
                     for idx in range(len(frame_list)):
                         frame = cv2.imread(str(temp_frames / f"frame_{idx:06d}.jpg"))
                         if frame is not None:
@@ -4208,9 +4199,8 @@ class UnifiedPanel(QMainWindow):
 
                 clip_path = str(temp_frames / "clip.mp4")
                 prompt_log(f"[DEBUG {direction}] 正在生成视频片段: {clip_path}")
-                fourcc = cv2.VideoWriter_fourcc(*'MJPG')
                 fps_cap = 30
-                out = cv2.VideoWriter(clip_path, fourcc, fps_cap, (width, height))
+                out = open_video_writer(clip_path, fps_cap, (width, height))
                 frames_written = 0
                 if forward:
                     for i in range(start_frame, end_frame):
@@ -6385,7 +6375,7 @@ names: {class_names}
         height = int(video_info.get('height', 720))
         fps = int(video_info.get('fps', 30))
 
-        # 用 ffmpeg 写 H.264/yuv420p：MJPG 码流的 mp4 浏览器解不了（只显示第一帧）
+        # 用 ffmpeg 写 H.264/yuv420p：浏览器只认这种编码，否则只能显示第一帧
         out = open_video_writer(output_path, fps, (width, height))
 
         labels_dir = input_path / "labels"
