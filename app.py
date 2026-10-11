@@ -1872,27 +1872,36 @@ class TrimDialog(QDialog):
         if not base_name:
             base_name = Path(self.video_path).stem
         
-        for idx, (s, e) in enumerate(keep_ranges):
-            clip_name = f"{base_name}_clip{idx + 1}_{timestamp}.mp4"
-            # 保存到原视频同一个文件夹
-            out_path = Path(self.video_path).parent / clip_name
-            
-            cap_in = cv2.VideoCapture(temp_video_path)
-            w = int(cap_in.get(cv2.CAP_PROP_FRAME_WIDTH))
-            h = int(cap_in.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            cap_out = open_video_writer(out_path, self.fps, (w, h))
-            
-            for f in range(s, e + 1):
-                cap_in.set(cv2.CAP_PROP_POS_FRAMES, f)
-                ret, frame = cap_in.read()
-                if ret:
-                    cap_out.write(frame)
-            
-            cap_in.release()
-            cap_out.release()
-            output_files.append(str(out_path))
+        try:
+            for idx, (s, e) in enumerate(keep_ranges):
+                clip_name = f"{base_name}_clip{idx + 1}_{timestamp}.mp4"
+                # 保存到原视频同一个文件夹
+                out_path = Path(self.video_path).parent / clip_name
+                
+                cap_in = cv2.VideoCapture(temp_video_path)
+                w = int(cap_in.get(cv2.CAP_PROP_FRAME_WIDTH))
+                h = int(cap_in.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                if w <= 0 or h <= 0:
+                    cap_in.release()
+                    raise RuntimeError(f"读不到临时视频尺寸({w}x{h})，临时视频可能已损坏")
+                cap_out = open_video_writer(out_path, self.fps, (w, h))
+                
+                for f in range(s, e + 1):
+                    cap_in.set(cv2.CAP_PROP_POS_FRAMES, f)
+                    ret, frame = cap_in.read()
+                    if ret:
+                        cap_out.write(frame)
+                
+                cap_in.release()
+                cap_out.release()
+                output_files.append(str(out_path))
+        except Exception as e:
+            # 失败也要弹窗，不能静默退出（否则用户以为生成好了）
+            QMessageBox.critical(self, "生成失败", f"生成裁剪视频失败：{type(e).__name__}: {e}")
+            return
         
-        msg = f"原视频: {self.total}帧\n删除: {len(delete_set)}帧\n保留: {len(keep_ranges)}个片段\n\n保存文件:\n"
+        msg = (f"裁剪视频已生成！（H.264，可直接播放）\n\n"
+               f"原视频: {self.total}帧\n删除: {len(delete_set)}帧\n保留: {len(keep_ranges)}个片段\n\n保存文件:\n")
         for f in output_files:
             msg += f"  {f}\n"
         QMessageBox.information(self, "完成", msg)
