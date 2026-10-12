@@ -109,6 +109,17 @@ def prompt_log(msg=""):
 # 执行标注(run_annotate)日志文件（项目根目录），在 run_annotate 中通过 annotate_log 写入
 ANNOTATE_LOG_FILE = BASE_DIR / "执行标注.log"
 
+# ===== SAM3(ultralytics 8.4.51) 视频语义预测器的「合并/误检」控制参数 =====
+# 依据 ultralytics/models/sam/predict.py 的 SAM3VideoSemanticPredictor.__init__：
+#   检测阶段 keep = pred_logits.sigmoid() > score_threshold_detection  (predict.py:2938)
+#   新目标阶段 det_scores >= new_det_thresh                            (predict.py:3587)
+#   检测去重   det_nms_thresh（0=不去重）                               (predict.py:2537)
+# 实测：文本提示"手套"时 SAM3 会把轮胎整块当手套检出（conf≈0.69），
+#       把 SAM3_SCORE_THRESHOLD_DETECTION 调到 0.7 以上即可滤掉这类误检。
+SAM3_SCORE_THRESHOLD_DETECTION = 0.5  # 使用位置：L2654 run_annotate 构造 SAM3VideoSemanticPredictor
+SAM3_DET_NMS_THRESH = 0.0             # 使用位置：L2655 run_annotate 构造 SAM3VideoSemanticPredictor
+SAM3_NEW_DET_THRESH = 0.0             # 使用位置：L2656 run_annotate 构造 SAM3VideoSemanticPredictor
+
 
 def annotate_log(msg=""):
     """执行标注日志：同时写入 执行标注.log 和控制台，便于排查「标注被大目标merge」。
@@ -2636,7 +2647,16 @@ class UnifiedPanel(QMainWindow):
             if predictor_name == "SAM3VideoSemanticPredictor":
                 _patch_sam3_video_semantic()
                 from ultralytics.models.sam import SAM3VideoSemanticPredictor
-                predictor = SAM3VideoSemanticPredictor(overrides=overrides)
+                # 显式设置 SAM3 的检测门限（见文件顶部 global 参数说明）：
+                # score_threshold_detection 调高可滤掉"轮胎被当成手套"这类低置信误检
+                predictor = SAM3VideoSemanticPredictor(
+                    overrides=overrides,
+                    score_threshold_detection=SAM3_SCORE_THRESHOLD_DETECTION,
+                    det_nms_thresh=SAM3_DET_NMS_THRESH,
+                    new_det_thresh=SAM3_NEW_DET_THRESH,
+                )
+                annotate_log(f"[SAM3] 检测门限(score_threshold_detection)={SAM3_SCORE_THRESHOLD_DETECTION}, "
+                             f"检测NMS(det_nms_thresh)={SAM3_DET_NMS_THRESH}, 新目标门限(new_det_thresh)={SAM3_NEW_DET_THRESH}")
             else:
                 from ultralytics.models.sam import SAM3VideoPredictor
                 predictor = SAM3VideoPredictor(overrides=overrides)
