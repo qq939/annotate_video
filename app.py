@@ -2567,7 +2567,8 @@ class UnifiedPanel(QMainWindow):
         boxes = dialog.get_boxes()
         print(f"已标注 {len(boxes)} 个目标")
 
-        iou_val, merge_iou_val, iou_enabled = self._iou_params()
+        # _iou_params 返回顺序 = (帧内合并IoU, 跨帧跟踪IoU, 开关)，不要解包反了
+        merge_iou_val, iou_val, iou_enabled = self._iou_params()
         items_text = self.items_input.text()
         find_list = [s.strip() for s in items_text.split(',') if s.strip()]
 
@@ -2763,8 +2764,9 @@ class UnifiedPanel(QMainWindow):
                             current_masks, current_bboxes = merge_masks_in_frame(current_masks, current_bboxes, merge_iou_val)
                             track_ids = track_manager.update(current_masks, current_bboxes, frame_count)
                             debug_track_ids = track_ids
-                            annotate_log(f"[帧 {frame_count:06d}] 启用IoU={iou_enabled}, 原始mask行={debug_masks_count}, 轮廓={debug_contours_count}, "
-                                         f"merge后目标={len(current_masks)}, track_ids={track_ids}")
+                            _row_detail = ", ".join(f"(像素={int(t[0].sum())}, 轮廓={t[2]})" for t in targets)
+                            annotate_log(f"[帧 {frame_count:06d}] 启用IoU={iou_enabled}, 原始mask行={debug_masks_count}, mask行明细=[{_row_detail}], "
+                                         f"轮廓={debug_contours_count}, merge后目标={len(current_masks)}, track_ids={track_ids}")
                             for idx, mask in enumerate(current_masks):
                                 track_id = track_ids[idx] if idx < len(track_ids) else annotation_id[0]
                                 confidence = float(confs[idx]) if confs is not None and idx < len(confs) else float(mask.max())

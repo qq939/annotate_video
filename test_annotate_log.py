@@ -184,6 +184,31 @@ def test_annotate_log_file():
     log_path.unlink()
 
 
+def test_run_annotate_iou_param_order():
+    """回归：_iou_params 返回 (帧内合并IoU, 跨帧跟踪IoU, 开关)，run_annotate 不能解包错序。
+
+    实测事故：曾写成 `iou_val, merge_iou_val, iou_enabled = self._iou_params()`，
+    导致「同帧合并」误用了前后IoU(0.02)、「跨帧跟踪」误用了帧IoU(0.5)。
+    """
+    src = Path(APP_FILE).read_text(encoding="utf-8")
+    body = _func_body(src, "run_annotate")
+    assert "merge_iou_val, iou_val, iou_enabled = self._iou_params()" in body, \
+        "必须按(帧内合并,跨帧跟踪,开关)顺序解包，否则同帧合并会误用前后IoU"
+    assert "iou_val, merge_iou_val, iou_enabled = self._iou_params()" not in body, \
+        "禁止把 merge / track 两个IoU解包反"
+    assert "merge_masks_in_frame(current_masks, current_bboxes, merge_iou_val)" in body, \
+        "同帧合并必须用帧IoU(merge_iou_val)"
+    assert "TrackManager(iou_threshold=iou_val, merge_enabled=iou_enabled)" in body, \
+        "跨帧跟踪必须用前后IoU(iou_val)"
+
+
+def test_frame_log_has_mask_row_detail():
+    """日志要能看出「SAM3 原始返回的每一行 mask 有多大」，用于区分是模型给的还是代码合并的"""
+    src = Path(APP_FILE).read_text(encoding="utf-8")
+    body = _func_body(src, "run_annotate")
+    assert "mask行明细" in body, "每帧日志应记录原始mask每行的像素数/轮廓数"
+
+
 def test_syntax_check():
     import py_compile
     py_compile.compile(APP_FILE, doraise=True)
@@ -198,6 +223,8 @@ def main():
         ("零面积轮廓跳过", test_annotations_skip_zero_area),
         ("无C*C重复标注", test_no_c_squared_duplication),
         ("run_annotate用新函数+记日志", test_run_annotate_uses_helpers_and_logs_iou),
+        ("IoU参数解包顺序不能反", test_run_annotate_iou_param_order),
+        ("日志含原始mask行明细", test_frame_log_has_mask_row_detail),
         ("执行标注.log写入", test_annotate_log_file),
         ("语法检查", test_syntax_check),
     ]
