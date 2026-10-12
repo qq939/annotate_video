@@ -118,12 +118,17 @@ def merge_masks_in_frame(masks, bboxes, merge_iou_threshold):
 
 
 class TrackManager:
-    """跟踪管理器，用于保持目标ID在不同帧间的一致性"""
-    def __init__(self, iou_threshold=0.5):
+    """跟踪管理器，用于保持目标ID在不同帧间的一致性
+
+    merge_enabled=False 时禁用帧间IoU合并：每个 mask 每帧独立编号，不做跨帧匹配
+    （使用位置：app.py 的「启用IoU」勾选框 —— 不勾选时传入 False）
+    """
+    def __init__(self, iou_threshold=0.5, merge_enabled=True):
         self.track_id_counter = 0
         self.tracked_objects = {}  # track_id -> {mask, bbox, last_seen}
         self.next_track_id = 0
         self.iou_threshold = iou_threshold
+        self.merge_enabled = merge_enabled
         self.UNTRACKED_THRESHOLD = 999999  # 大于这个值的track_id不会被合并
 
     def update(self, masks, bboxes, frame_idx):
@@ -132,6 +137,13 @@ class TrackManager:
             return []
 
         track_ids = []
+
+        if not self.merge_enabled:
+            # 禁用帧间IoU：不做跨帧/同帧匹配，每个mask单独发号
+            for _ in masks:
+                track_ids.append(self.next_track_id)
+                self.next_track_id += 1
+            return track_ids
 
         if len(self.tracked_objects) == 0:
             for i in range(len(masks)):

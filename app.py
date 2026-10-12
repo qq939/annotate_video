@@ -2320,6 +2320,13 @@ class UnifiedPanel(QMainWindow):
         self.iou_input.setFixedWidth(40)
         self.iou_input.setFixedHeight(22)
         iou_layout.addWidget(self.iou_input)
+        # 勾选=启用帧内IoU(同帧重叠合并)+帧间IoU(跨帧同一目标)；不勾选=都禁用（每个mask独立编号、不去重）
+        self.iou_enable_check = QCheckBox("启用IoU")
+        self.iou_enable_check.setChecked(True)
+        self.iou_enable_check.setStyleSheet("QCheckBox { font-size: 11px; }")
+        self.iou_enable_check.setToolTip("勾选=启用帧内IoU(同帧重叠合并)与帧间IoU(跨帧同一目标)\n"
+                                         "不勾选=都禁用：每个mask独立编号、不做重叠去重")
+        iou_layout.addWidget(self.iou_enable_check)
         iou_layout.addWidget(QLabel("物品:"))
         self.items_input = QLineEdit("visual")
         self.items_input.setMinimumWidth(100)
@@ -2444,6 +2451,16 @@ class UnifiedPanel(QMainWindow):
         
         return (str(temp_video_path), fps, output_count)
 
+    def _iou_params(self):
+        """读取IoU生效参数，返回 (帧内IoU, 帧间IoU, 是否启用)。
+        未勾选「启用IoU」时全部禁用：帧内不合并(阈值0)、帧间不做跨帧匹配(merge_enabled=False)。
+        （使用位置：run_annotate / do_bidirectional_inject / do_point_seg_clip / 两处IoU去重）"""
+        merge_iou = float(self.merge_iou_input.text() or "0.5")
+        track_iou = float(self.iou_input.text() or "0.02")
+        if hasattr(self, 'iou_enable_check') and not self.iou_enable_check.isChecked():
+            return 0.0, 0.0, False
+        return merge_iou, track_iou, True
+
     def run_annotate(self):
         video_path = self.video_input.text()
         if not video_path:
@@ -2477,8 +2494,7 @@ class UnifiedPanel(QMainWindow):
         boxes = dialog.get_boxes()
         print(f"已标注 {len(boxes)} 个目标")
 
-        iou_val = float(self.iou_input.text() or "0.02")
-        merge_iou_val = float(self.merge_iou_input.text() or "0.5")
+        iou_val, merge_iou_val, iou_enabled = self._iou_params()
         items_text = self.items_input.text()
         find_list = [s.strip() for s in items_text.split(',') if s.strip()]
 
@@ -2577,7 +2593,7 @@ class UnifiedPanel(QMainWindow):
             }
 
             annotation_id = [0]
-            track_manager = TrackManager(iou_threshold=iou_val)
+            track_manager = TrackManager(iou_threshold=iou_val, merge_enabled=iou_enabled)
 
             predictor_args = {'source': src_video, 'stream': True}
             if has_bbox:
@@ -3898,7 +3914,8 @@ class UnifiedPanel(QMainWindow):
                         QMessageBox.warning(self, "模型加载失败", f"SAM模型加载失败:\n{e}")
                         return
 
-                    manager = TrackManager(iou_threshold=float(self.iou_input.text() or "0.02"))
+                    _, _i_track, _i_enabled = self._iou_params()
+                    manager = TrackManager(iou_threshold=_i_track, merge_enabled=_i_enabled)
                     manager.next_track_id = FIRST_ID
 
                     temp_frames = BASE_DIR / "temp_inject" / ("forward" if forward else "backward")
@@ -4242,11 +4259,12 @@ class UnifiedPanel(QMainWindow):
                     # 无提示：纯追踪
                     results = predictor_local(source=clip_path, stream=True)
                     prompt_log(f"[DEBUG {direction}] ⚠️ 无提示，使用无提示模式")
-                manager = TrackManager(iou_threshold=float(self.iou_input.text() or "0.02"))
+                _i_merge, _i_track, _i_enabled = self._iou_params()
+                manager = TrackManager(iou_threshold=_i_track, merge_enabled=_i_enabled)
                 manager.next_track_id = FIRST_ID
                 ann_id = FIRST_ID
-                merge_iou_val = float(self.merge_iou_input.text() or "0.5")
-                prompt_log(f"[DEBUG {direction}] TrackManager 初始化: next_track_id={manager.next_track_id}, iou={manager.iou_threshold}")
+                merge_iou_val = _i_merge
+                prompt_log(f"[DEBUG {direction}] TrackManager 初始化: next_track_id={manager.next_track_id}, iou={manager.iou_threshold}, merge={_i_enabled}")
 
                 result_anns = []
                 frame_idx = 0
@@ -4448,8 +4466,9 @@ class UnifiedPanel(QMainWindow):
             max_track_id = max([ann.get('track_id', 0) for ann in coco.get('annotations', [])], default=FIRST_ID - 1)
             prompt_log(f"[DEBUG 汇总] 现有max_ann_id={max_ann_id}, max_track_id={max_track_id}")
 
-            # 检查与现有标注重叠的IoU阈值
+            # 检查与现有标注重叠的IoU阈值（未勾选「启用IoU」时不去重）
             overlap_threshold = float(self.merge_iou_input.text()) if self.merge_iou_input.text() else 0.5
+            _, _, iou_enabled = self._iou_params()
             
             new_anns_count = 0
             skipped_count = 0
@@ -4470,7 +4489,7 @@ class UnifiedPanel(QMainWindow):
                         area2 = existing_bbox[2] * existing_bbox[3]
                         union = area1 + area2 - inter
                         iou = inter / union if union > 0 else 0
-                        if iou > overlap_threshold:
+                        if iou_enabled and iou > overlap_threshold:
                             prompt_log(f"[DEBUG 汇总] 跳过重叠标注: frame={ann.get('image_id')}, iou={iou:.3f}")
                             skip = True
                             break
@@ -6250,8 +6269,9 @@ names: {class_names}
                 with open(label_file, encoding='utf-8') as f:
                     annotations = json.load(f)
 
-                # IoU去重：根据traceId和IoU过滤
+                # IoU去重：根据traceId和IoU过滤（未勾选「启用IoU」时不去重）
                 iou_threshold = float(self.merge_iou_input.text()) if self.merge_iou_input.text() else 0.5
+                _, _, iou_enabled = self._iou_params()
                 filtered_anns = []
                 
                 for i, ann in enumerate(annotations):
@@ -6278,7 +6298,7 @@ names: {class_names}
                         union = area1 + area2 - inter
                         iou = inter / union if union > 0 else 0
                         
-                        if iou > iou_threshold:
+                        if iou_enabled and iou > iou_threshold:
                             # IoU超过阈值，保留traceId大的
                             existing_tid = existing.get('track_id', 0)
                             if track_id > existing_tid:
