@@ -106,6 +106,79 @@ def prompt_log(msg=""):
         pass
 
 
+# 执行标注(run_annotate)日志文件（项目根目录），在 run_annotate 中通过 annotate_log 写入
+ANNOTATE_LOG_FILE = BASE_DIR / "执行标注.log"
+
+
+def annotate_log(msg=""):
+    """执行标注日志：同时写入 执行标注.log 和控制台，便于排查「标注被大目标merge」。
+    （使用位置：run_annotate —— 记录IoU开关状态、每帧mask/轮廓/merge/track_id明细）"""
+    line = str(msg)
+    print(line)
+    try:
+        with open(ANNOTATE_LOG_FILE, "a", encoding="utf-8") as _f:
+            _f.write(line + "\n")
+    except Exception:
+        pass
+
+
+def extract_mask_targets(mask_rows):
+    """把 SAM3 的 mask 行拆成「一个 mask 行 = 一个目标」。
+
+    修复点：原实现是 `for contour in contours: 追加同一张 mask`，一张 mask 有几个轮廓
+    就会被重复追加几次；勾选IoU时它们会被 merge_masks_in_frame 合并(IoU=1)掩盖，
+    取消勾选后重复目标全部暴露（实测 frame 340 有 101 条标注，多条 area 完全相同）。
+
+    返回 [(mask_binary, bbox, contour_count), ...]；bbox 取该行全部有效轮廓的并集。
+    （使用位置：run_annotate —— 每帧从 masks_tensor 提取目标）
+    """
+    targets = []
+    for mask in mask_rows:
+        mask_np = mask.cpu().numpy() if hasattr(mask, 'cpu') else np.array(mask)
+        mask_binary = (mask_np > 0.5).astype(np.uint8)
+        contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        valid = [c for c in contours if len(c) >= 3 and cv2.contourArea(c) > 0]
+        if not valid:
+            continue
+        pts = np.vstack([c.reshape(-1, 2) for c in valid])
+        x_min, y_min = pts.min(axis=0)
+        x_max, y_max = pts.max(axis=0)
+        bbox = [float(x_min), float(y_min), float(x_max - x_min), float(y_max - y_min)]
+        targets.append((mask_binary, bbox, len(contours)))
+    return targets
+
+
+def mask_binary_to_annotations(mask_binary, track_id, image_id, first_ann_id, confidence):
+    """把一张 mask 转成标注列表：每个外部轮廓一条，bbox/area/polygon 全部取自同一个轮廓。
+
+    修复点：原实现用「条目里的 bbox + 重新 findContours 得到的轮廓面积」组标注，
+    两者不同源，会出现 bbox=1x2 而 area=114585 这种不可能的组合。
+    （使用位置：run_annotate —— 生成每帧标注）
+    """
+    anns = []
+    ann_id = first_ann_id
+    mask_bin = (mask_binary > 0.5).astype(np.uint8)
+    contours, _ = cv2.findContours(mask_bin, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    for contour in contours:
+        if len(contour) < 3:
+            continue
+        area = cv2.contourArea(contour)
+        if area <= 0:
+            continue
+        polygon = contour.squeeze().flatten().tolist()
+        xs = polygon[0::2]
+        ys = polygon[1::2]
+        bbox = [float(min(xs)), float(min(ys)),
+                float(max(xs) - min(xs)), float(max(ys) - min(ys))]
+        anns.append({
+            'id': ann_id, 'track_id': track_id, 'image_id': image_id,
+            'category_id': track_id, 'bbox': bbox, 'area': float(area),
+            'segmentation': [polygon], 'iscrowd': 0, 'confidence': confidence,
+        })
+        ann_id += 1
+    return anns
+
+
 # OCS上传参数（原OCS已停用），依据服务端 src/obs/server.py(https://github.com/qq939/obs) 及实测
 # 使用位置：ocs_upload / _ocs_put_direct / _ocs_put_chunked / _ocs_base
 # 基地址按顺序探测：先本地 19082，探测失败再回落公网
@@ -2498,6 +2571,14 @@ class UnifiedPanel(QMainWindow):
         items_text = self.items_input.text()
         find_list = [s.strip() for s in items_text.split(',') if s.strip()]
 
+        # 覆盖写本次执行标注日志（用于排查「标注被大目标merge」）
+        try:
+            with open(ANNOTATE_LOG_FILE, "w", encoding="utf-8") as _f:
+                _f.write("===== 执行标注日志 =====\n")
+        except Exception:
+            pass
+        annotate_log(f"[参数] 物品={find_list}, 帧IoU(同帧合并)={merge_iou_val}, 前后IoU(跨帧)={iou_val}, 启用IoU={iou_enabled}")
+
         self.statusBar().showMessage("正在处理视频，请稍候...")
         QApplication.processEvents()
 
@@ -2669,64 +2750,38 @@ class UnifiedPanel(QMainWindow):
                         confs = None
                         if hasattr(r, 'boxes') and r.boxes is not None and hasattr(r.boxes, 'conf'):
                             confs = r.boxes.conf.cpu().numpy()
-                            print(f"[DEBUG {frame_count}/{total_frames}] boxes.conf={confs.tolist()}")
 
-                        current_masks = []
-                        current_bboxes = []
-                        for mask in masks_tensor:
-                            mask_np = mask.cpu().numpy() if hasattr(mask, 'numpy') else np.array(mask)
-                            mask_binary = (mask_np > 0.5).astype(np.uint8)
-                            contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                            debug_contours_count += len(contours)
-                            for contour in contours:
-                                if len(contour) >= 3:
-                                    polygon = contour.squeeze().flatten().tolist()
-                                    x_coords = polygon[0::2]
-                                    y_coords = polygon[1::2]
-                                    x_min, x_max = min(x_coords), max(x_coords)
-                                    y_min, y_max = min(y_coords), max(y_coords)
-                                    bbox = [float(x_min), float(y_min), float(x_max - x_min), float(y_max - y_min)]
-                                    area = cv2.contourArea(contour)
-                                    if area > 0:
-                                        current_masks.append(mask_binary)
-                                        current_bboxes.append(bbox)
+                        # 一个 mask 行 = 一个目标（不再按轮廓重复追加）；否则取消勾选IoU后，
+                        # 同一张 mask 会被写成 C*C 条标注——那正是「手套被轮胎merge」的直接原因
+                        targets = extract_mask_targets(masks_tensor)
+                        current_masks = [t[0] for t in targets]
+                        current_bboxes = [t[1] for t in targets]
+                        debug_contours_count = sum(t[2] for t in targets)
 
                         if current_masks:
                             debug_merged_count = len(current_masks)
                             current_masks, current_bboxes = merge_masks_in_frame(current_masks, current_bboxes, merge_iou_val)
                             track_ids = track_manager.update(current_masks, current_bboxes, frame_count)
                             debug_track_ids = track_ids
-                            after_merge_contours = 0
-                            for mask in current_masks:
-                                mask_binary = (mask > 0.5).astype(np.uint8)
-                                contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                                for contour in contours:
-                                    if len(contour) >= 3:
-                                        after_merge_contours += 1
-                            print(f"[DEBUG {frame_count}/{total_frames}] 原始contours={debug_contours_count}, 有效polygon={debug_merged_count}, merge后={len(current_masks)}, merge后contours={after_merge_contours}, track_ids={track_ids}")
-                            for idx, (mask, bbox) in enumerate(zip(current_masks, current_bboxes)):
-                                mask_binary = (mask > 0.5).astype(np.uint8)
-                                contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                                for contour in contours:
-                                    if len(contour) >= 3:
-                                        polygon = contour.squeeze().flatten().tolist()
-                                        area = cv2.contourArea(contour)
-                                        track_id = track_ids[idx] if idx < len(track_ids) else annotation_id[0]
-                                        confidence = float(confs[idx]) if confs is not None and idx < len(confs) else float(mask.max())
-                                        ann = {
-                                            'id': annotation_id[0], 'track_id': track_id, 'image_id': frame_count,
-                                            'category_id': track_id, 'bbox': bbox, 'area': float(area),
-                                            'segmentation': [polygon], 'iscrowd': 0, 'confidence': confidence
-                                        }
-                                        coco_data['annotations'].append(ann)
-                                        frame_annotations.append(ann)
-                                        annotation_id[0] += 1
+                            annotate_log(f"[帧 {frame_count:06d}] 启用IoU={iou_enabled}, 原始mask行={debug_masks_count}, 轮廓={debug_contours_count}, "
+                                         f"merge后目标={len(current_masks)}, track_ids={track_ids}")
+                            for idx, mask in enumerate(current_masks):
+                                track_id = track_ids[idx] if idx < len(track_ids) else annotation_id[0]
+                                confidence = float(confs[idx]) if confs is not None and idx < len(confs) else float(mask.max())
+                                for ann in mask_binary_to_annotations(mask, track_id, frame_count,
+                                                                       annotation_id[0], confidence):
+                                    coco_data['annotations'].append(ann)
+                                    frame_annotations.append(ann)
+                                    annotation_id[0] = ann['id'] + 1
+                                    annotate_log(f"    tid={track_id} area={int(ann['area'])} bbox={[round(v) for v in ann['bbox']]}")
+                        else:
+                            annotate_log(f"[帧 {frame_count:06d}] masks行={debug_masks_count} 但无有效轮廓")
                     else:
-                        print(f"[DEBUG {frame_count}/{total_frames}] masks_tensor长度=0")
+                        annotate_log(f"[帧 {frame_count:06d}] masks_tensor长度=0")
                 else:
-                    print(f"[DEBUG {frame_count}/{total_frames}] 无masks属性或masks为None")
+                    annotate_log(f"[帧 {frame_count:06d}] 无masks属性或masks为None")
 
-                print(f"[DEBUG {frame_count}/{total_frames}] 帧annotations数量={len(frame_annotations)}, track_ids={debug_track_ids}")
+                annotate_log(f"[帧 {frame_count:06d}] 本帧标注数={len(frame_annotations)}, track_ids={debug_track_ids}")
                 with open(labels_dir / f"frame_{frame_count:06d}.json", 'w', encoding='utf-8') as f:
                     json.dump(frame_annotations, f, ensure_ascii=False)
 
