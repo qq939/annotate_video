@@ -2537,12 +2537,14 @@ class UnifiedPanel(QMainWindow):
 
     def _iou_params(self):
         """读取IoU生效参数，返回 (帧内IoU, 帧间IoU, 是否启用)。
-        未勾选「启用IoU」时全部禁用：帧内不合并(阈值0)、帧间不做跨帧匹配(merge_enabled=False)。
+        未勾选「启用IoU」时全部禁用：阈值一律给 1.0，并且 merge_enabled=False。
+        为什么给 1 而不是 0：代码里都是 `iou >= 阈值` 判断（TrackManager.update），
+        给 0 会「永远成立」→ 反而把所有 mask 并进同一个 track_id；给 1 才永不成立 = 真禁用。
         （使用位置：run_annotate / do_bidirectional_inject / do_point_seg_clip / 两处IoU去重）"""
         merge_iou = float(self.merge_iou_input.text() or "0.5")
         track_iou = float(self.iou_input.text() or "0.02")
         if hasattr(self, 'iou_enable_check') and not self.iou_enable_check.isChecked():
-            return 0.0, 0.0, False
+            return 1.0, 1.0, False
         return merge_iou, track_iou, True
 
     def run_annotate(self):

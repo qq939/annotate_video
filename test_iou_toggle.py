@@ -122,7 +122,11 @@ def test_merge_masks_disabled_by_zero_threshold():
 
 
 def test_iou_params_reflects_checkbox():
-    """_iou_params：不勾选→禁用(0.0,0.0,False)；勾选→输入框的值+True"""
+    """_iou_params：不勾选→禁用(1.0,1.0,False)；勾选→输入框的值+True
+
+    注意禁用值是 1.0 而不是 0.0：代码里都是 `iou >= 阈值` 这种判断（TrackManager.update），
+    给 0 会「永远成立」= 反而全合并；给 1 才永不成立 = 真禁用。
+    """
     app = _app()
     def fake(checked):
         return types.SimpleNamespace(
@@ -131,7 +135,7 @@ def test_iou_params_reflects_checkbox():
             iou_enable_check=types.SimpleNamespace(isChecked=lambda: checked))
     off = app.UnifiedPanel._iou_params(fake(False))
     on = app.UnifiedPanel._iou_params(fake(True))
-    assert off == (0.0, 0.0, False), "不勾选应禁用帧内/帧间IoU, 实际=%s" % (off,)
+    assert off == (1.0, 1.0, False), "不勾选应禁用帧内/帧间IoU(值=1), 实际=%s" % (off,)
     assert on == (0.5, 0.02, True), "勾选应使用输入框的值, 实际=%s" % (on,)
 
 
