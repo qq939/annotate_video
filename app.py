@@ -529,6 +529,31 @@ def open_video_writer(path, fps, size):
     return cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*'mp4v'), fps, size)
 
 
+def video_decode_ok(path, frames=1):
+    """判断视频能否正常解码：能打开且至少读出 frames 帧才算可解码。
+    （使用位置：L2263 open_trim_dialog —— 打开「视频帧删除」前校验，坏文件先拦下）
+
+    背景：损坏的 mp4（如重复/缺失 moov、码流被覆盖，例 IMG_2280_1080p.mp4）
+    用 cv2.VideoCapture 会 isOpened()=True 但 read() 永远 False，且 ffmpeg 每次 seek
+    都刷 "Invalid NAL unit size / Error splitting the input into NAL units"。
+    所以必须实际读帧，只判 isOpened() 会漏掉这类文件。
+    """
+    try:
+        cap = cv2.VideoCapture(str(path))
+    except Exception:
+        return False
+    try:
+        if not cap.isOpened():
+            return False
+        for _ in range(max(1, int(frames))):
+            ret, frame = cap.read()
+            if not ret or frame is None:
+                return False
+        return True
+    finally:
+        cap.release()
+
+
 def parse_ocs_file_names(html):
     """从OCS首页HTML里解析文件名：每个文件都是一个 <a href="http://host/name"> 链接。
     （使用位置：ocs_list_files —— 列出OCS上的模型包）"""
@@ -2256,7 +2281,18 @@ class UnifiedPanel(QMainWindow):
         file_paths, _ = QFileDialog.getOpenFileNames(self, "选择视频(可多选合成)", "", "视频文件 (*.mp4 *.avi *.mov *.mkv)")
         if not file_paths:
             return
-        
+
+        # 先校验能否解码：坏文件（重复/缺失 moov、码流被覆盖）会让 ffmpeg 逐帧刷 NALU 报错，
+        # 这里直接拦下并提示，避免打开对话框后刷屏/卡死
+        bad = [p for p in file_paths if not video_decode_ok(p)]
+        if bad:
+            names = "\n".join(Path(p).name for p in bad)
+            QMessageBox.warning(
+                self, "视频无法解码",
+                "以下视频无法解码，文件可能已损坏（例如重复/缺失 moov、码流被覆盖）：\n\n"
+                f"{names}\n\n请重新导出或重新拷贝该视频后再试。")
+            return
+
         # 多个视频用 | 分隔，TrimDialog 内部会按顺序合并预览
         video_path = "|".join(file_paths)
         self.trim_video_input.setText(video_path)
