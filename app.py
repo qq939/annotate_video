@@ -110,15 +110,10 @@ def prompt_log(msg=""):
 ANNOTATE_LOG_FILE = BASE_DIR / "执行标注.log"
 
 # ===== SAM3(ultralytics 8.4.51) 视频语义预测器的「合并/误检」控制参数 =====
-# 依据 ultralytics/models/sam/predict.py 的 SAM3VideoSemanticPredictor.__init__：
-#   检测阶段 keep = pred_logits.sigmoid() > score_threshold_detection  (predict.py:2938)
-#   新目标阶段 det_scores >= new_det_thresh                            (predict.py:3587)
-#   检测去重   det_nms_thresh（0=不去重）                               (predict.py:2537)
-# 实测：文本提示"手套"时 SAM3 会把轮胎整块当手套检出（conf≈0.69），
-#       把 SAM3_SCORE_THRESHOLD_DETECTION 调到 0.7 以上即可滤掉这类误检。
-SAM3_SCORE_THRESHOLD_DETECTION = 0.5  # 使用位置：L2654 run_annotate 构造 SAM3VideoSemanticPredictor
-SAM3_DET_NMS_THRESH = 0.0             # 使用位置：L2655 run_annotate 构造 SAM3VideoSemanticPredictor
-SAM3_NEW_DET_THRESH = 0.0             # 使用位置：L2656 run_annotate 构造 SAM3VideoSemanticPredictor
+# 注意：score_threshold_detection / det_nms_thresh / new_det_thresh 是**概率阈值**，
+#       与 IoU（帧内合并/跨帧跟踪）不是一回事，已撤掉这三个 global，避免被误当成 IoU 开关。
+# IoU 开关由面板上的两个复选框控制（frame_iou_enable_check / track_iou_enable_check），
+# 通过 _iou_params() 读取，关闭时阈值一律给 1.0（代码用 iou>=阈值，给0反而全合并）。
 
 
 def annotate_log(msg=""):
@@ -2394,23 +2389,28 @@ class UnifiedPanel(QMainWindow):
 
         iou_layout = QHBoxLayout()
         iou_layout.setSpacing(4)
+        # 帧IoU开关：控制同帧重叠合并(SAM3 NMS iou + merge_masks_in_frame)，放在"帧IoU:"标签前
+        self.frame_iou_enable_check = QCheckBox("启用")
+        self.frame_iou_enable_check.setChecked(True)
+        self.frame_iou_enable_check.setStyleSheet("QCheckBox { font-size: 11px; }")
+        self.frame_iou_enable_check.setToolTip("勾选=启用帧内IoU(同帧重叠合并)\n不勾选=每个mask独立编号、不做同帧去重")
+        iou_layout.addWidget(self.frame_iou_enable_check)
         iou_layout.addWidget(QLabel("帧IoU:"))
         self.merge_iou_input = QLineEdit("0.5")
         self.merge_iou_input.setFixedWidth(40)
         self.merge_iou_input.setFixedHeight(22)
         iou_layout.addWidget(self.merge_iou_input)
+        # 前后IoU开关：控制跨帧同一目标跟踪(TrackManager + SAM3 assoc_iou_thresh)，放在"前后IoU:"标签前
+        self.track_iou_enable_check = QCheckBox("启用")
+        self.track_iou_enable_check.setChecked(True)
+        self.track_iou_enable_check.setStyleSheet("QCheckBox { font-size: 11px; }")
+        self.track_iou_enable_check.setToolTip("勾选=启用帧间IoU(跨帧同一目标)\n不勾选=每帧每个mask独立编号")
+        iou_layout.addWidget(self.track_iou_enable_check)
         iou_layout.addWidget(QLabel("前后IoU:"))
         self.iou_input = QLineEdit("0.02")
         self.iou_input.setFixedWidth(40)
         self.iou_input.setFixedHeight(22)
         iou_layout.addWidget(self.iou_input)
-        # 勾选=启用帧内IoU(同帧重叠合并)+帧间IoU(跨帧同一目标)；不勾选=都禁用（每个mask独立编号、不去重）
-        self.iou_enable_check = QCheckBox("启用IoU")
-        self.iou_enable_check.setChecked(True)
-        self.iou_enable_check.setStyleSheet("QCheckBox { font-size: 11px; }")
-        self.iou_enable_check.setToolTip("勾选=启用帧内IoU(同帧重叠合并)与帧间IoU(跨帧同一目标)\n"
-                                         "不勾选=都禁用：每个mask独立编号、不做重叠去重")
-        iou_layout.addWidget(self.iou_enable_check)
         iou_layout.addWidget(QLabel("物品:"))
         self.items_input = QLineEdit("visual")
         self.items_input.setMinimumWidth(100)
@@ -2536,16 +2536,21 @@ class UnifiedPanel(QMainWindow):
         return (str(temp_video_path), fps, output_count)
 
     def _iou_params(self):
-        """读取IoU生效参数，返回 (帧内IoU, 帧间IoU, 是否启用)。
-        未勾选「启用IoU」时全部禁用：阈值一律给 1.0，并且 merge_enabled=False。
+        """读取IoU生效参数，返回 (帧内IoU, 帧间IoU, 帧内启用, 帧间启用)。
+        帧内开关(frame_iou_enable_check)未勾选 → 帧内IoU阈值给 1.0（几乎不合并）。
+        帧间开关(track_iou_enable_check)未勾选 → 帧间IoU阈值给 1.0（永不跨帧复用）。
         为什么给 1 而不是 0：代码里都是 `iou >= 阈值` 判断（TrackManager.update），
         给 0 会「永远成立」→ 反而把所有 mask 并进同一个 track_id；给 1 才永不成立 = 真禁用。
         （使用位置：run_annotate / do_bidirectional_inject / do_point_seg_clip / 两处IoU去重）"""
         merge_iou = float(self.merge_iou_input.text() or "0.5")
         track_iou = float(self.iou_input.text() or "0.02")
-        if hasattr(self, 'iou_enable_check') and not self.iou_enable_check.isChecked():
-            return 1.0, 1.0, False
-        return merge_iou, track_iou, True
+        frame_enabled = hasattr(self, 'frame_iou_enable_check') and self.frame_iou_enable_check.isChecked()
+        track_enabled = hasattr(self, 'track_iou_enable_check') and self.track_iou_enable_check.isChecked()
+        if not frame_enabled:
+            merge_iou = 1.0
+        if not track_enabled:
+            track_iou = 1.0
+        return merge_iou, track_iou, frame_enabled, track_enabled
 
     def run_annotate(self):
         video_path = self.video_input.text()
@@ -2580,8 +2585,8 @@ class UnifiedPanel(QMainWindow):
         boxes = dialog.get_boxes()
         print(f"已标注 {len(boxes)} 个目标")
 
-        # _iou_params 返回顺序 = (帧内合并IoU, 跨帧跟踪IoU, 开关)，不要解包反了
-        merge_iou_val, iou_val, iou_enabled = self._iou_params()
+        # _iou_params 返回顺序 = (帧内合并IoU, 跨帧跟踪IoU, 帧内启用, 帧间启用)，不要解包反了
+        merge_iou_val, iou_val, frame_iou_enabled, track_iou_enabled = self._iou_params()
         items_text = self.items_input.text()
         find_list = [s.strip() for s in items_text.split(',') if s.strip()]
 
@@ -2591,7 +2596,8 @@ class UnifiedPanel(QMainWindow):
                 _f.write("===== 执行标注日志 =====\n")
         except Exception:
             pass
-        annotate_log(f"[参数] 物品={find_list}, 帧IoU(同帧合并)={merge_iou_val}, 前后IoU(跨帧)={iou_val}, 启用IoU={iou_enabled}")
+        annotate_log(f"[参数] 物品={find_list}, 帧IoU(同帧合并)={merge_iou_val}(启用={frame_iou_enabled}), "
+                     f"前后IoU(跨帧)={iou_val}(启用={track_iou_enabled})")
 
         self.statusBar().showMessage("正在处理视频，请稍候...")
         QApplication.processEvents()
@@ -2634,6 +2640,9 @@ class UnifiedPanel(QMainWindow):
                 model=SAM_MODEL_PATH, device=device,
                 half=half, save=False, verbose=False
             )
+            # 帧IoU开关关 → SAM3 NMS 抑制重叠框的 iou 门限给 1.0（几乎不合并，只合并完全重合）
+            if not frame_iou_enabled:
+                overrides['iou'] = 1.0
             print(f"[DEBUG run_annotate] overrides: {overrides}")
             if device_type == 'cuda':
                 overrides['batch'] = 1
@@ -2649,16 +2658,13 @@ class UnifiedPanel(QMainWindow):
             if predictor_name == "SAM3VideoSemanticPredictor":
                 _patch_sam3_video_semantic()
                 from ultralytics.models.sam import SAM3VideoSemanticPredictor
-                # 显式设置 SAM3 的检测门限（见文件顶部 global 参数说明）：
-                # score_threshold_detection 调高可滤掉"轮胎被当成手套"这类低置信误检
-                predictor = SAM3VideoSemanticPredictor(
-                    overrides=overrides,
-                    score_threshold_detection=SAM3_SCORE_THRESHOLD_DETECTION,
-                    det_nms_thresh=SAM3_DET_NMS_THRESH,
-                    new_det_thresh=SAM3_NEW_DET_THRESH,
-                )
-                annotate_log(f"[SAM3] 检测门限(score_threshold_detection)={SAM3_SCORE_THRESHOLD_DETECTION}, "
-                             f"检测NMS(det_nms_thresh)={SAM3_DET_NMS_THRESH}, 新目标门限(new_det_thresh)={SAM3_NEW_DET_THRESH}")
+                # 帧IoU开关关 → NMS抑制重叠框的iou门限给1.0(几乎不合并)；前后IoU开关关 → 检测↔轨迹匹配IoU给1.0
+                sam3_kwargs = {}
+                if not track_iou_enabled:
+                    sam3_kwargs['assoc_iou_thresh'] = 1.0
+                predictor = SAM3VideoSemanticPredictor(overrides=overrides, **sam3_kwargs)
+                annotate_log(f"[SAM3] 帧IoU开关={frame_iou_enabled}(overrides.iou={'1.0' if not frame_iou_enabled else '默认'}), "
+                             f"前后IoU开关={track_iou_enabled}(assoc_iou_thresh={'1.0' if not track_iou_enabled else '默认'})")
             else:
                 from ultralytics.models.sam import SAM3VideoPredictor
                 predictor = SAM3VideoPredictor(overrides=overrides)
@@ -2697,7 +2703,7 @@ class UnifiedPanel(QMainWindow):
             }
 
             annotation_id = [0]
-            track_manager = TrackManager(iou_threshold=iou_val, merge_enabled=iou_enabled)
+            track_manager = TrackManager(iou_threshold=iou_val, merge_enabled=track_iou_enabled)
 
             predictor_args = {'source': src_video, 'stream': True}
             if has_bbox:
@@ -2787,7 +2793,7 @@ class UnifiedPanel(QMainWindow):
                             track_ids = track_manager.update(current_masks, current_bboxes, frame_count)
                             debug_track_ids = track_ids
                             _row_detail = ", ".join(f"(像素={int(t[0].sum())}, 轮廓={t[2]})" for t in targets)
-                            annotate_log(f"[帧 {frame_count:06d}] 启用IoU={iou_enabled}, 原始mask行={debug_masks_count}, mask行明细=[{_row_detail}], "
+                            annotate_log(f"[帧 {frame_count:06d}] 启用帧IoU={frame_iou_enabled}, 启用前后IoU={track_iou_enabled}, 原始mask行={debug_masks_count}, mask行明细=[{_row_detail}], "
                                          f"轮廓={debug_contours_count}, merge后目标={len(current_masks)}, track_ids={track_ids}")
                             for idx, mask in enumerate(current_masks):
                                 track_id = track_ids[idx] if idx < len(track_ids) else annotation_id[0]
@@ -3993,8 +3999,8 @@ class UnifiedPanel(QMainWindow):
                         QMessageBox.warning(self, "模型加载失败", f"SAM模型加载失败:\n{e}")
                         return
 
-                    _, _i_track, _i_enabled = self._iou_params()
-                    manager = TrackManager(iou_threshold=_i_track, merge_enabled=_i_enabled)
+                    _, _i_track, _, _i_track_enabled = self._iou_params()
+                    manager = TrackManager(iou_threshold=_i_track, merge_enabled=_i_track_enabled)
                     manager.next_track_id = FIRST_ID
 
                     temp_frames = BASE_DIR / "temp_inject" / ("forward" if forward else "backward")
@@ -4338,12 +4344,12 @@ class UnifiedPanel(QMainWindow):
                     # 无提示：纯追踪
                     results = predictor_local(source=clip_path, stream=True)
                     prompt_log(f"[DEBUG {direction}] ⚠️ 无提示，使用无提示模式")
-                _i_merge, _i_track, _i_enabled = self._iou_params()
-                manager = TrackManager(iou_threshold=_i_track, merge_enabled=_i_enabled)
+                _i_merge, _i_track, _i_frame_enabled, _i_track_enabled = self._iou_params()
+                manager = TrackManager(iou_threshold=_i_track, merge_enabled=_i_track_enabled)
                 manager.next_track_id = FIRST_ID
                 ann_id = FIRST_ID
                 merge_iou_val = _i_merge
-                prompt_log(f"[DEBUG {direction}] TrackManager 初始化: next_track_id={manager.next_track_id}, iou={manager.iou_threshold}, merge={_i_enabled}")
+                prompt_log(f"[DEBUG {direction}] TrackManager 初始化: next_track_id={manager.next_track_id}, iou={manager.iou_threshold}, merge={_i_track_enabled}")
 
                 result_anns = []
                 frame_idx = 0
@@ -4547,7 +4553,7 @@ class UnifiedPanel(QMainWindow):
 
             # 检查与现有标注重叠的IoU阈值（未勾选「启用IoU」时不去重）
             overlap_threshold = float(self.merge_iou_input.text()) if self.merge_iou_input.text() else 0.5
-            _, _, iou_enabled = self._iou_params()
+            _, _, iou_enabled, _ = self._iou_params()
             
             new_anns_count = 0
             skipped_count = 0
@@ -6350,7 +6356,7 @@ names: {class_names}
 
                 # IoU去重：根据traceId和IoU过滤（未勾选「启用IoU」时不去重）
                 iou_threshold = float(self.merge_iou_input.text()) if self.merge_iou_input.text() else 0.5
-                _, _, iou_enabled = self._iou_params()
+                _, _, iou_enabled, _ = self._iou_params()
                 filtered_anns = []
                 
                 for i, ann in enumerate(annotations):

@@ -122,33 +122,43 @@ def test_merge_masks_disabled_by_zero_threshold():
 
 
 def test_iou_params_reflects_checkbox():
-    """_iou_params：不勾选→禁用(1.0,1.0,False)；勾选→输入框的值+True
-
+    """_iou_params：返回 (帧内IoU, 帧间IoU, 帧内启用, 帧间启用)。
+    每个开关独立控制：帧内开关关→帧内IoU=1.0；帧间开关关→帧间IoU=1.0。
     注意禁用值是 1.0 而不是 0.0：代码里都是 `iou >= 阈值` 这种判断（TrackManager.update），
     给 0 会「永远成立」= 反而全合并；给 1 才永不成立 = 真禁用。
     """
     app = _app()
-    def fake(checked):
+    def fake(frame_checked, track_checked):
         return types.SimpleNamespace(
             merge_iou_input=types.SimpleNamespace(text=lambda: "0.5"),
             iou_input=types.SimpleNamespace(text=lambda: "0.02"),
-            iou_enable_check=types.SimpleNamespace(isChecked=lambda: checked))
-    off = app.UnifiedPanel._iou_params(fake(False))
-    on = app.UnifiedPanel._iou_params(fake(True))
-    assert off == (1.0, 1.0, False), "不勾选应禁用帧内/帧间IoU(值=1), 实际=%s" % (off,)
-    assert on == (0.5, 0.02, True), "勾选应使用输入框的值, 实际=%s" % (on,)
+            frame_iou_enable_check=types.SimpleNamespace(isChecked=lambda: frame_checked),
+            track_iou_enable_check=types.SimpleNamespace(isChecked=lambda: track_checked))
+    all_on = app.UnifiedPanel._iou_params(fake(True, True))
+    frame_off = app.UnifiedPanel._iou_params(fake(False, True))
+    track_off = app.UnifiedPanel._iou_params(fake(True, False))
+    all_off = app.UnifiedPanel._iou_params(fake(False, False))
+    assert all_on == (0.5, 0.02, True, True), "全启用应使用输入框的值, 实际=%s" % (all_on,)
+    assert frame_off == (1.0, 0.02, False, True), "只关帧内→帧内IoU=1, 实际=%s" % (frame_off,)
+    assert track_off == (0.5, 1.0, True, False), "只关帧间→帧间IoU=1, 实际=%s" % (track_off,)
+    assert all_off == (1.0, 1.0, False, False), "全关→两个IoU都=1, 实际=%s" % (all_off,)
 
 
 # ---------------- 源码回归 ----------------
 
 def test_checkbox_added_to_panel():
-    """面板要有「启用IoU」勾选框，默认勾选"""
+    """面板要有两个独立的IoU启用勾选框：帧IoU(frame_iou_enable_check)和前后IoU(track_iou_enable_check)，默认都勾选"""
     src = Path(APP_FILE).read_text(encoding="utf-8")
-    assert "self.iou_enable_check = QCheckBox(" in src, "应新增启用IoU勾选框"
-    assert "IoU" in src[src.index("self.iou_enable_check = QCheckBox("):][:80]
+    assert "self.frame_iou_enable_check = QCheckBox(" in src, "应新增帧IoU勾选框"
+    assert "self.track_iou_enable_check = QCheckBox(" in src, "应新增前后IoU勾选框"
     body = _func_body(src, "create_annotate_section")
-    assert "addWidget(self.iou_enable_check)" in body, "勾选框要加到标注栏"
-    assert "setChecked(True)" in src[src.index("self.iou_enable_check = QCheckBox("):][:200], "默认应勾选"
+    assert "addWidget(self.frame_iou_enable_check)" in body, "帧IoU勾选框要加到标注栏"
+    assert "addWidget(self.track_iou_enable_check)" in body, "前后IoU勾选框要加到标注栏"
+    # 默认都勾选
+    f_start = src.index("self.frame_iou_enable_check = QCheckBox(")
+    assert "setChecked(True)" in src[f_start:f_start+200], "帧IoU默认应勾选"
+    t_start = src.index("self.track_iou_enable_check = QCheckBox(")
+    assert "setChecked(True)" in src[t_start:t_start+200], "前后IoU默认应勾选"
 
 
 def test_all_flows_use_iou_params():
@@ -157,8 +167,9 @@ def test_all_flows_use_iou_params():
     assert "def _iou_params(self)" in src, "应有统一的IoU开关读取"
     body = _func_body(src, "run_annotate")
     assert "_iou_params()" in body, "执行标注应使用开关"
-    assert "TrackManager(iou_threshold=iou_val, merge_enabled=iou_enabled)" in body, \
-        "TrackManager 应接收开关"
+    # 跨帧跟踪用前后IoU开关(track_iou_enabled)控制 merge_enabled
+    assert "TrackManager(iou_threshold=iou_val, merge_enabled=track_iou_enabled)" in body, \
+        "TrackManager 应接收前后IoU开关"
     for fn in ("do_bidirectional_inject", "do_point_seg_clip"):
         b = _func_body(src, fn)
         assert "_iou_params()" in b, "%s 应使用IoU开关" % fn
@@ -173,17 +184,27 @@ def test_dedup_guarded_by_switch():
 
 
 def test_real_panel_has_checkbox():
-    """真面板实测：勾选框存在且默认勾选"""
+    """真面板实测：两个勾选框存在且默认勾选，各自独立控制对应IoU"""
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PyQt5.QtWidgets import QApplication
     global _QAPP
     _QAPP = QApplication.instance() or QApplication([])
     app = _app()
     panel = app.UnifiedPanel()
-    assert hasattr(panel, "iou_enable_check"), "面板应有启用IoU勾选框"
-    assert panel.iou_enable_check.isChecked(), "默认应勾选（保持现有行为）"
-    panel.iou_enable_check.setChecked(False)
-    assert app.UnifiedPanel._iou_params(panel)[2] is False, "取消勾选后应为禁用"
+    assert hasattr(panel, "frame_iou_enable_check"), "面板应有帧IoU勾选框"
+    assert hasattr(panel, "track_iou_enable_check"), "面板应有前后IoU勾选框"
+    assert panel.frame_iou_enable_check.isChecked(), "帧IoU默认应勾选"
+    assert panel.track_iou_enable_check.isChecked(), "前后IoU默认应勾选"
+    # 只关帧内开关
+    panel.frame_iou_enable_check.setChecked(False)
+    panel.track_iou_enable_check.setChecked(True)
+    _, _, fe, te = app.UnifiedPanel._iou_params(panel)
+    assert fe is False and te is True, "只关帧内开关应只有帧内禁用"
+    # 只关帧间开关
+    panel.frame_iou_enable_check.setChecked(True)
+    panel.track_iou_enable_check.setChecked(False)
+    _, _, fe, te = app.UnifiedPanel._iou_params(panel)
+    assert fe is True and te is False, "只关帧间开关应只有帧间禁用"
 
 
 def test_syntax_check():

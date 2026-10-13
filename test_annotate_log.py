@@ -185,21 +185,21 @@ def test_annotate_log_file():
 
 
 def test_run_annotate_iou_param_order():
-    """回归：_iou_params 返回 (帧内合并IoU, 跨帧跟踪IoU, 开关)，run_annotate 不能解包错序。
+    """回归：_iou_params 返回 (帧内合并IoU, 跨帧跟踪IoU, 帧内启用, 帧间启用)，run_annotate 不能解包错序。
 
     实测事故：曾写成 `iou_val, merge_iou_val, iou_enabled = self._iou_params()`，
     导致「同帧合并」误用了前后IoU(0.02)、「跨帧跟踪」误用了帧IoU(0.5)。
     """
     src = Path(APP_FILE).read_text(encoding="utf-8")
     body = _func_body(src, "run_annotate")
-    assert "merge_iou_val, iou_val, iou_enabled = self._iou_params()" in body, \
-        "必须按(帧内合并,跨帧跟踪,开关)顺序解包，否则同帧合并会误用前后IoU"
-    assert "iou_val, merge_iou_val, iou_enabled = self._iou_params()" not in body, \
+    assert "merge_iou_val, iou_val, frame_iou_enabled, track_iou_enabled = self._iou_params()" in body, \
+        "必须按(帧内合并,跨帧跟踪,帧内启用,帧间启用)顺序解包，否则同帧合并会误用前后IoU"
+    assert "iou_val, merge_iou_val" not in body, \
         "禁止把 merge / track 两个IoU解包反"
     assert "merge_masks_in_frame(current_masks, current_bboxes, merge_iou_val)" in body, \
         "同帧合并必须用帧IoU(merge_iou_val)"
-    assert "TrackManager(iou_threshold=iou_val, merge_enabled=iou_enabled)" in body, \
-        "跨帧跟踪必须用前后IoU(iou_val)"
+    assert "TrackManager(iou_threshold=iou_val, merge_enabled=track_iou_enabled)" in body, \
+        "跨帧跟踪必须用前后IoU(iou_val)和前后IoU开关(track_iou_enabled)"
 
 
 def test_frame_log_has_mask_row_detail():
@@ -207,27 +207,6 @@ def test_frame_log_has_mask_row_detail():
     src = Path(APP_FILE).read_text(encoding="utf-8")
     body = _func_body(src, "run_annotate")
     assert "mask行明细" in body, "每帧日志应记录原始mask每行的像素数/轮廓数"
-
-
-def test_sam3_merge_knobs_wired():
-    """SAM3 视频语义预测器要把「可控制误检/合并」的阈值显式传进去（文件顶部 global 参数调）"""
-    src = Path(APP_FILE).read_text(encoding="utf-8")
-    for name in ("SAM3_SCORE_THRESHOLD_DETECTION", "SAM3_DET_NMS_THRESH", "SAM3_NEW_DET_THRESH"):
-        assert name in src, "应有 global 参数 %s" % name
-    body = _func_body(src, "run_annotate")
-    assert "score_threshold_detection=SAM3_SCORE_THRESHOLD_DETECTION" in body, \
-        "构造 SAM3VideoSemanticPredictor 时应传入检测置信度门限"
-    assert "det_nms_thresh=SAM3_DET_NMS_THRESH" in body, "应传入检测NMS门限"
-    assert "new_det_thresh=SAM3_NEW_DET_THRESH" in body, "应传入新目标门限"
-    assert "检测门限" in body, "日志应记录检测门限"
-
-
-def test_sam3_default_thresholds_unchanged():
-    """默认值保持 ultralytics 的 0.5/0.0/0.0，不改变现有行为"""
-    app = _app()
-    assert app.SAM3_SCORE_THRESHOLD_DETECTION == 0.5
-    assert app.SAM3_DET_NMS_THRESH == 0.0
-    assert app.SAM3_NEW_DET_THRESH == 0.0
 
 
 def test_syntax_check():
@@ -246,8 +225,6 @@ def main():
         ("run_annotate用新函数+记日志", test_run_annotate_uses_helpers_and_logs_iou),
         ("IoU参数解包顺序不能反", test_run_annotate_iou_param_order),
         ("日志含原始mask行明细", test_frame_log_has_mask_row_detail),
-        ("SAM3合并/误检阈值已接上", test_sam3_merge_knobs_wired),
-        ("SAM3阈值默认值不变", test_sam3_default_thresholds_unchanged),
         ("执行标注.log写入", test_annotate_log_file),
         ("语法检查", test_syntax_check),
     ]
