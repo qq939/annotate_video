@@ -554,6 +554,25 @@ def video_decode_ok(path, frames=1):
         cap.release()
 
 
+def parse_items_text(text):
+    """把「物品」输入框内容解析成提示词列表。
+    （使用位置：L2627 run_annotate、L3681 do_bidirectional_inject —— 送 SAM3 的 text 必须是 list）
+
+    分隔符同时支持：英文逗号 ,、中文逗号 ，、以及空格/制表/换行（可混用）。
+    为什么必须拆成 list：ultralytics 里 `text_batch = [text] if isinstance(text, str) else text`
+    （ultralytics/models/sam/predict.py:2755），把整串 "手套，轮胎" 传进去会被当成「一个」
+    类别名，模型拿到的提示词是错的 → 分割结果随机。拆成 ["手套","轮胎"] 才是两个类别。
+    """
+    if not text:
+        return []
+    out = []
+    for part in re.split(r"[,，\s]+", str(text)):
+        part = part.strip()
+        if part and part not in out:
+            out.append(part)
+    return out
+
+
 def parse_ocs_file_names(html):
     """从OCS首页HTML里解析文件名：每个文件都是一个 <a href="http://host/name"> 链接。
     （使用位置：ocs_list_files —— 列出OCS上的模型包）"""
@@ -2624,7 +2643,7 @@ class UnifiedPanel(QMainWindow):
         # _iou_params 返回顺序 = (帧内合并IoU, 跨帧跟踪IoU, 帧内启用, 帧间启用)，不要解包反了
         merge_iou_val, iou_val, frame_iou_enabled, track_iou_enabled = self._iou_params()
         items_text = self.items_input.text()
-        find_list = [s.strip() for s in items_text.split(',') if s.strip()]
+        find_list = parse_items_text(items_text)
 
         # 覆盖写本次执行标注日志（用于排查「标注被大目标merge」）
         try:
@@ -3678,6 +3697,8 @@ class UnifiedPanel(QMainWindow):
         prompt_bboxes = self.viewer.get_prompt_bboxes()
         prompt_points = self.viewer.get_prompt_points()
         items_text = self.items_input.text().strip()
+        # 物品按 中文逗号/英文逗号/空格 解析成 list（送 SAM3 的 text 必须是 list，传整串会当成一个类别）
+        find_list = parse_items_text(items_text)
         # 每次提示帧操作开始时清空日志，便于单次诊断
         try:
             with open(PROMPT_LOG_FILE, "w", encoding="utf-8") as _f:
@@ -3690,7 +3711,7 @@ class UnifiedPanel(QMainWindow):
         # 2. bbox+文本：使用bbox作为提示
         # 3. 只有文本：纯语义分割
         # 4. 无提示：自动分割
-        has_items = bool(items_text)
+        has_items = bool(find_list)
         has_bboxes = bool(prompt_bboxes)
         has_points = bool(prompt_points)
         use_points = has_points and self.viewer.prompt_type == 'point'
@@ -3877,7 +3898,7 @@ class UnifiedPanel(QMainWindow):
                     processed = 0
                     frame_idx = 0  # 独立的帧计数器：追踪 predictor 实际 yield 的帧号，masks 为空也不影响对齐
                     try:
-                        for result_item in predictor_local(source=clip_path, stream=True, points=points_np, labels=labels_np, text=items_text if items_text else None):
+                        for result_item in predictor_local(source=clip_path, stream=True, points=points_np, labels=labels_np, text=find_list or None):
                             r = result_item
                             if hasattr(result_item, '__iter__') and not isinstance(result_item, (np.ndarray, bytes, str)):
                                 try:
@@ -4027,7 +4048,7 @@ class UnifiedPanel(QMainWindow):
                     if _check_oom_risk(2.0):
                         prompt_log(f"[纯语义{direction}] ⚠️ GPU显存不足({mem_info})，先清理...")
                         _safe_empty_cache()
-                    prompt_log(f"[纯语义{direction}] 开始: 帧 {start_frame} → {end_frame-1} 共{total}帧, 文本={items_text} {mem_info}")
+                    prompt_log(f"[纯语义{direction}] 开始: 帧 {start_frame} → {end_frame-1} 共{total}帧, 文本={find_list} {mem_info}")
 
                     try:
                         predictor_local = SAM3VideoSemanticPredictor(overrides=overrides)
@@ -4069,7 +4090,7 @@ class UnifiedPanel(QMainWindow):
                     processed = 0
                     frame_idx = 0  # 独立的帧计数器：追踪 predictor 实际 yield 的帧号，masks 为空也不影响对齐
                     try:
-                        for result_item in predictor_local(source=clip_path, stream=True, text=items_text):
+                        for result_item in predictor_local(source=clip_path, stream=True, text=find_list):
                             # 兼容不同版本ultralytics返回值格式
                             r = result_item
                             if hasattr(result_item, '__iter__') and not isinstance(result_item, (np.ndarray, bytes, str)):
@@ -4372,7 +4393,7 @@ class UnifiedPanel(QMainWindow):
                 prompt_log(f"[DEBUG {direction}] prompt_bboxes={prompt_bboxes}, is_semantic={is_semantic}")
                 if is_semantic:
                     # 语义模式：使用文本提示
-                    results = predictor_local(source=clip_path, stream=True, bboxes=prompt_bboxes, labels=[1]*len(prompt_bboxes), text=items_text)
+                    results = predictor_local(source=clip_path, stream=True, bboxes=prompt_bboxes, labels=[1]*len(prompt_bboxes), text=find_list)
                 elif prompt_bboxes:
                     # 纯追踪模式：使用bbox提示
                     results = predictor_local(source=clip_path, stream=True, bboxes=prompt_bboxes, labels=[1]*len(prompt_bboxes))
